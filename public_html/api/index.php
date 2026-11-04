@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /**
  * نقطه ورود تمام درخواست‌های API نسخه ۱ (/api/v1/*)
- * شامل مسیرهای مراحل S0، S1 و S2 (صف Job، collector و ingest)
+ * شامل مسیرهای مراحل S0، S1، S2 و S3 (صندوق بازبینی، change_log و پایپ‌لاین ۱۰۰ رکورد)
  */
 
 define('BASE_PATH', dirname(__DIR__, 2));
@@ -14,6 +14,7 @@ use App\Controllers\BusinessController;
 use App\Controllers\CategoryController;
 use App\Controllers\CityController;
 use App\Controllers\CollectorController;
+use App\Controllers\ReviewQueueController;
 use App\Core\Bootstrap;
 use App\Core\Request;
 use App\Core\Router;
@@ -50,9 +51,13 @@ $router->post('/api/v1/collector/jobs', [CollectorController::class, 'createJob'
 $router->post('/api/v1/collector/providers', [CollectorController::class, 'updateProvider']);
 $router->post('/api/v1/collector/token', [CollectorController::class, 'updateToken']);
 
-// اندپوینت‌های Pull با احراز هویت Bearer Token برای collector-remote
 $router->get('/api/v1/collector/jobs/next', [CollectorController::class, 'pullNextJob']);
 $router->post('/api/v1/collector/ingest', [CollectorController::class, 'ingest']);
 $router->post('/api/v1/collector/photo', [CollectorController::class, 'uploadCollectorPhoto']);
+
+// ۴. مسیرهای صندوق بازبینی، تاریخچه تغییرات و پایپ‌لاین ۱۰۰ رکورد نمونه (مرحله S3)
+$router->get('/api/v1/review-queue', [ReviewQueueController::class, 'index']);
+$router->post('/api/v1/review-queue/decide', [ReviewQueueController::class, 'decide']);
+$router->post('/api/v1/pipeline/benchmark-100', [ReviewQueueController::class, 'runBenchmark100']);
 
 $router->dispatch($request);

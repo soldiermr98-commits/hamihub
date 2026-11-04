@@ -792,7 +792,14 @@ export default function App() {
                     </div>
                   )}
 
-                  {(adminRoute === '/admin/review' || adminRoute === '/admin/articles') && (
+                  {adminRoute === '/admin/review' && (
+                    <ReviewQueueView
+                      csrfToken={csrfToken}
+                      onRefreshParent={loadS1Entities}
+                    />
+                  )}
+
+                  {adminRoute === '/admin/articles' && (
                     <div className="bg-white border border-slate-200 rounded-xl p-8">
                       <h2 className="text-base font-bold text-slate-900">
                         بخش «{NAV_ITEMS.find((n) => n.path === adminRoute)?.label}»
