@@ -1,0 +1,6 @@
+{
+  "name": "HamiHubX.ir — پلتفرم خودکار معرفی بهترین‌های استان گیلان",
+  "description": "پلتفرم دایرکتوری و معرفی خودکار بهترین کسب‌وکارهای استان گیلان مبتنی بر معماری PHP 8.3 (بدون فریم‌ورک روی هاست اشتراکی DirectAdmin) و پنل مدیریت React 18 همراه با سیستم جمع‌آوری Pull و هوش مصنوعی.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

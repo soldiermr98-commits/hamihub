@@ -1,0 +1,52 @@
+# ============================================================================
+# HamiHubX.ir - قوانین اصلی وب‌سرور Apache در public_html/.htaccess
+# شامل: هدرهای امنیتی، فشرده‌سازی Gzip/Brotli، کش ۱ ساله فونت‌های لوکال،
+# و سرو مستقیم کش صفحات عمومی (بدون اجرای PHP)
+# ============================================================================
+
+Options -Indexes
+DirectoryIndex index.php index.html
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set X-Frame-Options "SAMEORIGIN"
+
+    # کش ۱ ساله تغییرناپذیر برای فونت‌های لوکال woff2 و فایل‌های استاتیک
+    <FilesMatch "\.(woff2|webp|css|js|svg)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+</IfModule>
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css application/javascript application/json image/svg+xml
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # ۱. هدایت تمام درخواست‌های /api/v1/* به درگاه API
+    RewriteRule ^api/v1/(.*)$ api/index.php [QSA,L]
+
+    # ۲. سرو مستقیم کش صفحه اصلی (GET با Query String خالی - بدون اجرای PHP)
+    RewriteCond %{REQUEST_METHOD} =GET
+    RewriteCond %{QUERY_STRING} ^$
+    RewriteCond %{REQUEST_URI} ^/?$
+    RewriteCond %{DOCUMENT_ROOT}/cache/pages/_home/index.html -f
+    RewriteRule ^/?$ cache/pages/_home/index.html [L]
+
+    # ۳. سرو مستقیم کش سایر صفحات عمومی (/b/{slug}/، /{slug}/، /city/...)
+    # اسلاگ‌های رزروشده (admin, api, assets, uploads, cache, install, check, storage) از این قاعده مستثنی هستند
+    RewriteCond %{REQUEST_METHOD} =GET
+    RewriteCond %{QUERY_STRING} ^$
+    RewriteCond %{REQUEST_URI} !^/(admin|api|assets|uploads|cache|install|check|storage)(/|$)
+    RewriteCond %{REQUEST_URI} ^/([a-z0-9/\-]+?)/?$
+    RewriteCond %{DOCUMENT_ROOT}/cache/pages/%1/index.html -f
+    RewriteRule ^([a-z0-9/\-]+?)/?$ cache/pages/$1/index.html [L]
+
+    # ۴. اگر فایل یا پوشه فیزیکی وجود نداشت، به index.php هدایت شود
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>

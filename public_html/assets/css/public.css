@@ -1,0 +1,39 @@
+/* ============================================================================
+ * HamiHubX.ir - استایل فوق‌سبک سایت عمومی (< 4KB، بدون هیچ CDN خارجی)
+ * فونت وزیرمتن به‌صورت کاملاً لوکال (self-host) با font-display: swap
+ * ============================================================================ */
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/assets/fonts/Vazirmatn-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/assets/fonts/Vazirmatn-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Vazirmatn', Tahoma, sans-serif;
+  background-color: #f8fafc;
+  color: #0f172a;
+  line-height: 1.75;
+  direction: rtl;
+}
+
+.container {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}

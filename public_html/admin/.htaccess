@@ -1,0 +1,18 @@
+# ============================================================================
+# HamiHubX.ir - SPA Fallback برای پنل مدیریت React در /admin/
+# اگر فایل یا پوشه واقعی در /admin/ نبود، به /admin/index.html هدایت می‌کند
+# تا رفرش کردن مسیرهایی مثل /admin/review یا /admin/cities خطای 404 ندهد.
+# ============================================================================
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /admin/
+
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    RewriteRule ^ index.html [L]
+</IfModule>
