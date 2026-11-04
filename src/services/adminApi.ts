@@ -133,6 +133,47 @@ export interface ProviderStateItem {
   last_error: string | null;
 }
 
+export interface ReviewQueueItem {
+  id: number;
+  kind: 'business' | 'change' | 'duplicate' | 'article' | 'claim' | 'report';
+  target_id: number;
+  reason_code: string;
+  payload_json: string;
+  status: 'pending' | 'approved' | 'rejected';
+  decided_by: number | null;
+  decided_at: string | null;
+  created_at: string;
+  business_name?: string | null;
+  business_slug?: string | null;
+  business_address?: string | null;
+  business_score?: number | null;
+  business_tier?: 'A' | 'B' | 'C' | null;
+  business_confidence?: 'low' | 'medium' | 'high' | null;
+  city_name?: string | null;
+}
+
+export interface ChangeLogItem {
+  id: number;
+  business_id: number;
+  business_name?: string | null;
+  business_slug?: string | null;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  source: string;
+  status: 'pending' | 'approved' | 'rejected' | 'auto_applied';
+  created_at: string;
+}
+
+export interface Benchmark100Summary {
+  total_processed: number;
+  published: number;
+  pending_review: number;
+  duplicate: number;
+  source_conflict: number;
+  breakdown_reasons: Record<string, number>;
+}
+
 export interface CheckReport {
   ok: boolean;
   timestamp_tehran: string;
@@ -183,6 +224,8 @@ const STORAGE_KEYS = {
   COLLECTOR_JOBS: 'hhx_s2_collector_jobs',
   PROVIDERS: 'hhx_s2_providers',
   COLLECTOR_TOKEN: 'hhx_s2_collector_token',
+  REVIEW_QUEUE: 'hhx_s3_review_queue',
+  CHANGE_LOGS: 'hhx_s3_change_logs',
 };
 
 export const RESERVED_SLUGS = [

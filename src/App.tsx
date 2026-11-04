@@ -39,6 +39,7 @@ import {
 } from './services/adminApi';
 import { CitiesAndCategoriesView } from './components/CitiesAndCategoriesView';
 import { BusinessesManagerView } from './components/BusinessesManagerView';
+import { ReviewQueueView } from './components/ReviewQueueView';
 
 type AdminRoute =
   | '/admin/dashboard'
@@ -57,24 +58,28 @@ const NAV_ITEMS: Array<{
   stageNote: string;
 }> = [
   { path: '/admin/dashboard', label: 'داشبورد', icon: LayoutDashboard, stageNote: 'فعال در S0/S1' },
-  { path: '/admin/review', label: 'صندوق بازبینی', icon: Inbox, stageNote: 'تکمیل در مرحله S3' },
-  { path: '/admin/cities', label: 'شهرها و جمع‌آوری', icon: MapPin, stageNote: 'فعال در مرحله S1' },
+  { path: '/admin/review', label: 'صندوق بازبینی', icon: Inbox, stageNote: 'فعال در مرحله S3' },
+  { path: '/admin/cities', label: 'شهرها و جمع‌آوری', icon: MapPin, stageNote: 'فعال در مراحل S1/S2' },
   { path: '/admin/businesses', label: 'کسب‌وکارها', icon: Store, stageNote: 'فعال در مرحله S1' },
   { path: '/admin/articles', label: 'مقالات', icon: FileText, stageNote: 'تکمیل در مراحل S4 و S5' },
-  { path: '/admin/settings', label: 'تنظیمات', icon: Settings, stageNote: 'فعال در S0/S1' },
+  { path: '/admin/settings', label: 'تنظیمات', icon: Settings, stageNote: 'فعال در S0-S3' },
 ];
 
 export default function App() {
   const [activeTopView, setActiveTopView] = useState<ActiveSimulatorView>('admin_spa');
   const [adminRoute, setAdminRoute] = useState<AdminRoute>(() => {
-    const currentPath = window.location.pathname;
+    const hashRoute = window.location.hash.replace(/^#/, '');
+    if (hashRoute.startsWith('/admin/') && NAV_ITEMS.some((item) => item.path === hashRoute)) {
+      return hashRoute as AdminRoute;
+    }
+    const currentPath = window.location.pathname.replace(/\/+$/, '');
     if (
       currentPath.startsWith('/admin/') &&
       NAV_ITEMS.some((item) => item.path === currentPath)
     ) {
       return currentPath as AdminRoute;
     }
-    return '/admin/businesses';
+    return '/admin/review';
   });
 
   // وضعیت احراز هویت و CSRF
@@ -118,22 +123,27 @@ export default function App() {
       fetchCategoriesAndPacks(),
       fetchBusinessesList(),
     ]);
-    setCities(cityRes.cities);
-    setNeighborhoods(cityRes.neighborhoods);
-    setCategories(catRes.categories);
-    setPacks(catRes.packs);
-    setBusinesses(bizRes);
+    setCities(Array.isArray(cityRes?.cities) ? cityRes.cities : []);
+    setNeighborhoods(Array.isArray(cityRes?.neighborhoods) ? cityRes.neighborhoods : []);
+    setCategories(Array.isArray(catRes?.categories) ? catRes.categories : []);
+    setPacks(Array.isArray(catRes?.packs) ? catRes.packs : []);
+    setBusinesses(Array.isArray(bizRes) ? bizRes : []);
   }, []);
 
   useEffect(() => {
     let mounted = true;
-    Promise.all([fetchAuthMe(), loadS1Entities()]).then(([authRes]) => {
-      if (!mounted) return;
-      setCurrentUser(authRes.user);
-      setCsrfToken(authRes.csrf_token);
-      setLockedState(isInstallLocked());
-      setAuthLoading(false);
-    });
+    Promise.all([fetchAuthMe(), loadS1Entities()])
+      .then(([authRes]) => {
+        if (!mounted) return;
+        setCurrentUser(authRes?.user ?? null);
+        setCsrfToken(authRes?.csrf_token ?? '');
+        setLockedState(isInstallLocked());
+        setAuthLoading(false);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setAuthLoading(false);
+      });
     return () => {
       mounted = false;
     };
@@ -142,7 +152,12 @@ export default function App() {
   const navigateAdmin = (route: AdminRoute) => {
     setAdminRoute(route);
     try {
-      window.history.pushState({}, '', route);
+      // استفاده از Hash در کنار مسیر پایه /admin/ تا رفرش صفحه در هاست اشتراکی حتی بدون .htaccess هرگز خطا ندهد
+      if (window.location.pathname.startsWith('/admin')) {
+        window.history.replaceState({}, '', `/admin/#${route}`);
+      } else {
+        window.location.hash = route;
+      }
     } catch {
       // ignore iframe history restrictions
     }

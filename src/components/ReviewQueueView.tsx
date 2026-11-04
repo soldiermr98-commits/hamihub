@@ -435,7 +435,11 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
                       const isFocused = idx === focusedIndex;
                       let payload: Record<string, any> = {};
                       try {
-                        payload = JSON.parse(item.payload_json || '{}');
+                        const raw = item.payload_json;
+                        const parsed = typeof raw === 'string' ? JSON.parse(raw || '{}') : raw;
+                        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                          payload = parsed;
+                        }
                       } catch {
                         payload = {};
                       }

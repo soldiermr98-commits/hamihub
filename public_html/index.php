@@ -26,6 +26,14 @@ if (str_starts_with($path, '/api/')) {
     exit;
 }
 
+// اگر درخواست مربوط به زیرمسیرهای پنل مدیریت (/admin/review, /admin/cities و غیره) بود، فایل SPA پنل سرو شود
+if ($path === '/admin' || str_starts_with($path, '/admin/')) {
+    $adminIndexFile = __DIR__ . '/admin/index.html';
+    if (is_file($adminIndexFile)) {
+        Response::html((string) file_get_contents($adminIndexFile));
+    }
+}
+
 // سرو از کش در صورت اجرای مستقیم از طریق PHP (در حالت عادی آپاچی مستقیم فایل کش را می‌دهد)
 if ($request->method() === 'GET' && empty($_GET)) {
     $cachedHtml = Cache::getPage($path);
