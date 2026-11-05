@@ -35,11 +35,15 @@ if ($path === '/admin' || str_starts_with($path, '/admin/')) {
     }
 }
 
-// ۳. سرو از کش دیسک (public_html/cache/pages) در صورت اجرای مستقیم از طریق PHP
+// ۳. سرو از کش دیسک (public_html/cache/pages) در صورت معتبر بودن نسخه استایل S4.2
 if ($request->method() === 'GET' && empty($_GET) && $path !== '/sitemap.xml' && $path !== '/robots.txt') {
     $cachedHtml = Cache::getPage($path);
     if ($cachedHtml !== null) {
-        Response::html($cachedHtml);
+        if (!str_contains($cachedHtml, 'public.css?v=s4.2')) {
+            Cache::flushAll();
+        } else {
+            Response::html($cachedHtml);
+        }
     }
 }
 

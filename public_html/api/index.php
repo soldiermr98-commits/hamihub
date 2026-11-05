@@ -18,10 +18,17 @@ use App\Controllers\CollectorController;
 use App\Controllers\PublicSiteController;
 use App\Controllers\ReviewQueueController;
 use App\Core\Bootstrap;
+use App\Core\Cache;
 use App\Core\Request;
 use App\Core\Router;
 
 Bootstrap::init(BASE_PATH);
+
+// پاک‌سازی خودکار کش قدیمی مرحله S0 در صورت عدم تطابق با استایل جدید S4.2
+$homeCache = Cache::getPage('/');
+if ($homeCache !== null && !str_contains($homeCache, 'public.css?v=s4.2')) {
+    Cache::flushAll();
+}
 
 $request = new Request();
 $router = new Router();

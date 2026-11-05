@@ -22,6 +22,12 @@ final class PublicSiteController
     public static function ensureDefaultListArticle(): void
     {
         try {
+            // اگر فایل کش صفحه اصلی از مرحله S0 باقی مانده باشد و فاقد کلاس‌های S4 (hx-hero) باشد، کش را خودکار پاک کن
+            $oldHomeCache = Cache::getPage('/');
+            if ($oldHomeCache !== null && !str_contains($oldHomeCache, 'hx-hero')) {
+                Cache::flushAll();
+            }
+
             $countRow = DB::fetchOne("SELECT COUNT(*) AS cnt FROM articles");
             if ((int)($countRow['cnt'] ?? 0) > 0) {
                 return;
@@ -1354,7 +1360,7 @@ final class PublicSiteController
     <meta name="twitter:description" content="<?= self::e($description) ?>">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s4">
+    <link rel="stylesheet" href="/assets/css/public.css?v=s4.2">
     <?php foreach ($schemas as $schema): ?>
     <script type="application/ld+json"><?= json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
     <?php endforeach; ?>
@@ -1391,7 +1397,7 @@ final class PublicSiteController
             </div>
         </div>
     </footer>
-    <script src="/assets/js/public.js?v=s4" defer></script>
+    <script src="/assets/js/public.js?v=s4.2" defer></script>
 </body>
 </html>
         <?php
