@@ -555,7 +555,7 @@ export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
                                 );
                               }}
                             />
-                            ⭐ جایگاه ویژه اسپانسر (پین در صدر لیست)
+                            جایگاه ویژه اسپانسر (پین در صدر لیست)
                           </label>
                           <button
                             type="button"

@@ -12,19 +12,43 @@ use Throwable;
 
 /**
  * کنترلر صفحات عمومی سئو، کش کامل فایل HTML در دیسک، اسکیماهای JSON-LD و نقشه سایت (مرحله S4)
- * منطبق با ساختار دقیق جداول 001_initial_schema.sql و سازگار با PHP 8.1+
+ * منطبق با ساختار دقیق جداول 001_initial_schema.sql، تم آبی لوگو و لاجوردی و آیکن‌های خطی سبک Iconsax
  */
 final class PublicSiteController
 {
+    /**
+     * رندر آیکن‌های برداری خطی به سبک Iconsax (بدون ایموجی رنگی، منطبق با رنگ متن currentColor)
+     */
+    public static function icon(string $name, string $cls = 'hx-icon'): string
+    {
+        $paths = match ($name) {
+            'location' => '<path d="M12 13.43a3.12 3.12 0 1 0 0-6.24 3.12 3.12 0 0 0 0 6.24Z" stroke-width="1.75"/><path d="M3.62 8.49c1.97-8.66 14.8-8.65 16.76.01 1.15 5.08-2.01 9.38-4.78 12.04a5.193 5.193 0 0 1-7.21 0c-2.76-2.66-5.92-6.97-4.77-12.05Z" stroke-width="1.75"/>',
+            'map' => '<path d="M2.29 7.78v9.73c0 1.9 1.35 2.68 2.99 1.74l2.35-1.34c.51-.29 1.36-.32 1.89-.05l5.25 2.63c.53.26 1.38.24 1.89-.05l4.33-2.48c.55-.32 1.01-1.1 1.01-1.74V6.49c0-1.9-1.35-2.68-2.99-1.74l-2.35 1.34c-.51.29-1.36.32-1.89.05L9.52 3.51c-.53-.26-1.38-.24-1.89.05L3.3 6.04c-.56.32-1.01 1.1-1.01 1.74Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.56 4v13M15.73 6.62V20" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+            'call' => '<path d="M21.97 18.33c0 .36-.08.73-.25 1.09-.17.36-.39.7-.68 1.02-.49.54-1.03.93-1.64 1.18-.6.25-1.25.38-1.95.38-1.02 0-2.11-.24-3.26-.73s-2.3-1.15-3.44-1.98a28.75 28.75 0 0 1-3.28-2.8 28.414 28.414 0 0 1-2.79-3.27c-.82-1.14-1.48-2.28-1.96-3.41C2.24 8.67 2 7.58 2 6.54c0-.68.12-1.33.36-1.93.24-.61.62-1.17 1.15-1.67.64-.63 1.34-.94 2.08-.94.28 0 .56.06.81.18.26.12.49.3.67.56l2.32 3.27c.18.25.31.48.4.7.09.21.14.42.14.61 0 .24-.07.48-.21.71-.13.23-.32.47-.56.71l-.76.79c-.11.11-.16.24-.16.4 0 .08.01.15.03.23.03.08.06.14.08.2.18.33.49.76.93 1.28.45.52.93 1.05 1.45 1.58.54.53 1.06 1.02 1.59 1.47.52.44.95.74 1.29.92.05.02.11.05.18.08.08.03.16.04.25.04.17 0 .3-.06.41-.17l.76-.75c.25-.25.49-.44.72-.56.23-.14.46-.21.71-.21.19 0 .39.04.61.13.22.09.45.22.7.39l3.31 2.35c.26.18.44.39.55.64.1.25.16.5.16.78Z" stroke-width="1.75" stroke-miterlimit="10"/>',
+            'routing' => '<path d="M2 9c0-3.87 3.13-7 7-7l-1.05 1.75M22 15c0 3.87-3.13 7-7 7l1.05-1.75" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.47 13.71v3.62c0 .97.68 1.48 1.52 1.13l6.69-2.8c.51-.21.92-.78.92-1.33v-3.62c0-.97-.68-1.48-1.52-1.13l-6.69 2.8c-.51.21-.92.78-.92 1.33Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+            'global' => '<path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3h1a28.424 28.424 0 0 0 0 18H8M15 3a28.424 28.424 0 0 1 0 18" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 16v-1a28.424 28.424 0 0 0 18 0v1M3 9a28.424 28.424 0 0 1 18 0" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+            'instagram' => '<path d="M9 22h6c5 0 7-2 7-7V9c0-5-2-7-7-7H9C4 2 2 4 2 9v6c0 5 2 7 7 7Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.636 7h.012" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+            'star' => '<path d="m13.73 3.51 1.76 3.52c.24.49.88.96 1.42 1.05l3.19.53c2.04.34 2.52 1.82 1.05 3.28l-2.48 2.48c-.42.42-.65 1.23-.52 1.81l.71 3.07c.56 2.43-.73 3.37-2.88 2.1l-2.99-1.77c-.54-.32-1.43-.32-1.98 0l-2.99 1.77c-2.14 1.27-3.44.32-2.88-2.1l.71-3.07c.13-.58-.1-1.39-.52-1.81l-2.48-2.48c-1.46-1.46-.99-2.94 1.05-3.28l3.19-.53c.53-.09 1.17-.56 1.41-1.05l1.76-3.52c.96-1.91 2.52-1.91 3.47 0Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+            'verify' => '<path d="m9.62 12 1.58 1.58 3.18-3.18" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.75 2.45c.69-.59 1.82-.59 2.52 0l1.58 1.36c.3.26.87.47 1.27.47h1.7c1.06 0 1.93.87 1.93 1.93v1.7c0 .4.21.96.47 1.26l1.36 1.58c.59.69.59 1.82 0 2.52l-1.36 1.58c-.26.3-.47.86-.47 1.26v1.7c0 1.06-.87 1.93-1.93 1.93h-1.7c-.4 0-.96.21-1.27.47l-1.58 1.36c-.69.59-1.82.59-2.52 0l-1.58-1.36c-.3-.26-.87-.47-1.26-.47H6.18c-1.06 0-1.93-.87-1.93-1.93v-1.71c0-.39-.2-.95-.46-1.25l-1.35-1.59c-.58-.69-.58-1.81 0-2.5l1.35-1.59c.26-.3.46-.86.46-1.25V6.2c0-1.06.87-1.93 1.93-1.93H7.9c.4 0 .96-.21 1.26-.47l1.59-1.35Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+            'clock' => '<path d="M22 12c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2s10 4.48 10 10Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="m15.71 15.18-3.1-1.85c-.54-.32-.98-1.09-.98-1.72v-4.1" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+            'lamp' => '<path d="M8.3 18.04h7.4M9.5 21.5h5M12 2.5c-4.42 0-8 3.58-8 8 0 2.86 1.51 5.37 3.77 6.77.38.23.62.64.62 1.08v.15h7.22v-.15c0-.44.24-.85.62-1.08A7.98 7.98 0 0 0 20 10.5c0-4.42-3.58-8-8-8Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+            'tick-circle' => '<path d="M12 22c5.5 0 10-4.5 10-10S17.5 2 12 2 2 6.5 2 12s4.5 10 10 10Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="m7.75 12 2.83 2.83 5.67-5.66" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+            'info-circle' => '<path d="M12 22c5.5 0 10-4.5 10-10S17.5 2 12 2 2 6.5 2 12s4.5 10 10 10Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v5M11.995 16h.009" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+            'message-question' => '<path d="M17 18.43h-4l-4.45 2.96A.997.997 0 0 1 7 20.56v-2.13c-3 0-5-2-5-5v-6c0-3 2-5 5-5h10c3 0 5 2 5 5v6c0 3-2 5-5 5Z" stroke-width="1.75" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 11.36v-.21c0-.68.42-1.04.84-1.33.41-.28.82-.64.82-1.3 0-.92-.74-1.66-1.66-1.66-.92 0-1.66.74-1.66 1.66M11.995 13.75h.01" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+            'award' => '<path d="M12 15c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7Z" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.52 13.52v7.39c0 .9.63 1.34 1.4.96l2.68-1.27c.22-.11.58-.11.8 0l2.69 1.27c.77.37 1.4-.07 1.4-.96v-7.39" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>',
+            default => '<circle cx="12" cy="12" r="9" stroke-width="1.75"/>',
+        };
+        return '<svg class="' . htmlspecialchars($cls, ENT_QUOTES, 'UTF-8') . '" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' . $paths . '</svg>';
+    }
+
     /**
      * ایجاد مقاله لیستی پیش‌فرض («بهترین کافه‌ها و رستوران‌های رشت») در صورت خالی بودن جدول articles
      */
     public static function ensureDefaultListArticle(): void
     {
         try {
-            // اگر فایل کش صفحه اصلی از مرحله S0 باقی مانده باشد و فاقد کلاس‌های S4 (hx-hero) باشد، کش را خودکار پاک کن
             $oldHomeCache = Cache::getPage('/');
-            if ($oldHomeCache !== null && !str_contains($oldHomeCache, 'hx-hero')) {
+            if ($oldHomeCache !== null && !str_contains($oldHomeCache, 'public.css?v=s4.3')) {
                 Cache::flushAll();
             }
 
@@ -65,7 +89,6 @@ final class PublicSiteController
             );
             $articleId = DB::lastInsertId();
 
-            // اتصال کسب‌وکارهای برتر شهر رشت به مقاله پیش‌فرض
             $businesses = DB::fetchAll(
                 "SELECT id, name, short_desc, tier
                  FROM businesses
@@ -108,7 +131,6 @@ final class PublicSiteController
                 $pos++;
             }
 
-            // درج سؤالات متداول پیش‌فرض برای اسکیمای FAQPage
             $faqs = [
                 [
                     'q' => 'رتبه‌بندی بهترین کافه‌ها و رستوران‌های رشت در همی‌هاب چگونه انجام می‌شود؟',
@@ -135,7 +157,7 @@ final class PublicSiteController
                 );
             }
         } catch (Throwable) {
-            // خطای احتمالی دیتابیس نباید مانع رندر صفحه شود
+            // Non-blocking
         }
     }
 
@@ -197,13 +219,17 @@ final class PublicSiteController
         ?>
         <section class="hx-hero">
             <div class="hx-container">
-                <span class="hx-hero-badge">پلتفرم هوشمند رتبه‌بندی محلی استان گیلان · فونت لوکال و کش فوق‌سریع</span>
+                <span class="hx-hero-badge">
+                    <?= self::icon('verify', 'hx-icon hx-icon-sm') ?>
+                    <span>پلتفرم هوشمند رتبه‌بندی محلی استان گیلان · فونت لوکال و کش فوق‌سریع</span>
+                </span>
                 <h1>بهترین کافه‌ها، رستوران‌ها و خدمات استان گیلان</h1>
                 <p>رتبه‌بندی شفاف بر اساس امتیاز وزنی بیزین (Bayesian Score)، راستی‌آزمایی چندمنبعی در شعاع ۸۰ متری و بررسی تحریریه در شهرهای رشت، بندر انزلی، لاهیجان و سراسر گیلان.</p>
                 <div class="hx-city-pills">
                     <?php foreach ($cities as $city): ?>
                         <a class="hx-city-pill" href="/city/<?= self::e($city['slug']) ?>/">
-                            <span>📍 <?= self::e($city['name_fa']) ?></span>
+                            <?= self::icon('location', 'hx-icon hx-icon-sm') ?>
+                            <span><?= self::e($city['name_fa']) ?></span>
                             <small style="opacity:0.75;">(<?= (int)$city['biz_count'] ?>)</small>
                         </a>
                     <?php endforeach; ?>
@@ -216,7 +242,10 @@ final class PublicSiteController
             <section class="hx-section">
                 <div class="hx-section-head">
                     <div>
-                        <h2 class="hx-section-title">راهنماها و مقالات لیستی منتخب (Top Lists)</h2>
+                        <h2 class="hx-section-title">
+                            <?= self::icon('award') ?>
+                            <span>راهنماها و مقالات لیستی منتخب (Top Lists)</span>
+                        </h2>
                         <p class="hx-section-sub">مقالات مقایسه‌ای همراه با جدول امتیاز بیزین، نقشه تعاملی و سؤالات متداول</p>
                     </div>
                 </div>
@@ -224,7 +253,7 @@ final class PublicSiteController
                     <?php foreach ($articles as $art): ?>
                         <article class="hx-card">
                             <div class="hx-card-top">
-                                <span class="hx-badge hx-badge-tier-a"><?= self::e($art['city_name_fa']) ?> · <?= (int)$art['items_count'] ?> گزینه برتر</span>
+                                <span class="hx-badge hx-badge-tier-a"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> <?= self::e($art['city_name_fa']) ?> · <?= (int)$art['items_count'] ?> گزینه برتر</span>
                                 <?php if (!empty($art['category_name_fa'])): ?>
                                     <span class="hx-badge hx-badge-cat"><?= self::e($art['category_name_fa']) ?> · <?= self::e($art['year_label'] ?: '۱۴۰۵') ?></span>
                                 <?php endif; ?>
@@ -247,7 +276,10 @@ final class PublicSiteController
             <section class="hx-section">
                 <div class="hx-section-head">
                     <div>
-                        <h2 class="hx-section-title">برترین کسب‌وکارهای منتشرشده در گیلان</h2>
+                        <h2 class="hx-section-title">
+                            <?= self::icon('star') ?>
+                            <span>برترین کسب‌وکارهای منتشرشده در گیلان</span>
+                        </h2>
                         <p class="hx-section-sub">مرتب‌شده بر اساس امتیاز وزنی بیزین و سطح کیفیت (Tier A/B/C)</p>
                     </div>
                 </div>
@@ -267,7 +299,10 @@ final class PublicSiteController
             <section class="hx-section">
                 <div class="hx-section-head">
                     <div>
-                        <h2 class="hx-section-title">دسته‌بندی‌های تخصصی در شهرهای گیلان</h2>
+                        <h2 class="hx-section-title">
+                            <?= self::icon('map') ?>
+                            <span>دسته‌بندی‌های تخصصی در شهرهای گیلان</span>
+                        </h2>
                         <p class="hx-section-sub">انتخاب سریع بر اساس شهر و دسته‌بندی خدماتی</p>
                     </div>
                 </div>
@@ -406,11 +441,12 @@ final class PublicSiteController
             <article class="hx-detail-hero">
                 <div class="hx-card-top">
                     <div style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:center;">
-                        <span class="hx-badge hx-badge-tier-<?= strtolower((string)$biz['tier']) ?>">سطح کیفی Tier <?= self::e($biz['tier']) ?></span>
+                        <span class="hx-badge hx-badge-tier-<?= strtolower((string)$biz['tier']) ?>"><?= self::icon('award', 'hx-icon hx-icon-sm') ?> سطح کیفی Tier <?= self::e($biz['tier']) ?></span>
                         <span class="hx-badge hx-badge-cat"><?= self::e($biz['category_name_fa']) ?> · <?= self::e($biz['city_name_fa']) ?></span>
-                        <span class="hx-badge hx-badge-cat">اطمینان داده: <?= self::e($biz['confidence']) ?></span>
+                        <span class="hx-badge hx-badge-cat"><?= self::icon('verify', 'hx-icon hx-icon-sm') ?> اطمینان داده: <?= self::e($biz['confidence']) ?></span>
                     </div>
                     <div class="hx-score" title="امتیاز وزنی بیزین">
+                        <?= self::icon('star', 'hx-icon hx-icon-sm') ?>
                         <span>امتیاز بیزین: <?= number_format((float)$biz['internal_score'], 2) ?></span>
                         <?php if ((int)$biz['reviews_total'] > 0): ?>
                             <small>(<?= (int)$biz['reviews_total'] ?> نظر منبع)</small>
@@ -418,7 +454,7 @@ final class PublicSiteController
                     </div>
                 </div>
 
-                <h1 style="font-size:1.65rem;font-weight:900;margin:0.5rem 0 0.75rem;color:var(--hx-slate-900);">
+                <h1 style="font-size:1.65rem;font-weight:900;margin:0.5rem 0 0.75rem;color:var(--hx-lapis-900);">
                     <?= self::e($biz['name']) ?>
                 </h1>
 
@@ -430,22 +466,22 @@ final class PublicSiteController
 
                 <div class="hx-detail-grid">
                     <div class="hx-info-box">
-                        <strong>📍 شهر و محله</strong>
+                        <strong><?= self::icon('location', 'hx-icon hx-icon-sm') ?> شهر و محله</strong>
                         <span><?= self::e($biz['city_name_fa']) ?><?= !empty($biz['neighborhood_name_fa']) ? '، ' . self::e($biz['neighborhood_name_fa']) : '' ?></span>
                     </div>
                     <div class="hx-info-box">
-                        <strong>🗺️ نشانی دقیق</strong>
+                        <strong><?= self::icon('map', 'hx-icon hx-icon-sm') ?> نشانی دقیق</strong>
                         <span><?= self::e($biz['address'] ?: ('ثبت‌شده در نقشه شهر ' . $biz['city_name_fa'])) ?></span>
                     </div>
                     <?php if (!empty($biz['phone'])): ?>
                     <div class="hx-info-box">
-                        <strong>📞 شماره تماس تأییدشده</strong>
+                        <strong><?= self::icon('call', 'hx-icon hx-icon-sm') ?> شماره تماس تأییدشده</strong>
                         <span dir="ltr"><?= self::e($biz['phone']) ?></span>
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($biz['hours'])): ?>
                     <div class="hx-info-box">
-                        <strong>🕒 ساعات فعالیت</strong>
+                        <strong><?= self::icon('clock', 'hx-icon hx-icon-sm') ?> ساعات فعالیت</strong>
                         <span><?= self::e($biz['hours']) ?></span>
                     </div>
                     <?php endif; ?>
@@ -454,22 +490,26 @@ final class PublicSiteController
                 <div class="hx-card-actions" style="margin-top:1.25rem;">
                     <?php if (!empty($biz['phone'])): ?>
                         <a class="hx-btn hx-btn-primary" href="tel:<?= self::e($biz['phone']) ?>" data-hx-track="call" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="business_detail">
-                            📞 تماس مستقیم با <?= self::e($biz['name']) ?>
+                            <?= self::icon('call', 'hx-icon hx-icon-sm') ?>
+                            <span>تماس مستقیم با <?= self::e($biz['name']) ?></span>
                         </a>
                     <?php endif; ?>
                     <?php if (!empty($biz['lat']) && !empty($biz['lng'])): ?>
                         <a class="hx-btn hx-btn-secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=<?= (float)$biz['lat'] ?>,<?= (float)$biz['lng'] ?>" data-hx-track="map" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="business_detail">
-                            🧭 مسیریابی در Google Maps
+                            <?= self::icon('routing', 'hx-icon hx-icon-sm') ?>
+                            <span>مسیریابی در Google Maps</span>
                         </a>
                     <?php endif; ?>
                     <?php if (!empty($biz['website'])): ?>
                         <a class="hx-btn hx-btn-outline" target="_blank" rel="noopener nofollow" href="<?= self::e($biz['website']) ?>" data-hx-track="website" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="business_detail">
-                            🌐 وب‌سایت رسمی
+                            <?= self::icon('global', 'hx-icon hx-icon-sm') ?>
+                            <span>وب‌سایت رسمی</span>
                         </a>
                     <?php endif; ?>
                     <?php if (!empty($biz['instagram'])): ?>
                         <a class="hx-btn hx-btn-outline" target="_blank" rel="noopener nofollow" href="https://instagram.com/<?= self::e(ltrim((string)$biz['instagram'], '@')) ?>" data-hx-track="instagram" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="business_detail">
-                            📸 اینستاگرام (@<?= self::e(ltrim((string)$biz['instagram'], '@')) ?>)
+                            <?= self::icon('instagram', 'hx-icon hx-icon-sm') ?>
+                            <span>اینستاگرام (@<?= self::e(ltrim((string)$biz['instagram'], '@')) ?>)</span>
                         </a>
                     <?php endif; ?>
                 </div>
@@ -479,7 +519,7 @@ final class PublicSiteController
                         <h2 style="font-size:1.05rem;font-weight:800;margin:0 0 0.65rem;">نکات برجسته و ویژگی‌ها</h2>
                         <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
                             <?php foreach ($bullets as $bItem): ?>
-                                <span class="hx-badge hx-badge-cat">✓ <?= self::e((string)$bItem) ?></span>
+                                <span class="hx-badge hx-badge-cat"><?= self::icon('tick-circle', 'hx-icon hx-icon-sm') ?> <?= self::e((string)$bItem) ?></span>
                             <?php endforeach; ?>
                         </div>
                     </div>
@@ -590,7 +630,7 @@ final class PublicSiteController
             </nav>
 
             <header class="hx-article-header">
-                <span class="hx-badge hx-badge-tier-a">راهنمای جامع شهری · استان گیلان</span>
+                <span class="hx-badge hx-badge-tier-a"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> راهنمای جامع شهری · استان گیلان</span>
                 <h1>بهترین کافه‌ها، رستوران‌ها و مراکز خدماتی <?= self::e($city['name_fa']) ?></h1>
                 <p style="margin:0;color:var(--hx-slate-600);">
                     فهرست رتبه‌بندی‌شده برترین واحدهای صنفی و خدماتی شهر <?= self::e($city['name_fa']) ?> بر اساس امتیاز وزنی بیزین و تطابق چندمنبعی.
@@ -606,7 +646,10 @@ final class PublicSiteController
 
             <?php if (!empty($articles)): ?>
             <section class="hx-section">
-                <h2 class="hx-section-title" style="margin-bottom:0.85rem;">مقالات و لیست‌های مقایسه‌ای شهر <?= self::e($city['name_fa']) ?></h2>
+                <h2 class="hx-section-title" style="margin-bottom:0.85rem;">
+                    <?= self::icon('award') ?>
+                    <span>مقالات و لیست‌های مقایسه‌ای شهر <?= self::e($city['name_fa']) ?></span>
+                </h2>
                 <div class="hx-grid hx-grid-2">
                     <?php foreach ($articles as $art): ?>
                         <div class="hx-card">
@@ -627,7 +670,10 @@ final class PublicSiteController
 
             <section class="hx-section">
                 <div class="hx-section-head">
-                    <h2 class="hx-section-title">رتبه‌بندی واحدهای منتخب در <?= self::e($city['name_fa']) ?> (<?= count($businesses) ?> مورد)</h2>
+                    <h2 class="hx-section-title">
+                        <?= self::icon('star') ?>
+                        <span>رتبه‌بندی واحدهای منتخب در <?= self::e($city['name_fa']) ?> (<?= count($businesses) ?> مورد)</span>
+                    </h2>
                 </div>
                 <?php if (empty($businesses)): ?>
                     <div class="hx-card">
@@ -714,7 +760,7 @@ final class PublicSiteController
             </nav>
 
             <header class="hx-article-header">
-                <span class="hx-badge hx-badge-tier-a"><?= self::e($city['name_fa']) ?> · <?= self::e($category['name_fa']) ?></span>
+                <span class="hx-badge hx-badge-tier-a"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> <?= self::e($city['name_fa']) ?> · <?= self::e($category['name_fa']) ?></span>
                 <h1>بهترین <?= self::e($category['name_fa']) ?> در <?= self::e($city['name_fa']) ?> (رتبه‌بندی بیزین ۱۴۰۵)</h1>
                 <p style="margin:0;color:var(--hx-slate-600);">
                     مقایسه و معرفی برترین مراکز <?= self::e($category['name_fa']) ?> در شهر <?= self::e($city['name_fa']) ?> همراه با آدرس، شماره تماس مستقیم و موقعیت روی نقشه.
@@ -780,7 +826,6 @@ final class PublicSiteController
             return;
         }
 
-        // دریافت آیتم‌های مقاله همراه با پین شدن خودکار جایگاه‌های اسپانسرشیپ فعال در بازه [sponsor_start, sponsor_end]
         $items = DB::fetchAll(
             "SELECT ai.*,
                     b.slug AS biz_slug, b.name, b.short_desc, b.address, b.lat, b.lng,
@@ -814,7 +859,6 @@ final class PublicSiteController
         $baseUrl = self::baseUrl();
         $canonical = $baseUrl . '/' . rawurlencode((string)$article['slug']) . '/';
 
-        // اسکیماهای چهارگانه Article + ItemList + BreadcrumbList + FAQPage
         $articleSchema = [
             '@context'         => 'https://schema.org',
             '@type'            => 'Article',
@@ -922,22 +966,22 @@ final class PublicSiteController
             <article>
                 <header class="hx-article-header">
                     <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-                        <span class="hx-badge hx-badge-tier-a">گزارش تحلیلی و رتبه‌بندی بیزین · <?= self::e($article['year_label'] ?: '۱۴۰۵') ?></span>
-                        <span class="hx-badge hx-badge-cat">شهر <?= self::e($article['city_name_fa']) ?> · <?= count($items) ?> واحد منتخب</span>
+                        <span class="hx-badge hx-badge-tier-a"><?= self::icon('verify', 'hx-icon hx-icon-sm') ?> گزارش تحلیلی و رتبه‌بندی بیزین · <?= self::e($article['year_label'] ?: '۱۴۰۵') ?></span>
+                        <span class="hx-badge hx-badge-cat"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> شهر <?= self::e($article['city_name_fa']) ?> · <?= count($items) ?> واحد منتخب</span>
                     </div>
                     <h1><?= self::e($article['title']) ?></h1>
 
                     <div class="hx-summary-box">
                         <div class="hx-summary-item">
-                            <strong>شهر و حوزه بررسی</strong>
+                            <strong><?= self::icon('location', 'hx-icon hx-icon-sm') ?> شهر و حوزه بررسی</strong>
                             <span><?= self::e($article['city_name_fa']) ?><?= !empty($article['category_name_fa']) ? ' · ' . self::e($article['category_name_fa']) : '' ?></span>
                         </div>
                         <div class="hx-summary-item">
-                            <strong>تعداد گزینه‌های رتبه‌بندی‌شده</strong>
+                            <strong><?= self::icon('award', 'hx-icon hx-icon-sm') ?> تعداد گزینه‌های رتبه‌بندی‌شده</strong>
                             <span><?= count($items) ?> واحد منتخب</span>
                         </div>
                         <div class="hx-summary-item">
-                            <strong>الگوریتم رتبه‌بندی</strong>
+                            <strong><?= self::icon('star', 'hx-icon hx-icon-sm') ?> الگوریتم رتبه‌بندی</strong>
                             <span>امتیاز وزنی بیزین (Bayesian m=20)</span>
                         </div>
                     </div>
@@ -951,7 +995,10 @@ final class PublicSiteController
 
                 <?php if (!empty($items)): ?>
                 <section class="hx-section">
-                    <h2 class="hx-section-title" style="margin-bottom:0.75rem;">جدول مقایسه سریع بهترین گزینه‌ها</h2>
+                    <h2 class="hx-section-title" style="margin-bottom:0.75rem;">
+                        <?= self::icon('award') ?>
+                        <span>جدول مقایسه سریع بهترین گزینه‌ها</span>
+                    </h2>
                     <div class="hx-table-wrap">
                         <table class="hx-table">
                             <thead>
@@ -972,23 +1019,26 @@ final class PublicSiteController
                                     <tr>
                                         <td><strong>#<?= $idx + 1 ?></strong></td>
                                         <td>
-                                            <a href="/b/<?= self::e($it['biz_slug']) ?>/" style="font-weight:800;color:var(--hx-slate-900);">
+                                            <a href="/b/<?= self::e($it['biz_slug']) ?>/" style="font-weight:800;color:var(--hx-lapis-900);">
                                                 <?= self::e($it['name']) ?>
                                             </a>
                                             <?php if ($isSponsor): ?>
-                                                <span class="hx-badge hx-badge-sponsor" style="margin-right:0.35rem;">⭐ <?= self::e($it['sponsor_label'] ?: 'تبلیغ') ?></span>
+                                                <span class="hx-badge hx-badge-sponsor" style="margin-right:0.35rem;"><?= self::icon('star', 'hx-icon hx-icon-sm') ?> <?= self::e($it['sponsor_label'] ?: 'پیشنهاد ویژه') ?></span>
                                             <?php elseif (!empty($hl['badge'])): ?>
                                                 <span class="hx-badge hx-badge-cat" style="margin-right:0.35rem;"><?= self::e($hl['badge']) ?></span>
                                             <?php endif; ?>
                                         </td>
                                         <td><?= self::e($it['neighborhood_name_fa'] ?: $it['city_name_fa']) ?></td>
-                                        <td><span class="hx-score"><?= number_format((float)$it['internal_score'], 2) ?></span></td>
+                                        <td><span class="hx-score"><?= self::icon('star', 'hx-icon hx-icon-sm') ?> <?= number_format((float)$it['internal_score'], 2) ?></span></td>
                                         <td><span class="hx-badge hx-badge-tier-<?= strtolower((string)$it['tier']) ?>">Tier <?= self::e($it['tier']) ?></span></td>
                                         <td>
                                             <?php if (!empty($it['phone'])): ?>
-                                                <a class="hx-btn hx-btn-primary" style="padding:0.25rem 0.6rem;font-size:0.75rem;" href="tel:<?= self::e($it['phone']) ?>" data-hx-track="call" data-business-id="<?= (int)$it['business_id'] ?>" data-source-page="article_table">📞 تماس</a>
+                                                <a class="hx-btn hx-btn-primary" style="padding:0.25rem 0.65rem;font-size:0.75rem;" href="tel:<?= self::e($it['phone']) ?>" data-hx-track="call" data-business-id="<?= (int)$it['business_id'] ?>" data-source-page="article_table">
+                                                    <?= self::icon('call', 'hx-icon hx-icon-sm') ?>
+                                                    <span>تماس</span>
+                                                </a>
                                             <?php else: ?>
-                                                <a class="hx-btn hx-btn-outline" style="padding:0.25rem 0.6rem;font-size:0.75rem;" href="/b/<?= self::e($it['biz_slug']) ?>/">مشاهده</a>
+                                                <a class="hx-btn hx-btn-outline" style="padding:0.25rem 0.65rem;font-size:0.75rem;" href="/b/<?= self::e($it['biz_slug']) ?>/">مشاهده</a>
                                             <?php endif; ?>
                                         </td>
                                     </tr>
@@ -1004,7 +1054,10 @@ final class PublicSiteController
                 <?php endif; ?>
 
                 <section class="hx-section">
-                    <h2 class="hx-section-title" style="margin-bottom:1rem;">بررسی تک‌به‌تک واحدهای منتخب</h2>
+                    <h2 class="hx-section-title" style="margin-bottom:1rem;">
+                        <?= self::icon('star') ?>
+                        <span>بررسی تک‌به‌تک واحدهای منتخب</span>
+                    </h2>
                     <div class="hx-grid" style="gap:1.25rem;">
                         <?php foreach ($items as $idx => $it):
                             $hl = !empty($it['highlights']) ? (json_decode((string)$it['highlights'], true) ?: []) : [];
@@ -1020,27 +1073,30 @@ final class PublicSiteController
                                             <a href="/b/<?= self::e($it['biz_slug']) ?>/"><?= self::e($it['name']) ?></a>
                                         </h3>
                                         <?php if ($isSponsor): ?>
-                                            <span class="hx-badge hx-badge-sponsor">⭐ <?= self::e($it['sponsor_label'] ?: 'پیشنهاد ویژه') ?></span>
+                                            <span class="hx-badge hx-badge-sponsor"><?= self::icon('star', 'hx-icon hx-icon-sm') ?> <?= self::e($it['sponsor_label'] ?: 'پیشنهاد ویژه') ?></span>
                                         <?php endif; ?>
                                         <?php if (!empty($hl['badge'])): ?>
                                             <span class="hx-badge hx-badge-tier-a"><?= self::e((string)$hl['badge']) ?></span>
                                         <?php endif; ?>
                                     </div>
                                     <div class="hx-score">
+                                        <?= self::icon('star', 'hx-icon hx-icon-sm') ?>
                                         <span>امتیاز بیزین: <?= number_format((float)$it['internal_score'], 2) ?></span>
                                     </div>
                                 </div>
 
                                 <div class="hx-card-meta">
-                                    <span>📍 <?= self::e($it['city_name_fa']) ?><?= !empty($it['neighborhood_name_fa']) ? '، ' . self::e($it['neighborhood_name_fa']) : '' ?></span>
+                                    <?= self::icon('location', 'hx-icon hx-icon-sm') ?>
+                                    <span><?= self::e($it['city_name_fa']) ?><?= !empty($it['neighborhood_name_fa']) ? '، ' . self::e($it['neighborhood_name_fa']) : '' ?></span>
                                     <?php if (!empty($it['address'])): ?>
                                         <span>· <?= self::e($it['address']) ?></span>
                                     <?php endif; ?>
                                 </div>
 
                                 <?php if (!empty($hl['verdict'])): ?>
-                                    <p style="margin:0;font-weight:700;color:var(--hx-brand-dark);font-size:0.9rem;">
-                                        💡 جمع‌بندی تحریریه: <?= self::e((string)$hl['verdict']) ?>
+                                    <p style="margin:0;font-weight:700;color:var(--hx-brand-dark);font-size:0.9rem;display:flex;align-items:center;gap:0.4rem;">
+                                        <?= self::icon('lamp', 'hx-icon hx-icon-sm') ?>
+                                        <span>جمع‌بندی تحریریه: <?= self::e((string)$hl['verdict']) ?></span>
                                     </p>
                                 <?php endif; ?>
 
@@ -1054,7 +1110,7 @@ final class PublicSiteController
                                     <div class="hx-pros-cons">
                                         <?php if (!empty($pros)): ?>
                                             <div class="hx-pros">
-                                                <strong>✅ نقاط قوت</strong>
+                                                <strong><?= self::icon('tick-circle', 'hx-icon hx-icon-sm') ?> نقاط قوت</strong>
                                                 <ul>
                                                     <?php foreach ($pros as $p): ?>
                                                         <li><?= self::e((string)$p) ?></li>
@@ -1064,7 +1120,7 @@ final class PublicSiteController
                                         <?php endif; ?>
                                         <?php if (!empty($cons)): ?>
                                             <div class="hx-cons">
-                                                <strong>⚠️ نکات قابل توجه</strong>
+                                                <strong><?= self::icon('info-circle', 'hx-icon hx-icon-sm') ?> نکات قابل توجه</strong>
                                                 <ul>
                                                     <?php foreach ($cons as $c): ?>
                                                         <li><?= self::e((string)$c) ?></li>
@@ -1078,10 +1134,16 @@ final class PublicSiteController
                                 <div class="hx-card-actions">
                                     <a class="hx-btn hx-btn-outline" href="/b/<?= self::e($it['biz_slug']) ?>/">صفحه اختصاصی و جزئیات</a>
                                     <?php if (!empty($it['phone'])): ?>
-                                        <a class="hx-btn hx-btn-primary" href="tel:<?= self::e($it['phone']) ?>" data-hx-track="call" data-business-id="<?= (int)$it['business_id'] ?>" data-source-page="article_card">📞 تماس مستقیم</a>
+                                        <a class="hx-btn hx-btn-primary" href="tel:<?= self::e($it['phone']) ?>" data-hx-track="call" data-business-id="<?= (int)$it['business_id'] ?>" data-source-page="article_card">
+                                            <?= self::icon('call', 'hx-icon hx-icon-sm') ?>
+                                            <span>تماس مستقیم</span>
+                                        </a>
                                     <?php endif; ?>
                                     <?php if (!empty($it['lat']) && !empty($it['lng'])): ?>
-                                        <a class="hx-btn hx-btn-secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=<?= (float)$it['lat'] ?>,<?= (float)$it['lng'] ?>" data-hx-track="map" data-business-id="<?= (int)$it['business_id'] ?>" data-source-page="article_card">🧭 مسیریابی</a>
+                                        <a class="hx-btn hx-btn-secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=<?= (float)$it['lat'] ?>,<?= (float)$it['lng'] ?>" data-hx-track="map" data-business-id="<?= (int)$it['business_id'] ?>" data-source-page="article_card">
+                                            <?= self::icon('routing', 'hx-icon hx-icon-sm') ?>
+                                            <span>مسیریابی</span>
+                                        </a>
                                     <?php endif; ?>
                                 </div>
                             </div>
@@ -1092,7 +1154,10 @@ final class PublicSiteController
                 <?php if (!empty($article['tips_html'])): ?>
                     <section class="hx-section">
                         <div class="hx-card">
-                            <h2 class="hx-section-title" style="margin-bottom:0.5rem;">روش‌شناسی امتیازدهی و راستی‌آزمایی در همی‌هاب</h2>
+                            <h2 class="hx-section-title" style="margin-bottom:0.5rem;">
+                                <?= self::icon('verify') ?>
+                                <span>روش‌شناسی امتیازدهی و راستی‌آزمایی در همی‌هاب</span>
+                            </h2>
                             <div class="hx-prose"><?= (string)$article['tips_html'] ?></div>
                         </div>
                     </section>
@@ -1100,10 +1165,16 @@ final class PublicSiteController
 
                 <?php if (!empty($faqs)): ?>
                     <section class="hx-section">
-                        <h2 class="hx-section-title" style="margin-bottom:0.85rem;">سؤالات متداول (FAQ)</h2>
+                        <h2 class="hx-section-title" style="margin-bottom:0.85rem;">
+                            <?= self::icon('message-question') ?>
+                            <span>سؤالات متداول (FAQ)</span>
+                        </h2>
                         <?php foreach ($faqs as $f): ?>
                             <div class="hx-faq-item">
-                                <p class="hx-faq-q">❓ <?= self::e($f['question']) ?></p>
+                                <p class="hx-faq-q">
+                                    <?= self::icon('message-question', 'hx-icon hx-icon-sm') ?>
+                                    <span><?= self::e($f['question']) ?></span>
+                                </p>
                                 <p class="hx-faq-a"><?= self::e($f['answer']) ?></p>
                             </div>
                         <?php endforeach; ?>
@@ -1237,9 +1308,6 @@ final class PublicSiteController
         Response::json(['ok' => true]);
     }
 
-    /**
-     * واکشی یکپارچه کسب‌وکارهای منتشرشده همراه با اطلاعات تماس، شهر، دسته و تعداد نظرات منابع
-     */
     private static function fetchPublishedBusinesses(string $whereClause, array $params, int $limit): array
     {
         $sql = "
@@ -1274,6 +1342,7 @@ final class PublicSiteController
                     <span class="hx-badge hx-badge-tier-<?= strtolower((string)$biz['tier']) ?>">Tier <?= self::e($biz['tier']) ?></span>
                 </div>
                 <div class="hx-score" title="امتیاز وزنی بیزین">
+                    <?= self::icon('star', 'hx-icon hx-icon-sm') ?>
                     <span><?= number_format((float)$biz['internal_score'], 2) ?></span>
                     <?php if (!empty($biz['reviews_total'])): ?>
                         <small>(<?= (int)$biz['reviews_total'] ?>)</small>
@@ -1286,7 +1355,8 @@ final class PublicSiteController
             </h3>
 
             <div class="hx-card-meta">
-                <span>📍 <?= self::e($biz['city_name_fa'] ?? '') ?><?= !empty($biz['neighborhood_name_fa']) ? '، ' . self::e($biz['neighborhood_name_fa']) : '' ?></span>
+                <?= self::icon('location', 'hx-icon hx-icon-sm') ?>
+                <span><?= self::e($biz['city_name_fa'] ?? '') ?><?= !empty($biz['neighborhood_name_fa']) ? '، ' . self::e($biz['neighborhood_name_fa']) : '' ?></span>
                 <?php if (!empty($biz['category_name_fa'])): ?>
                     <span>· <?= self::e($biz['category_name_fa']) ?></span>
                 <?php endif; ?>
@@ -1299,10 +1369,16 @@ final class PublicSiteController
             <div class="hx-card-actions">
                 <a class="hx-btn hx-btn-outline" href="<?= self::e($slugUrl) ?>">مشاهده جزئیات</a>
                 <?php if (!empty($biz['phone'])): ?>
-                    <a class="hx-btn hx-btn-primary" href="tel:<?= self::e($biz['phone']) ?>" data-hx-track="call" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="<?= self::e($sourcePage) ?>">📞 تماس</a>
+                    <a class="hx-btn hx-btn-primary" href="tel:<?= self::e($biz['phone']) ?>" data-hx-track="call" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="<?= self::e($sourcePage) ?>">
+                        <?= self::icon('call', 'hx-icon hx-icon-sm') ?>
+                        <span>تماس</span>
+                    </a>
                 <?php endif; ?>
                 <?php if (!empty($biz['lat']) && !empty($biz['lng'])): ?>
-                    <a class="hx-btn hx-btn-secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=<?= (float)$biz['lat'] ?>,<?= (float)$biz['lng'] ?>" data-hx-track="map" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="<?= self::e($sourcePage) ?>">🧭 نقشه</a>
+                    <a class="hx-btn hx-btn-secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=<?= (float)$biz['lat'] ?>,<?= (float)$biz['lng'] ?>" data-hx-track="map" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="<?= self::e($sourcePage) ?>">
+                        <?= self::icon('routing', 'hx-icon hx-icon-sm') ?>
+                        <span>نقشه</span>
+                    </a>
                 <?php endif; ?>
             </div>
         </article>
@@ -1317,12 +1393,16 @@ final class PublicSiteController
         ?>
         <section class="hx-map-box">
             <div class="hx-map-placeholder" data-hx-map="1" data-markers="<?= $jsonMarkers ?>">
-                <strong>🗺️ <?= self::e($title) ?> (<?= count($markers) ?> نقطه مکانی)</strong>
+                <strong style="display:flex;align-items:center;gap:0.45rem;">
+                    <?= self::icon('map') ?>
+                    <span><?= self::e($title) ?> (<?= count($markers) ?> نقطه مکانی)</span>
+                </strong>
                 <p style="margin:0;font-size:0.84rem;color:var(--hx-slate-600);">
                     برای حفظ سرعت بارگذاری صفحه، نقشه تعاملی Leaflet به صورت خودمیزبان (Self-Hosted) و تنها با کلیک شما بارگذاری می‌شود.
                 </p>
                 <button type="button" class="hx-btn hx-btn-primary" data-hx-load-map="1">
-                    نمایش نقشه تعاملی و پین‌های شماره‌گذاری‌شده
+                    <?= self::icon('location', 'hx-icon hx-icon-sm') ?>
+                    <span>نمایش نقشه تعاملی و پین‌های شماره‌گذاری‌شده</span>
                 </button>
             </div>
         </section>
@@ -1338,6 +1418,7 @@ final class PublicSiteController
         $ogType = (string)($data['og_type'] ?? 'website');
         $schemas = (array)($data['schemas'] ?? []);
         $body = (string)($data['body'] ?? '');
+        $baseUrl = self::baseUrl();
 
         ob_start();
         ?>
@@ -1349,18 +1430,24 @@ final class PublicSiteController
     <title><?= self::e($title) ?></title>
     <meta name="description" content="<?= self::e($description) ?>">
     <link rel="canonical" href="<?= self::e($canonical) ?>">
+    <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
+    <link rel="icon" type="image/png" sizes="128x128" href="/assets/img/favicon.png">
+    <link rel="apple-touch-icon" href="/assets/img/favicon.png">
+    <meta name="theme-color" content="#040814">
     <meta property="og:locale" content="fa_IR">
     <meta property="og:type" content="<?= self::e($ogType) ?>">
     <meta property="og:title" content="<?= self::e($title) ?>">
     <meta property="og:description" content="<?= self::e($description) ?>">
     <meta property="og:url" content="<?= self::e($canonical) ?>">
     <meta property="og:site_name" content="همی‌هاب گیلان | HamiHubX.ir">
+    <meta property="og:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="<?= self::e($title) ?>">
     <meta name="twitter:description" content="<?= self::e($description) ?>">
+    <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s4.2">
+    <link rel="stylesheet" href="/assets/css/public.css?v=s4.3">
     <?php foreach ($schemas as $schema): ?>
     <script type="application/ld+json"><?= json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
     <?php endforeach; ?>
@@ -1369,16 +1456,19 @@ final class PublicSiteController
     <header class="hx-header">
         <div class="hx-container hx-header-inner">
             <a href="/" class="hx-brand">
-                <span class="hx-brand-mark">H</span>
-                <span>همی‌هاب گیلان <small style="font-weight:400;color:var(--hx-slate-600);font-size:0.75rem;">HamiHubX.ir</small></span>
+                <img src="/assets/img/favicon.png" alt="HamiHubX" class="hx-brand-logo" width="40" height="40">
+                <span>
+                    همی‌هاب گیلان
+                    <span class="hx-brand-en" dir="ltr">HamiHub<span class="hx-brand-x">X</span></span>
+                </span>
             </a>
             <nav class="hx-nav" aria-label="منوی اصلی">
                 <a href="/">صفحه اصلی</a>
-                <a href="/best-cafes-rasht/">بهترین کافه‌های رشت</a>
-                <a href="/city/rasht/">شهر رشت</a>
+                <a href="/best-cafes-rasht/"><?= self::icon('award', 'hx-icon hx-icon-sm') ?> بهترین کافه‌های رشت</a>
+                <a href="/city/rasht/"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> شهر رشت</a>
                 <a href="/city/anzali/">بندر انزلی</a>
                 <a href="/city/lahijan/">لاهیجان</a>
-                <a href="/admin/" style="color:var(--hx-brand-dark);">پنل مدیریت</a>
+                <a href="/admin/" class="hx-nav-admin">پنل مدیریت</a>
             </nav>
         </div>
     </header>
@@ -1387,17 +1477,20 @@ final class PublicSiteController
 
     <footer class="hx-footer">
         <div class="hx-container hx-footer-inner">
-            <div>
-                <strong style="color:#fff;">همی‌هاب گیلان (HamiHubX.ir)</strong> — پلتفرم خودکار معرفی و رتبه‌بندی بهترین کسب‌وکارهای استان گیلان بر اساس الگوریتم امتیاز وزنی بیزین.
+            <div style="display:flex;align-items:center;gap:0.75rem;">
+                <img src="/assets/img/favicon.png" alt="HamiHubX" width="32" height="32" style="border-radius:8px;">
+                <div>
+                    <strong style="color:#fff;">همی‌هاب گیلان (HamiHubX.ir)</strong> — پلتفرم خودکار معرفی و رتبه‌بندی بهترین کسب‌وکارهای استان گیلان بر اساس الگوریتم امتیاز وزنی بیزین.
+                </div>
             </div>
-            <div style="display:flex;gap:1rem;">
+            <div style="display:flex;gap:1.15rem;">
                 <a href="/sitemap.xml">نقشه سایت (Sitemap)</a>
                 <a href="/robots.txt">Robots.txt</a>
                 <a href="/admin/">ورود مدیران</a>
             </div>
         </div>
     </footer>
-    <script src="/assets/js/public.js?v=s4.2" defer></script>
+    <script src="/assets/js/public.js?v=s4.3" defer></script>
 </body>
 </html>
         <?php

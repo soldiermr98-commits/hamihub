@@ -72,14 +72,14 @@
       }
       html += '<div style="display:flex;gap:8px;align-items:center;">';
       if (m.url) {
-        html += '<a href="' + m.url + '" style="font-weight:700;color:#047857;">مشاهده صفحه کسب‌وکار</a>';
+        html += '<a href="' + m.url + '" style="font-weight:700;color:#0052ff;">مشاهده صفحه کسب‌وکار</a>';
       }
       html +=
         '<a href="https://www.google.com/maps/dir/?api=1&destination=' +
         m.lat +
         ',' +
         m.lng +
-        '" target="_blank" rel="noopener" style="color:#0369a1;font-weight:700;">مسیریابی</a>';
+        '" target="_blank" rel="noopener" style="color:#09132e;font-weight:700;">مسیریابی</a>';
       html += '</div>';
       popup.innerHTML = html;
     }

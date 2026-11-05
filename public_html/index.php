@@ -2,8 +2,8 @@
 declare(strict_types=1);
 
 /**
- * نقطه ورود اصلی وب‌سایت عمومی HamiHubX.ir (مرحله S4)
- * شامل سرو فوق‌سریع کش HTML از دیسک، قالب‌های سئو، اسکیماهای JSON-LD، نقشه سایت و Robots.txt
+ * نقطه ورود اصلی وب‌سایت عمومی HamiHubX.ir (مرحله S4.3)
+ * شامل سرو مستقیم robots.txt و sitemap.xml، کش HTML دیسک، قالب‌های سئو و اسکیماهای JSON-LD
  */
 
 define('BASE_PATH', dirname(__DIR__));
@@ -21,13 +21,23 @@ Bootstrap::init(BASE_PATH);
 $request = new Request();
 $path = $request->path();
 
-// ۱. اگر درخواست مربوط به مسیرهای API بود به کنترلر API هدایت شود
+// ۱. سرو فوری robots.txt و sitemap.xml قبل از هرگونه کش یا روتر برای تضمین صفر خطای 404
+if ($path === '/robots.txt') {
+    PublicSiteController::robotsTxt($request);
+    exit;
+}
+if ($path === '/sitemap.xml') {
+    PublicSiteController::sitemapXml($request);
+    exit;
+}
+
+// ۲. اگر درخواست مربوط به مسیرهای API بود به کنترلر API هدایت شود
 if (str_starts_with($path, '/api/')) {
     require BASE_PATH . '/public_html/api/index.php';
     exit;
 }
 
-// ۲. اگر درخواست مربوط به زیرمسیرهای پنل مدیریت (/admin/review, /admin/articles و غیره) بود، فایل SPA پنل سرو شود
+// ۳. اگر درخواست مربوط به زیرمسیرهای پنل مدیریت (/admin/review, /admin/articles و غیره) بود، فایل SPA پنل سرو شود
 if ($path === '/admin' || str_starts_with($path, '/admin/')) {
     $adminIndexFile = __DIR__ . '/admin/index.html';
     if (is_file($adminIndexFile)) {
@@ -35,11 +45,11 @@ if ($path === '/admin' || str_starts_with($path, '/admin/')) {
     }
 }
 
-// ۳. سرو از کش دیسک (public_html/cache/pages) در صورت معتبر بودن نسخه استایل S4.2
-if ($request->method() === 'GET' && empty($_GET) && $path !== '/sitemap.xml' && $path !== '/robots.txt') {
+// ۴. سرو از کش دیسک (public_html/cache/pages) در صورت معتبر بودن نسخه استایل S4.3
+if ($request->method() === 'GET' && empty($_GET)) {
     $cachedHtml = Cache::getPage($path);
     if ($cachedHtml !== null) {
-        if (!str_contains($cachedHtml, 'public.css?v=s4.2')) {
+        if (!str_contains($cachedHtml, 'public.css?v=s4.3')) {
             Cache::flushAll();
         } else {
             Response::html($cachedHtml);
@@ -49,7 +59,7 @@ if ($request->method() === 'GET' && empty($_GET) && $path !== '/sitemap.xml' && 
 
 $router = new Router();
 
-// ۴. مسیرهای عمومی سئو، نقشه سایت، Robots.txt و قالب‌های مرحله S4
+// ۵. مسیرهای عمومی سئو و قالب‌های مرحله S4
 $router->get('/', [PublicSiteController::class, 'home']);
 $router->get('/sitemap.xml', [PublicSiteController::class, 'sitemapXml']);
 $router->get('/robots.txt', [PublicSiteController::class, 'robotsTxt']);

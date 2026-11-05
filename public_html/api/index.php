@@ -24,9 +24,9 @@ use App\Core\Router;
 
 Bootstrap::init(BASE_PATH);
 
-// پاک‌سازی خودکار کش قدیمی مرحله S0 در صورت عدم تطابق با استایل جدید S4.2
+// پاک‌سازی خودکار کش قدیمی در صورت عدم تطابق با استایل جدید S4.3 (تم آبی لوگو و لاجوردی)
 $homeCache = Cache::getPage('/');
-if ($homeCache !== null && !str_contains($homeCache, 'public.css?v=s4.2')) {
+if ($homeCache !== null && !str_contains($homeCache, 'public.css?v=s4.3')) {
     Cache::flushAll();
 }
 

@@ -1,6 +1,5 @@
 /* ============================================================================
- * HamiHubX.ir - استایل نقشه تعاملی سلف‌هاست (Self-Hosted Slippy Map / Leaflet-Compatible)
- * بارگذاری تنبل فقط هنگام کلیک روی «نمایش روی نقشه»
+ * HamiHubX.ir - استایل نقشه تعاملی سلف‌هاست با تم آبی لوگو و لاجوردی
  * ============================================================================ */
 .hhx-slippy-wrap {
   position: relative;
@@ -28,21 +27,22 @@
 .hhx-marker {
   position: absolute;
   transform: translate(-50%, -100%);
-  background: #047857;
+  background: linear-gradient(135deg, #0077ff 0%, #0047cc 100%);
   color: #ffffff;
   font-family: 'Vazirmatn', Tahoma, sans-serif;
   font-size: 12px;
   font-weight: 700;
-  padding: 3px 8px;
+  padding: 3px 9px;
   border-radius: 16px;
   border: 2px solid #ffffff;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.35);
+  box-shadow: 0 3px 8px rgba(4, 8, 20, 0.35);
   cursor: pointer;
   white-space: nowrap;
   z-index: 10;
 }
 .hhx-marker:hover {
-  background: #0f172a;
+  background: #09132e;
+  border-color: #00e5ff;
   z-index: 20;
 }
 .hhx-popup {
@@ -55,7 +55,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 10px;
   padding: 10px 12px;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 4px 14px rgba(9, 19, 46, 0.2);
   z-index: 30;
   direction: rtl;
   font-family: 'Vazirmatn', Tahoma, sans-serif;
@@ -73,13 +73,13 @@
 .hhx-zoom-btn {
   width: 30px;
   height: 30px;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
+  background: #09132e;
+  border: 1px solid rgba(0, 210, 255, 0.35);
   border-radius: 6px;
   font-weight: 700;
   font-size: 16px;
   cursor: pointer;
-  color: #0f172a;
+  color: #ffffff;
 }
 .hhx-attr {
   position: absolute;

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <linearGradient id="hxBg" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0A132E"/>
+      <stop offset="100%" stop-color="#040814"/>
+    </linearGradient>
+    <linearGradient id="hxH" x1="20" y1="24" x2="68" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#C7D6F0"/>
+    </linearGradient>
+    <linearGradient id="hxX1" x1="52" y1="24" x2="102" y2="92" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00E5FF"/>
+      <stop offset="55%" stop-color="#0088FF"/>
+      <stop offset="100%" stop-color="#0040FF"/>
+    </linearGradient>
+    <linearGradient id="hxX2" x1="98" y1="30" x2="52" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00C8FF"/>
+      <stop offset="50%" stop-color="#0055FF"/>
+      <stop offset="100%" stop-color="#00D4FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="28" fill="url(#hxBg)"/>
+  <!-- H geometric shape -->
+  <path d="M22 33C22 30.5 23.4 28.2 25.6 27L37 20.5C38.5 19.6 40.5 20.7 40.5 22.5V50H64V68H40.5V95.5C40.5 97.3 38.5 98.4 37 97.5L25.6 91C23.4 89.8 22 87.5 22 85V33Z" fill="url(#hxH)"/>
+  <!-- X back leg (top-right to bottom-left) -->
+  <path d="M84 28H99C100.8 28 101.7 30.2 100.4 31.5L56 76V96.5C56 98.3 53.8 99.2 52.5 97.9L52 97.4V73L81.2 29.3C81.8 28.5 82.8 28 84 28Z" fill="url(#hxX2)"/>
+  <!-- X front ribbon (top-left to bottom-right) -->
+  <path d="M52 22.5C52 20.7 54.1 19.7 55.6 20.8L68 30.2L101.2 86.5C102.2 88.2 101 90.4 99 90.4H83.5C82 90.4 80.6 89.6 79.8 88.4L53.2 44.5C52.4 43.2 52 41.7 52 40.2V22.5Z" fill="url(#hxX1)"/>
+</svg>

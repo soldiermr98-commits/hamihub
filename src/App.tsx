@@ -240,8 +240,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col" dir="rtl">
-      {/* نوار بالایی قرارداد ۳ ناحیه‌ای (Top Bar Contract) */}
-      <header className="flex items-center justify-between gap-8 px-6 py-3.5 bg-white border-b border-slate-200">
+      {/* نوار بالایی قرارداد ۳ ناحیه‌ای با تم لاجوردی و لوگوی رسمی HamiHubX */}
+      <header className="flex items-center justify-between gap-8 px-6 py-3 bg-[#050B1E] text-white border-b border-sky-500/20">
         <a
           href="/admin/dashboard"
           onClick={(e) => {
@@ -249,19 +249,29 @@ export default function App() {
             setActiveTopView('admin_spa');
             navigateAdmin('/admin/dashboard');
           }}
-          className="text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0"
+          className="inline-flex items-center gap-3 text-base font-bold tracking-tight text-white whitespace-nowrap shrink-0"
         >
-          همی‌هاب گیلان (HamiHubX.ir)
+          <img
+            src="/assets/img/favicon.png"
+            alt="HamiHubX"
+            className="w-9 h-9 rounded-lg border border-sky-400/30 shadow-sm object-cover"
+          />
+          <span>
+            همی‌هاب گیلان{' '}
+            <span className="font-mono font-extrabold text-sky-400" dir="ltr">
+              HamiHubX
+            </span>
+          </span>
         </a>
 
-        <nav className="flex items-center gap-6 text-sm font-medium text-slate-600 overflow-x-auto">
+        <nav className="flex items-center gap-6 text-sm font-medium text-slate-300 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTopView('admin_spa')}
             className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
               activeTopView === 'admin_spa'
-                ? 'border-emerald-700 text-slate-900 font-semibold'
-                : 'border-transparent hover:text-slate-900'
+                ? 'border-sky-400 text-white font-semibold'
+                : 'border-transparent hover:text-white'
             }`}
           >
             پنل مدیریت (/admin/)
@@ -271,8 +281,8 @@ export default function App() {
             onClick={() => setActiveTopView('install_php')}
             className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
               activeTopView === 'install_php'
-                ? 'border-emerald-700 text-slate-900 font-semibold'
-                : 'border-transparent hover:text-slate-900'
+                ? 'border-sky-400 text-white font-semibold'
+                : 'border-transparent hover:text-white'
             }`}
           >
             نصب‌کننده (install.php)
@@ -282,8 +292,8 @@ export default function App() {
             onClick={() => setActiveTopView('check_php')}
             className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
               activeTopView === 'check_php'
-                ? 'border-emerald-700 text-slate-900 font-semibold'
-                : 'border-transparent hover:text-slate-900'
+                ? 'border-sky-400 text-white font-semibold'
+                : 'border-transparent hover:text-white'
             }`}
           >
             گزارش سرور (check.php)
@@ -293,8 +303,8 @@ export default function App() {
             onClick={() => setActiveTopView('deploy_guide')}
             className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
               activeTopView === 'deploy_guide'
-                ? 'border-emerald-700 text-slate-900 font-semibold'
-                : 'border-transparent hover:text-slate-900'
+                ? 'border-sky-400 text-white font-semibold'
+                : 'border-transparent hover:text-white'
             }`}
           >
             راهنمای آپلود در DirectAdmin
@@ -306,7 +316,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleLogout}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 rounded-lg hover:bg-rose-50 hover:text-rose-700 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-200 bg-white/10 rounded-lg hover:bg-rose-500/20 hover:text-rose-200 transition-colors whitespace-nowrap shrink-0"
             >
               <LogOut className="w-3.5 h-3.5" />
               خروج ({currentUser.username})
@@ -315,7 +325,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveTopView('install_php')}
-              className="px-4 py-2 text-xs font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 transition-colors whitespace-nowrap shrink-0"
+              className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap shrink-0"
             >
               ساخت اولین مدیر
             </button>
@@ -675,12 +685,12 @@ export default function App() {
                             onClick={() => navigateAdmin(item.path)}
                             className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                               active
-                                ? 'bg-emerald-50 text-emerald-900 font-semibold'
+                                ? 'bg-blue-50 text-blue-950 font-semibold border border-blue-200/80'
                                 : 'text-slate-700 hover:bg-slate-100'
                             }`}
                           >
                             <span className="flex items-center gap-2.5">
-                              <Icon className={`w-4 h-4 ${active ? 'text-emerald-700' : 'text-slate-500'}`} />
+                              <Icon className={`w-4 h-4 ${active ? 'text-blue-600' : 'text-slate-500'}`} />
                               <span>{item.label}</span>
                             </span>
                           </button>

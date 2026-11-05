@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /install.php
+Disallow: /check.php
+
+Sitemap: https://hamihubx.ir/sitemap.xml
