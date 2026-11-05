@@ -89,6 +89,14 @@ final class DB
     }
 
     /**
+     * نام مستعار query برای سازگاری کامل با کنترلرها و سرویس‌های مرحله S5
+     */
+    public static function execute(string $sql, array $params = []): PDOStatement
+    {
+        return self::query($sql, $params);
+    }
+
+    /**
      * دریافت تمام رکوردهای نتیجه
      */
     public static function fetchAll(string $sql, array $params = []): array

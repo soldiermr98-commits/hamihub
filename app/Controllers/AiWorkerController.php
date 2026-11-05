@@ -104,7 +104,7 @@ final class AiWorkerController
                     Response::json(['ok' => false, 'error' => 'آیتم هدف در دیتابیس یافت نشد.'], 404);
                 }
 
-                DB::execute(
+                DB::query(
                     "INSERT INTO ai_tasks (type, target_id, input_json, status, attempts)
                      VALUES (:type, :tid, :input_json, 'queued', 0)",
                     [
@@ -138,7 +138,7 @@ final class AiWorkerController
                     if ($input === null) {
                         continue;
                     }
-                    DB::execute(
+                    DB::query(
                         "INSERT INTO ai_tasks (type, target_id, input_json, status, attempts)
                          VALUES ('business_text', :tid, :input_json, 'queued', 0)",
                         [
@@ -165,7 +165,7 @@ final class AiWorkerController
                     if ($input === null) {
                         continue;
                     }
-                    DB::execute(
+                    DB::query(
                         "INSERT INTO ai_tasks (type, target_id, input_json, status, attempts)
                          VALUES ('article_draft', :tid, :input_json, 'queued', 0)",
                         [
@@ -217,7 +217,7 @@ final class AiWorkerController
                 foreach ($bizList as $b) {
                     $input = AiContentService::buildBusinessInput((int) $b['id']);
                     if ($input !== null) {
-                        DB::execute(
+                        DB::query(
                             "INSERT INTO ai_tasks (type, target_id, input_json, status, attempts)
                              VALUES ('business_text', :tid, :input_json, 'queued', 0)",
                             [
@@ -232,7 +232,7 @@ final class AiWorkerController
                 foreach ($artList as $a) {
                     $input = AiContentService::buildArticleInput((int) $a['id']);
                     if ($input !== null) {
-                        DB::execute(
+                        DB::query(
                             "INSERT INTO ai_tasks (type, target_id, input_json, status, attempts)
                              VALUES ('article_draft', :tid, :input_json, 'queued', 0)",
                             [
@@ -268,7 +268,7 @@ final class AiWorkerController
 
                 if (!$validation['valid']) {
                     $failed++;
-                    DB::execute(
+                    DB::query(
                         "UPDATE ai_tasks
                          SET status = 'failed',
                              attempts = attempts + 1,
@@ -285,7 +285,7 @@ final class AiWorkerController
 
                 AiContentService::applyOutputToTarget($type, $targetId, $generated['output']);
 
-                DB::execute(
+                DB::query(
                     "UPDATE ai_tasks
                      SET status = 'done',
                          output_json = :out,
@@ -351,7 +351,7 @@ final class AiWorkerController
             }
 
             $taskId = (int) $task['id'];
-            DB::execute(
+            DB::query(
                 "UPDATE ai_tasks
                  SET status = 'claimed',
                      claimed_at = NOW(),
@@ -408,7 +408,7 @@ final class AiWorkerController
 
             $validation = AiContentService::validateNoHallucination($input, $output);
             if (!$validation['valid']) {
-                DB::execute(
+                DB::query(
                     "UPDATE ai_tasks
                      SET status = 'failed',
                          error = :err,
@@ -431,7 +431,7 @@ final class AiWorkerController
 
             AiContentService::applyOutputToTarget($type, $targetId, $output);
 
-            DB::execute(
+            DB::query(
                 "UPDATE ai_tasks
                  SET status = 'done',
                      output_json = :out,

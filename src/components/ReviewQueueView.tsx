@@ -68,6 +68,14 @@ const REASON_LABELS: Record<string, { label: string; badgeClass: string }> = {
     label: 'شهر در حالت انتشار دستی (manual)',
     badgeClass: 'bg-slate-100 text-slate-700 border-slate-300',
   },
+  bayes_score_above_threshold: {
+    label: 'انتشار خودکار (امتیاز بیزی ≥ ۳.۸۵ + تلفن و لوکیشن معتبر)',
+    badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  },
+  multi_source_verified: {
+    label: 'انتشار خودکار چندمنبعی (تأیید حداقل ۲ منبع مستقل)',
+    badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  },
 };
 
 export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent }) => {

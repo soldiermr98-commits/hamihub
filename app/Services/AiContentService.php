@@ -616,7 +616,7 @@ final class AiContentService
             $bullets = is_array($output['bullets'] ?? null) ? $output['bullets'] : [];
             $faqs = is_array($output['faqs'] ?? null) ? $output['faqs'] : [];
 
-            DB::execute(
+            DB::query(
                 "UPDATE businesses
                  SET short_desc = :short_desc,
                      bullets_json = :bullets_json,
@@ -643,7 +643,7 @@ final class AiContentService
             $items = is_array($output['items'] ?? null) ? $output['items'] : [];
             $faqs = is_array($output['faqs'] ?? null) ? $output['faqs'] : [];
 
-            DB::execute(
+            DB::query(
                 "UPDATE articles
                  SET meta_title = COALESCE(NULLIF(:meta_title, ''), meta_title),
                      meta_description = COALESCE(NULLIF(:meta_description, ''), meta_description),
@@ -677,7 +677,7 @@ final class AiContentService
                 );
 
                 if ($existingItem !== null) {
-                    DB::execute(
+                    DB::query(
                         "UPDATE article_items
                          SET custom_desc = :custom_desc,
                              highlights = :highlights
@@ -689,7 +689,7 @@ final class AiContentService
                         ]
                     );
                 } else {
-                    DB::execute(
+                    DB::query(
                         "INSERT INTO article_items (article_id, business_id, position, custom_desc, highlights, is_sponsored)
                          VALUES (:aid, :bid, :pos, :custom_desc, :highlights, 0)",
                         [
@@ -704,14 +704,14 @@ final class AiContentService
             }
 
             if (!empty($faqs)) {
-                DB::execute("DELETE FROM article_faqs WHERE article_id = :aid", ['aid' => $targetId]);
+                DB::query("DELETE FROM article_faqs WHERE article_id = :aid", ['aid' => $targetId]);
                 foreach ($faqs as $idx => $faq) {
                     $q = trim((string) ($faq['question'] ?? ''));
                     $a = trim((string) ($faq['answer'] ?? ''));
                     if ($q === '' || $a === '') {
                         continue;
                     }
-                    DB::execute(
+                    DB::query(
                         "INSERT INTO article_faqs (article_id, question, answer, sort)
                          VALUES (:aid, :q, :a, :sort)",
                         [

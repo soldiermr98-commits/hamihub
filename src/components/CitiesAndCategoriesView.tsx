@@ -509,12 +509,13 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                             {parsedRes ? (
                               <div className="space-y-1">
                                 <span className="font-mono tabular-nums text-slate-700">
-                                  یافت‌شده: {parsedRes.found} · جدید: {parsedRes.inserted} · تکراری:{' '}
-                                  {parsedRes.duplicates}
-                                  {parsedRes.pending_review !== undefined
-                                    ? ` · بازبینی: ${parsedRes.pending_review}`
-                                    : ''}{' '}
-                                  · خطا: {parsedRes.errors}
+                                  یافت‌شده: {parsedRes.found} · جدید: {parsedRes.inserted}
+                                  {parsedRes.inserted > 0 && parsedRes.pending_review !== undefined
+                                    ? ` (انتشار خودکار: ${Math.max(0, parsedRes.inserted - parsedRes.pending_review)} · بازبینی: ${parsedRes.pending_review})`
+                                    : parsedRes.pending_review !== undefined
+                                      ? ` · بازبینی: ${parsedRes.pending_review}`
+                                      : ''}{' '}
+                                  · تکراری: {parsedRes.duplicates} · خطا: {parsedRes.errors}
                                 </span>
                                 {parsedRes.last_error && (
                                   <div className="text-[11px] text-rose-700 font-mono">
