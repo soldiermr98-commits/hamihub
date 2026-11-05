@@ -360,7 +360,7 @@ CREATE TABLE IF NOT EXISTS `events_daily` (
 
 -- درج مقادیر پیش‌فرض در settings و provider_state
 INSERT IGNORE INTO `settings` (`k`, `v`) VALUES
-    ('site_title', 'همی‌هاب گیلان — معرفی بهترین‌های استان گیلان'),
+    ('site_title', 'حامی‌هاب گیلان — معرفی بهترین‌های استان گیلان'),
     ('photo_policy', 'none'),
     ('map_tile_url', 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'),
     ('bayes_m_weight', '20'),

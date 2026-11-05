@@ -51,7 +51,7 @@ final class ArticleController
             foreach ($items as &$it) {
                 $hl = !empty($it['highlights']) ? (json_decode((string)$it['highlights'], true) ?: []) : [];
                 $it['rank_num'] = (int)$it['position'];
-                $it['badge_fa'] = (string)($hl['badge'] ?? 'منتخب همی‌هاب');
+                $it['badge_fa'] = (string)($hl['badge'] ?? 'منتخب حامی‌هاب');
                 $it['verdict_fa'] = (string)($hl['verdict'] ?? '');
                 $it['custom_desc_html'] = (string)($it['custom_desc'] ?? '');
             }
@@ -101,7 +101,7 @@ final class ArticleController
         if (!in_array($status, ['draft', 'review', 'published'], true)) {
             $status = 'published';
         }
-        $metaTitle = trim((string)$req->input('meta_title', '')) ?: ($titleFa . ' | همی‌هاب گیلان');
+        $metaTitle = trim((string)$req->input('meta_title', '')) ?: ($titleFa . ' | حامی‌هاب گیلان');
         $metaDesc = trim((string)$req->input('meta_description', '')) ?: $subtitleFa;
 
         if ($cityId <= 0 || $titleFa === '') {
@@ -188,7 +188,7 @@ final class ArticleController
                 }
                 $isSponsored = !empty($it['is_sponsored']) ? 1 : 0;
                 $highlights = json_encode([
-                    'badge'   => trim((string)($it['badge_fa'] ?? 'منتخب همی‌هاب')),
+                    'badge'   => trim((string)($it['badge_fa'] ?? 'منتخب حامی‌هاب')),
                     'verdict' => trim((string)($it['verdict_fa'] ?? 'گزینه تاییدشده در رتبه‌بندی بیزین.')),
                     'pros'    => is_array($it['pros'] ?? null) ? $it['pros'] : ['کیفیت خدمات بالا', 'موقعیت مکانی مناسب'],
                     'cons'    => is_array($it['cons'] ?? null) ? $it['cons'] : ['شلوغی در ساعات پیک'],
@@ -284,7 +284,7 @@ final class ArticleController
         $baseSlug = 'best-' . $cat['slug'] . '-' . $city['slug'];
         $slug = SlugService::ensureUniqueSlug('articles', strtolower($baseSlug));
         $titleFa = 'بهترین ' . $cat['name_fa'] . ' در ' . $city['name_fa'] . ' (رتبه‌بندی سال ۱۴۰۵)';
-        $subtitleFa = 'مقایسه و معرفی برترین مراکز ' . $cat['name_fa'] . ' شهر ' . $city['name_fa'] . ' بر اساس امتیاز وزنی بیزین و بازبینی تحریریه همی‌هاب گیلان.';
+        $subtitleFa = 'مقایسه و معرفی برترین مراکز ' . $cat['name_fa'] . ' شهر ' . $city['name_fa'] . ' بر اساس امتیاز وزنی بیزین و بازبینی تحریریه حامی‌هاب گیلان.';
 
         DB::query(
             "INSERT INTO articles (
@@ -297,7 +297,7 @@ final class ArticleController
             [
                 'title'      => $titleFa,
                 'slug'       => $slug,
-                'meta_title' => $titleFa . ' | آدرس، تلفن و نقشه | همی‌هاب گیلان',
+                'meta_title' => $titleFa . ' | آدرس، تلفن و نقشه | حامی‌هاب گیلان',
                 'meta_desc'  => $subtitleFa,
                 'cat_id'     => $categoryId,
                 'city_id'    => $cityId,

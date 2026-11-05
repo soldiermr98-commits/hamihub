@@ -9,6 +9,7 @@ declare(strict_types=1);
 define('BASE_PATH', dirname(__DIR__, 2));
 require_once BASE_PATH . '/app/Core/Bootstrap.php';
 
+use App\Controllers\AiWorkerController;
 use App\Controllers\ArticleController;
 use App\Controllers\AuthController;
 use App\Controllers\BusinessController;
@@ -24,9 +25,9 @@ use App\Core\Router;
 
 Bootstrap::init(BASE_PATH);
 
-// پاک‌سازی خودکار کش قدیمی در صورت عدم تطابق با استایل جدید S4.3 (تم آبی لوگو و لاجوردی)
+// پاک‌سازی خودکار کش قدیمی در صورت عدم تطابق با استایل جدید S5.0 (حامی‌هاب + گلس‌مورفیسم)
 $homeCache = Cache::getPage('/');
-if ($homeCache !== null && !str_contains($homeCache, 'public.css?v=s4.3')) {
+if ($homeCache !== null && !str_contains($homeCache, 'public.css?v=s5.0')) {
     Cache::flushAll();
 }
 
@@ -74,5 +75,12 @@ $router->get('/api/v1/articles', [ArticleController::class, 'index']);
 $router->post('/api/v1/articles', [ArticleController::class, 'storeOrUpdate']);
 $router->post('/api/v1/articles/auto-build', [ArticleController::class, 'autoBuild']);
 $router->post('/api/v1/events/track', [PublicSiteController::class, 'trackEvent']);
+
+// ۶. مسیرهای صف کارهای هوش مصنوعی بدون توهم و ورکر راه دور (مرحله S5)
+$router->get('/api/v1/ai/tasks', [AiWorkerController::class, 'index']);
+$router->post('/api/v1/ai/tasks/enqueue', [AiWorkerController::class, 'enqueue']);
+$router->post('/api/v1/ai/tasks/run-batch', [AiWorkerController::class, 'runBatch']);
+$router->get('/api/v1/ai/tasks/next', [AiWorkerController::class, 'pullNextTask']);
+$router->post('/api/v1/ai/tasks/complete', [AiWorkerController::class, 'completeTask']);
 
 $router->dispatch($request);

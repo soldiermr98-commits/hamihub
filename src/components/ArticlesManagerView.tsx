@@ -24,6 +24,7 @@ import {
   flushPublicHtmlCache,
   saveArticleItem,
 } from '../services/adminApi';
+import { AiWorkerPanel } from './AiWorkerPanel';
 
 interface ArticlesManagerViewProps {
   cities: CityItem[];
@@ -105,7 +106,7 @@ export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
       {
         question_fa: 'رتبه‌بندی این لیست بر چه اساسی انجام شده است؟',
         answer_fa:
-          'بر اساس امتیاز وزنی بیزین (Bayesian Weighted Score با m=20) و تطابق چندمنبعی در همی‌هاب گیلان.',
+          'بر اساس امتیاز وزنی بیزین (Bayesian Weighted Score با m=20) و تطابق چندمنبعی در حامی‌هاب گیلان.',
         sort_order: 1,
       },
     ]);
@@ -184,12 +185,15 @@ export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* پنل گلس‌مورفیسم مرحله S5: صف هوش مصنوعی بدون توهم (ai_tasks) */}
+      <AiWorkerPanel csrfToken={csrfToken} onRefreshParent={loadArticles} />
+
       {/* هدر بخش مدیریت مقالات لیستی و قالب‌های سئو S4 */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6">
+      <div className="bg-white/85 backdrop-blur-md border border-blue-200/80 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-emerald-700" />
+              <FileText className="w-5 h-5 text-blue-600" />
               مدیریت مقالات لیستی سئو، اسکیماهای JSON-LD و کش صفحات عمومی (مرحله S4)
             </h1>
             <p className="text-xs text-slate-600 mt-1">

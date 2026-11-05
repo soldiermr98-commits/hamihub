@@ -48,7 +48,7 @@ final class PublicSiteController
     {
         try {
             $oldHomeCache = Cache::getPage('/');
-            if ($oldHomeCache !== null && !str_contains($oldHomeCache, 'public.css?v=s4.3')) {
+            if ($oldHomeCache !== null && !str_contains($oldHomeCache, 'public.css?v=s5.0')) {
                 Cache::flushAll();
             }
 
@@ -79,11 +79,11 @@ final class PublicSiteController
                 )",
                 [
                     'title'      => 'بهترین کافه‌ها و رستوران‌های رشت در سال ۱۴۰۵ (لیست منتخب و امتیاز بیزین)',
-                    'meta_title' => 'بهترین کافه‌ها و رستوران‌های رشت (آپدیت ۱۴۰۵) | همی‌هاب گیلان',
+                    'meta_title' => 'بهترین کافه‌ها و رستوران‌های رشت (آپدیت ۱۴۰۵) | حامی‌هاب گیلان',
                     'meta_desc'  => 'معرفی و رتبه‌بندی بهترین کافه‌ها و رستوران‌های رشت بر اساس امتیاز وزنی بیزین، تطابق چندمنبعی، آدرس دقیق، شماره تماس و نقشه تعاملی.',
                     'cat_id'     => $catId,
                     'city_id'    => $rashtId,
-                    'intro'      => '<p>رشت به عنوان شهر خلاق خوراک‌شناسی یونسکو، میزبان صدها کافه و رستوران متنوع است. در این راهنمای جامع، سیستم هوشمند <strong>همی‌هاب گیلان (HamiHubX)</strong> با پایش چندمنبعی و فرمول امتیاز وزنی بیزین (Bayesian Score با پارامتر m=20) بهترین گزینه‌های شهر رشت را رتبه‌بندی کرده است.</p>',
+                    'intro'      => '<p>رشت به عنوان شهر خلاق خوراک‌شناسی یونسکو، میزبان صدها کافه و رستوران متنوع است. در این راهنمای جامع، سیستم هوشمند <strong>حامی‌هاب گیلان (HamiHubX)</strong> با پایش چندمنبعی و فرمول امتیاز وزنی بیزین (Bayesian Score با پارامتر m=20) بهترین گزینه‌های شهر رشت را رتبه‌بندی کرده است.</p>',
                     'tips_html'  => '<p>تمامی واحدهای معرفی‌شده در این فهرست در شعاع ۸۰ متری صحت‌سنجی شده‌اند، جایگاه‌های اسپانسرشیپ با برچسب شفاف مشخص گردیده‌اند و هیچ‌گونه امتیاز ساختگی در اسکیماهای سئو ثبت نمی‌شود.</p>',
                 ]
             );
@@ -120,10 +120,10 @@ final class PublicSiteController
                         'aid'        => $articleId,
                         'bid'        => (int)$biz['id'],
                         'pos'        => $pos,
-                        'desc'       => (string)($biz['short_desc'] ?: ($biz['name'] . ' یکی از مجموعه‌های منتخب و تاییدشده شهر رشت در رتبه‌بندی همی‌هاب گیلان است.')),
+                        'desc'       => (string)($biz['short_desc'] ?: ($biz['name'] . ' یکی از مجموعه‌های منتخب و تاییدشده شهر رشت در رتبه‌بندی حامی‌هاب گیلان است.')),
                         'highlights' => $highlights,
                         'is_spon'    => $isSponsored,
-                        'spon_label' => 'پیشنهاد ویژه همی‌هاب',
+                        'spon_label' => 'پیشنهاد ویژه حامی‌هاب',
                         'spon_start' => $isSponsored ? date('Y-m-d 00:00:00', strtotime('-7 days')) : null,
                         'spon_end'   => $isSponsored ? date('Y-m-d 23:59:59', strtotime('+60 days')) : null,
                     ]
@@ -133,7 +133,7 @@ final class PublicSiteController
 
             $faqs = [
                 [
-                    'q' => 'رتبه‌بندی بهترین کافه‌ها و رستوران‌های رشت در همی‌هاب چگونه انجام می‌شود؟',
+                    'q' => 'رتبه‌بندی بهترین کافه‌ها و رستوران‌های رشت در حامی‌هاب چگونه انجام می‌شود؟',
                     'a' => 'رتبه‌بندی بر اساس فرمول امتیاز وزنی بیزین (Bayesian Weighted Score با پارامتر m=20)، تطابق اطلاعات در چند منبع مستقل و صحت‌سنجی مختصات جغرافیایی در شعاع ۸۰ متری انجام می‌شود.',
                 ],
                 [
@@ -203,7 +203,7 @@ final class PublicSiteController
             [
                 '@context'    => 'https://schema.org',
                 '@type'       => 'WebSite',
-                'name'        => 'همی‌هاب گیلان | HamiHubX.ir',
+                'name'        => 'حامی‌هاب گیلان | HamiHubX.ir',
                 'url'         => $baseUrl . '/',
                 'description' => 'پلتفرم خودکار معرفی و رتبه‌بندی بهترین کسب‌وکارها، کافه‌ها، رستوران‌ها و خدمات استان گیلان',
             ],
@@ -219,20 +219,22 @@ final class PublicSiteController
         ?>
         <section class="hx-hero">
             <div class="hx-container">
-                <span class="hx-hero-badge">
-                    <?= self::icon('verify', 'hx-icon hx-icon-sm') ?>
-                    <span>پلتفرم هوشمند رتبه‌بندی محلی استان گیلان · فونت لوکال و کش فوق‌سریع</span>
-                </span>
-                <h1>بهترین کافه‌ها، رستوران‌ها و خدمات استان گیلان</h1>
-                <p>رتبه‌بندی شفاف بر اساس امتیاز وزنی بیزین (Bayesian Score)، راستی‌آزمایی چندمنبعی در شعاع ۸۰ متری و بررسی تحریریه در شهرهای رشت، بندر انزلی، لاهیجان و سراسر گیلان.</p>
-                <div class="hx-city-pills">
-                    <?php foreach ($cities as $city): ?>
-                        <a class="hx-city-pill" href="/city/<?= self::e($city['slug']) ?>/">
-                            <?= self::icon('location', 'hx-icon hx-icon-sm') ?>
-                            <span><?= self::e($city['name_fa']) ?></span>
-                            <small style="opacity:0.75;">(<?= (int)$city['biz_count'] ?>)</small>
-                        </a>
-                    <?php endforeach; ?>
+                <div class="hx-hero-glass-panel">
+                    <span class="hx-hero-badge">
+                        <?= self::icon('verify', 'hx-icon hx-icon-sm') ?>
+                        <span>حامی‌هاب گیلان · پلتفرم هوشمند رتبه‌بندی محلی استان گیلان</span>
+                    </span>
+                    <h1>بهترین کافه‌ها، رستوران‌ها و خدمات استان گیلان</h1>
+                    <p>رتبه‌بندی شفاف بر اساس امتیاز وزنی بیزین (Bayesian Score)، راستی‌آزمایی چندمنبعی در شعاع ۸۰ متری و تولید محتوای مستند در شهرهای رشت، بندر انزلی، لاهیجان و سراسر گیلان.</p>
+                    <div class="hx-city-pills">
+                        <?php foreach ($cities as $city): ?>
+                            <a class="hx-city-pill" href="/city/<?= self::e($city['slug']) ?>/">
+                                <?= self::icon('location', 'hx-icon hx-icon-sm') ?>
+                                <span><?= self::e($city['name_fa']) ?></span>
+                                <small style="opacity:0.75;">(<?= (int)$city['biz_count'] ?>)</small>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
                 </div>
             </div>
         </section>
@@ -329,7 +331,7 @@ final class PublicSiteController
         $bodyHtml = (string)ob_get_clean();
 
         $fullHtml = self::renderLayout([
-            'title'       => 'همی‌هاب گیلان (HamiHubX) | بهترین کافه‌ها، رستوران‌ها و خدمات استان گیلان',
+            'title'       => 'حامی‌هاب گیلان (HamiHubX) | بهترین کافه‌ها، رستوران‌ها و خدمات استان گیلان',
             'description' => 'پلتفرم هوشمند معرفی و رتبه‌بندی بهترین کسب‌وکارها، کافه‌ها، رستوران‌ها و مراکز خدماتی در رشت، انزلی، لاهیجان و سراسر استان گیلان با امتیاز وزنی بیزین.',
             'canonical'   => $baseUrl . '/',
             'og_type'     => 'website',
@@ -416,7 +418,7 @@ final class PublicSiteController
         }
 
         $breadcrumbSchema = self::buildBreadcrumbSchema([
-            ['name' => 'همی‌هاب گیلان', 'url' => $baseUrl . '/'],
+            ['name' => 'حامی‌هاب گیلان', 'url' => $baseUrl . '/'],
             ['name' => (string)$biz['city_name_fa'], 'url' => $baseUrl . '/city/' . $biz['city_slug'] . '/'],
             ['name' => (string)$biz['category_name_fa'], 'url' => $baseUrl . '/city/' . $biz['city_slug'] . '/' . $biz['category_slug'] . '/'],
             ['name' => (string)$biz['name'], 'url' => $canonical],
@@ -424,12 +426,13 @@ final class PublicSiteController
 
         $mapMarkers = self::extractMarkers([$biz]);
         $bullets = !empty($biz['bullets_json']) ? (json_decode((string)$biz['bullets_json'], true) ?: []) : [];
+        $bizFaqs = !empty($biz['faqs_json']) ? (json_decode((string)$biz['faqs_json'], true) ?: []) : [];
 
         ob_start();
         ?>
         <main class="hx-container">
             <nav class="hx-breadcrumb" aria-label="مسیر صفحه">
-                <a href="/">همی‌هاب گیلان</a>
+                <a href="/">حامی‌هاب گیلان</a>
                 <span>/</span>
                 <a href="/city/<?= self::e($biz['city_slug']) ?>/"><?= self::e($biz['city_name_fa']) ?></a>
                 <span>/</span>
@@ -537,6 +540,23 @@ final class PublicSiteController
                         </div>
                     </div>
                 <?php endif; ?>
+
+                <?php if (!empty($bizFaqs)): ?>
+                    <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--hx-slate-200);">
+                        <h2 style="font-size:1.05rem;font-weight:800;margin:0 0 0.75rem;display:flex;align-items:center;gap:0.4rem;">
+                            <?= self::icon('message-question', 'hx-icon hx-icon-sm') ?>
+                            <span>سؤالات متداول درباره <?= self::e($biz['name']) ?></span>
+                        </h2>
+                        <?php foreach ($bizFaqs as $bf):
+                            if (!is_array($bf) || empty($bf['question']) || empty($bf['answer'])) continue;
+                        ?>
+                            <div class="hx-faq-item">
+                                <p class="hx-faq-q"><?= self::icon('message-question', 'hx-icon hx-icon-sm') ?> <span><?= self::e((string)$bf['question']) ?></span></p>
+                                <p class="hx-faq-a"><?= self::e((string)$bf['answer']) ?></p>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
             </article>
 
             <?php if (!empty($mapMarkers)): ?>
@@ -561,10 +581,10 @@ final class PublicSiteController
         <?php
         $bodyHtml = (string)ob_get_clean();
 
-        $title = $biz['name'] . ' در ' . $biz['city_name_fa'] . ' | آدرس، تلفن و امتیاز بیزین | همی‌هاب گیلان';
+        $title = $biz['name'] . ' در ' . $biz['city_name_fa'] . ' | آدرس، تلفن و امتیاز بیزین | حامی‌هاب گیلان';
         $desc = !empty($biz['short_desc'])
             ? (string)$biz['short_desc']
-            : ('اطلاعات کامل، آدرس، شماره تماس و مسیریابی ' . $biz['name'] . ' در ' . $biz['city_name_fa'] . ' بر اساس رتبه‌بندی همی‌هاب گیلان.');
+            : ('اطلاعات کامل، آدرس، شماره تماس و مسیریابی ' . $biz['name'] . ' در ' . $biz['city_name_fa'] . ' بر اساس رتبه‌بندی حامی‌هاب گیلان.');
 
         $fullHtml = self::renderLayout([
             'title'       => $title,
@@ -607,7 +627,7 @@ final class PublicSiteController
 
         $schemas = [
             self::buildBreadcrumbSchema([
-                ['name' => 'همی‌هاب گیلان', 'url' => $baseUrl . '/'],
+                ['name' => 'حامی‌هاب گیلان', 'url' => $baseUrl . '/'],
                 ['name' => 'بهترین‌های ' . $city['name_fa'], 'url' => $canonical],
             ]),
             [
@@ -624,7 +644,7 @@ final class PublicSiteController
         ?>
         <main class="hx-container">
             <nav class="hx-breadcrumb" aria-label="مسیر صفحه">
-                <a href="/">همی‌هاب گیلان</a>
+                <a href="/">حامی‌هاب گیلان</a>
                 <span>/</span>
                 <strong>شهر <?= self::e($city['name_fa']) ?></strong>
             </nav>
@@ -692,7 +712,7 @@ final class PublicSiteController
         $bodyHtml = (string)ob_get_clean();
 
         $fullHtml = self::renderLayout([
-            'title'       => 'بهترین کافه‌ها، رستوران‌ها و خدمات ' . $city['name_fa'] . ' | همی‌هاب گیلان',
+            'title'       => 'بهترین کافه‌ها، رستوران‌ها و خدمات ' . $city['name_fa'] . ' | حامی‌هاب گیلان',
             'description' => 'لیست کامل و رتبه‌بندی بهترین کسب‌وکارها، کافه‌ها، رستوران‌ها و خدمات شهر ' . $city['name_fa'] . ' همراه با آدرس، تلفن و نقشه تعاملی.',
             'canonical'   => $canonical,
             'og_type'     => 'website',
@@ -734,7 +754,7 @@ final class PublicSiteController
 
         $schemas = [
             self::buildBreadcrumbSchema([
-                ['name' => 'همی‌هاب گیلان', 'url' => $baseUrl . '/'],
+                ['name' => 'حامی‌هاب گیلان', 'url' => $baseUrl . '/'],
                 ['name' => (string)$city['name_fa'], 'url' => $baseUrl . '/city/' . $city['slug'] . '/'],
                 ['name' => (string)$category['name_fa'] . ' در ' . $city['name_fa'], 'url' => $canonical],
             ]),
@@ -752,7 +772,7 @@ final class PublicSiteController
         ?>
         <main class="hx-container">
             <nav class="hx-breadcrumb" aria-label="مسیر صفحه">
-                <a href="/">همی‌هاب گیلان</a>
+                <a href="/">حامی‌هاب گیلان</a>
                 <span>/</span>
                 <a href="/city/<?= self::e($city['slug']) ?>/"><?= self::e($city['name_fa']) ?></a>
                 <span>/</span>
@@ -789,7 +809,7 @@ final class PublicSiteController
         $bodyHtml = (string)ob_get_clean();
 
         $fullHtml = self::renderLayout([
-            'title'       => 'بهترین ' . $category['name_fa'] . ' در ' . $city['name_fa'] . ' | رتبه‌بندی و آدرس | همی‌هاب',
+            'title'       => 'بهترین ' . $category['name_fa'] . ' در ' . $city['name_fa'] . ' | رتبه‌بندی و آدرس | حامی‌هاب',
             'description' => 'معرفی بهترین ' . $category['name_fa'] . ' در شهر ' . $city['name_fa'] . ' بر اساس امتیاز وزنی بیزین، نظرات کاربران، آدرس دقیق و شماره تماس.',
             'canonical'   => $canonical,
             'og_type'     => 'website',
@@ -869,7 +889,7 @@ final class PublicSiteController
             'mainEntityOfPage' => $canonical,
             'author'           => [
                 '@type' => 'Organization',
-                'name'  => 'تحریریه همی‌هاب گیلان (HamiHubX)',
+                'name'  => 'تحریریه حامی‌هاب گیلان (HamiHubX)',
                 'url'   => $baseUrl . '/',
             ],
             'publisher'        => [
@@ -897,7 +917,7 @@ final class PublicSiteController
         ];
 
         $breadcrumbItems = [
-            ['name' => 'همی‌هاب گیلان', 'url' => $baseUrl . '/'],
+            ['name' => 'حامی‌هاب گیلان', 'url' => $baseUrl . '/'],
             ['name' => (string)$article['city_name_fa'], 'url' => $baseUrl . '/city/' . $article['city_slug'] . '/'],
         ];
         if (!empty($article['category_slug'])) {
@@ -952,7 +972,7 @@ final class PublicSiteController
         ?>
         <main class="hx-container">
             <nav class="hx-breadcrumb" aria-label="مسیر صفحه">
-                <a href="/">همی‌هاب گیلان</a>
+                <a href="/">حامی‌هاب گیلان</a>
                 <span>/</span>
                 <a href="/city/<?= self::e($article['city_slug']) ?>/"><?= self::e($article['city_name_fa']) ?></a>
                 <?php if (!empty($article['category_slug'])): ?>
@@ -1156,7 +1176,7 @@ final class PublicSiteController
                         <div class="hx-card">
                             <h2 class="hx-section-title" style="margin-bottom:0.5rem;">
                                 <?= self::icon('verify') ?>
-                                <span>روش‌شناسی امتیازدهی و راستی‌آزمایی در همی‌هاب</span>
+                                <span>روش‌شناسی امتیازدهی و راستی‌آزمایی در حامی‌هاب</span>
                             </h2>
                             <div class="hx-prose"><?= (string)$article['tips_html'] ?></div>
                         </div>
@@ -1185,7 +1205,7 @@ final class PublicSiteController
         <?php
         $bodyHtml = (string)ob_get_clean();
 
-        $title = !empty($article['meta_title']) ? (string)$article['meta_title'] : ((string)$article['title'] . ' | همی‌هاب گیلان');
+        $title = !empty($article['meta_title']) ? (string)$article['meta_title'] : ((string)$article['title'] . ' | حامی‌هاب گیلان');
         $desc = !empty($article['meta_description']) ? (string)$article['meta_description'] : (string)$article['title'];
 
         $fullHtml = self::renderLayout([
@@ -1412,12 +1432,12 @@ final class PublicSiteController
 
     private static function renderLayout(array $data): string
     {
-        $title = (string)($data['title'] ?? 'همی‌هاب گیلان');
-        $description = (string)($data['description'] ?? '');
+        $title = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)($data['title'] ?? 'حامی‌هاب گیلان'));
+        $description = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)($data['description'] ?? ''));
         $canonical = (string)($data['canonical'] ?? self::baseUrl() . '/');
         $ogType = (string)($data['og_type'] ?? 'website');
         $schemas = (array)($data['schemas'] ?? []);
-        $body = (string)($data['body'] ?? '');
+        $body = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)($data['body'] ?? ''));
         $baseUrl = self::baseUrl();
 
         ob_start();
@@ -1439,7 +1459,7 @@ final class PublicSiteController
     <meta property="og:title" content="<?= self::e($title) ?>">
     <meta property="og:description" content="<?= self::e($description) ?>">
     <meta property="og:url" content="<?= self::e($canonical) ?>">
-    <meta property="og:site_name" content="همی‌هاب گیلان | HamiHubX.ir">
+    <meta property="og:site_name" content="حامی‌هاب گیلان | HamiHubX.ir">
     <meta property="og:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="<?= self::e($title) ?>">
@@ -1447,9 +1467,11 @@ final class PublicSiteController
     <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s4.3">
-    <?php foreach ($schemas as $schema): ?>
-    <script type="application/ld+json"><?= json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
+    <link rel="stylesheet" href="/assets/css/public.css?v=s5.0">
+    <?php foreach ($schemas as $schema):
+        $schemaJson = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    ?>
+    <script type="application/ld+json"><?= $schemaJson ?></script>
     <?php endforeach; ?>
 </head>
 <body>
@@ -1458,7 +1480,7 @@ final class PublicSiteController
             <a href="/" class="hx-brand">
                 <img src="/assets/img/favicon.png" alt="HamiHubX" class="hx-brand-logo" width="40" height="40">
                 <span>
-                    همی‌هاب گیلان
+                    حامی‌هاب گیلان
                     <span class="hx-brand-en" dir="ltr">HamiHub<span class="hx-brand-x">X</span></span>
                 </span>
             </a>
@@ -1480,7 +1502,7 @@ final class PublicSiteController
             <div style="display:flex;align-items:center;gap:0.75rem;">
                 <img src="/assets/img/favicon.png" alt="HamiHubX" width="32" height="32" style="border-radius:8px;">
                 <div>
-                    <strong style="color:#fff;">همی‌هاب گیلان (HamiHubX.ir)</strong> — پلتفرم خودکار معرفی و رتبه‌بندی بهترین کسب‌وکارهای استان گیلان بر اساس الگوریتم امتیاز وزنی بیزین.
+                    <strong style="color:#fff;">حامی‌هاب گیلان (HamiHubX.ir)</strong> — پلتفرم خودکار معرفی و رتبه‌بندی بهترین کسب‌وکارهای استان گیلان بر اساس الگوریتم امتیاز وزنی بیزین.
                 </div>
             </div>
             <div style="display:flex;gap:1.15rem;">
@@ -1490,7 +1512,7 @@ final class PublicSiteController
             </div>
         </div>
     </footer>
-    <script src="/assets/js/public.js?v=s4.3" defer></script>
+    <script src="/assets/js/public.js?v=s5.0" defer></script>
 </body>
 </html>
         <?php
@@ -1500,10 +1522,10 @@ final class PublicSiteController
     private static function render404(string $message): void
     {
         $html = self::renderLayout([
-            'title'       => 'صفحه یافت نشد (404) | همی‌هاب گیلان',
+            'title'       => 'صفحه یافت نشد (404) | حامی‌هاب گیلان',
             'description' => $message,
             'canonical'   => self::baseUrl() . '/',
-            'body'        => '<main class="hx-container" style="padding:3rem 1rem;"><div class="hx-card" style="text-align:center;padding:2.5rem;"><h1>۴۰۴ — صفحه مورد نظر یافت نشد</h1><p class="hx-card-desc">' . self::e($message) . '</p><div style="margin-top:1rem;"><a class="hx-btn hx-btn-primary" href="/">بازگشت به صفحه اصلی همی‌هاب</a></div></div></main>',
+            'body'        => '<main class="hx-container" style="padding:3rem 1rem;"><div class="hx-card" style="text-align:center;padding:2.5rem;"><h1>۴۰۴ — صفحه مورد نظر یافت نشد</h1><p class="hx-card-desc">' . self::e($message) . '</p><div style="margin-top:1rem;"><a class="hx-btn hx-btn-primary" href="/">بازگشت به صفحه اصلی حامی‌هاب</a></div></div></main>',
         ]);
         Response::html($html, 404);
     }

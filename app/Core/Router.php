@@ -87,7 +87,7 @@ final class Router
 
         Response::html(
             '<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>۴۰۴ - صفحه پیدا نشد</title></head>' .
-            '<body style="font-family:tahoma,sans-serif;text-align:center;padding:4rem;"><h1>۴۰۴ — صفحه مورد نظر در همی‌هاب گیلان پیدا نشد</h1>' .
+            '<body style="font-family:tahoma,sans-serif;text-align:center;padding:4rem;"><h1>۴۰۴ — صفحه مورد نظر در حامی‌هاب گیلان پیدا نشد</h1>' .
             '<p><a href="/">بازگشت به صفحه اصلی</a></p></body></html>',
             404
         );

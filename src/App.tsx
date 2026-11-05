@@ -41,6 +41,7 @@ import { CitiesAndCategoriesView } from './components/CitiesAndCategoriesView';
 import { BusinessesManagerView } from './components/BusinessesManagerView';
 import { ReviewQueueView } from './components/ReviewQueueView';
 import { ArticlesManagerView } from './components/ArticlesManagerView';
+import { AiWorkerPanel } from './components/AiWorkerPanel';
 
 type AdminRoute =
   | '/admin/dashboard'
@@ -62,8 +63,8 @@ const NAV_ITEMS: Array<{
   { path: '/admin/review', label: 'صندوق بازبینی', icon: Inbox, stageNote: 'فعال در مرحله S3' },
   { path: '/admin/cities', label: 'شهرها و جمع‌آوری', icon: MapPin, stageNote: 'فعال در مراحل S1/S2' },
   { path: '/admin/businesses', label: 'کسب‌وکارها', icon: Store, stageNote: 'فعال در مرحله S1' },
-  { path: '/admin/articles', label: 'مقالات لیستی سئو', icon: FileText, stageNote: 'فعال در مرحله S4' },
-  { path: '/admin/settings', label: 'تنظیمات', icon: Settings, stageNote: 'فعال در S0-S4' },
+  { path: '/admin/articles', label: 'مقالات و هوش مصنوعی S5', icon: FileText, stageNote: 'فعال در مراحل S4/S5' },
+  { path: '/admin/settings', label: 'تنظیمات و صف AI', icon: Settings, stageNote: 'فعال در S0-S5' },
 ];
 
 export default function App() {
@@ -104,7 +105,7 @@ export default function App() {
   // فرم نصب اولیه یک‌بارمصرف (install.php)
   const [installToken, setInstallToken] = useState<string>('hhx-install-2026-secret-token');
   const [installUsername, setInstallUsername] = useState<string>('admin');
-  const [installDisplayName, setInstallDisplayName] = useState<string>('مدیر ارشد همی‌هاب');
+  const [installDisplayName, setInstallDisplayName] = useState<string>('مدیر ارشد حامی‌هاب');
   const [installPassword, setInstallPassword] = useState<string>('Gilan@1405Strong');
   const [installFeedback, setInstallFeedback] = useState<{
     type: 'ok' | 'err' | null;
@@ -239,9 +240,9 @@ export default function App() {
   }).format(new Date());
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col" dir="rtl">
-      {/* نوار بالایی قرارداد ۳ ناحیه‌ای با تم لاجوردی و لوگوی رسمی HamiHubX */}
-      <header className="flex items-center justify-between gap-8 px-6 py-3 bg-[#050B1E] text-white border-b border-sky-500/20">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/35 to-slate-100 text-slate-900 flex flex-col" dir="rtl">
+      {/* نوار بالایی شیشه‌ای (Glassmorphism) قرارداد ۳ ناحیه‌ای با تم لاجوردی و لوگوی رسمی HamiHubX */}
+      <header className="sticky top-0 z-40 flex items-center justify-between gap-8 px-6 py-3 bg-[#050B1E]/90 backdrop-blur-xl text-white border-b border-sky-400/25 shadow-lg">
         <a
           href="/admin/dashboard"
           onClick={(e) => {
@@ -254,10 +255,10 @@ export default function App() {
           <img
             src="/assets/img/favicon.png"
             alt="HamiHubX"
-            className="w-9 h-9 rounded-lg border border-sky-400/30 shadow-sm object-cover"
+            className="w-9 h-9 rounded-lg border border-sky-400/35 shadow-sm object-cover"
           />
           <span>
-            همی‌هاب گیلان{' '}
+            حامی‌هاب گیلان{' '}
             <span className="font-mono font-extrabold text-sky-400" dir="ltr">
               HamiHubX
             </span>
@@ -617,8 +618,8 @@ export default function App() {
               </div>
             ) : !currentUser ? (
               <main className="flex-1 flex items-center justify-center p-6">
-                <div className="max-w-md w-full bg-white border border-slate-200 rounded-xl p-8">
-                  <h1 className="text-xl font-bold text-slate-900 mb-1">ورود به پنل مدیریت همی‌هاب گیلان</h1>
+                <div className="max-w-md w-full bg-white/85 backdrop-blur-xl border border-blue-200/80 shadow-xl rounded-2xl p-8">
+                  <h1 className="text-xl font-bold text-slate-900 mb-1">ورود به پنل مدیریت حامی‌هاب گیلان</h1>
                   <p className="text-xs text-slate-500 mb-6">
                     نام کاربری پیش‌فرض دمو: <code className="font-mono">admin</code> | رمز:{' '}
                     <code className="font-mono">Gilan@1405Strong</code>
@@ -724,18 +725,18 @@ export default function App() {
 
                   {adminRoute === '/admin/dashboard' && (
                     <div className="space-y-6">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between bg-white/80 backdrop-blur-md border border-blue-200/70 rounded-2xl p-5 shadow-sm">
                         <div>
-                          <h1 className="text-xl font-bold text-slate-900">داشبورد مدیریت همی‌هاب گیلان</h1>
+                          <h1 className="text-xl font-bold text-slate-900">داشبورد مدیریت حامی‌هاب گیلان</h1>
                           <p className="text-xs text-slate-500 mt-1">
-                            خلاصه وضعیت داده‌های مرحله S1 (شهرها، دسته‌ها، بسته‌های دسته و کسب‌وکارها)
+                            خلاصه وضعیت داده‌های شهرها، دسته‌ها، کسب‌وکارها و صف هوش مصنوعی بدون توهم (مراحل S0 تا S5)
                           </p>
                         </div>
                         <div className="flex items-center gap-3">
                           <button
                             type="button"
                             onClick={() => navigateAdmin('/admin/businesses')}
-                            className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg"
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm"
                           >
                             + ثبت سریع کسب‌وکار
                           </button>
@@ -743,33 +744,35 @@ export default function App() {
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="bg-white border border-slate-200 rounded-lg p-5">
+                        <div className="bg-white/85 backdrop-blur-md border border-blue-200/70 rounded-xl p-5 shadow-sm">
                           <div className="text-xs text-slate-500">شهرهای فعال گیلان</div>
                           <div className="text-2xl font-bold text-slate-900 mt-1 font-mono tabular-nums">
                             {cities.length}
                           </div>
-                          <div className="text-xs text-emerald-700 mt-1">افزودن فوری با یک نام</div>
+                          <div className="text-xs text-blue-700 mt-1">افزودن فوری با یک نام</div>
                         </div>
-                        <div className="bg-white border border-slate-200 rounded-lg p-5">
+                        <div className="bg-white/85 backdrop-blur-md border border-blue-200/70 rounded-xl p-5 shadow-sm">
                           <div className="text-xs text-slate-500">دسته‌ها و بسته‌های جستجو</div>
                           <div className="text-2xl font-bold text-slate-900 mt-1 font-mono tabular-nums">
                             {categories.length} دسته · {packs.length} بسته
                           </div>
                           <div className="text-xs text-slate-600 mt-1">آماده جمع‌آوری خودکار S2</div>
                         </div>
-                        <div className="bg-white border border-slate-200 rounded-lg p-5">
+                        <div className="bg-white/85 backdrop-blur-md border border-blue-200/70 rounded-xl p-5 shadow-sm">
                           <div className="text-xs text-slate-500">کسب‌وکارهای ثبت‌شده</div>
                           <div className="text-2xl font-bold text-slate-900 mt-1 font-mono tabular-nums">
                             {businesses.length}
                           </div>
-                          <div className="text-xs text-slate-600 mt-1">با چک‌لیست غیرمسدودکننده</div>
+                          <div className="text-xs text-slate-600 mt-1">با امتیاز وزنی بیزین</div>
                         </div>
-                        <div className="bg-white border border-slate-200 rounded-lg p-5">
-                          <div className="text-xs text-slate-500">فونت و رسانه</div>
-                          <div className="text-lg font-bold text-emerald-700 mt-1">WebP + فونت لوکال</div>
-                          <div className="text-xs text-slate-600 mt-1">سایزهای 480 / 800 / 1200</div>
+                        <div className="bg-white/85 backdrop-blur-md border border-blue-200/70 rounded-xl p-5 shadow-sm">
+                          <div className="text-xs text-slate-500">موتور AI بدون توهم (S5)</div>
+                          <div className="text-lg font-bold text-blue-700 mt-1">گاردریل + used_fields</div>
+                          <div className="text-xs text-slate-600 mt-1">فونت لوکال + کش دیسک</div>
                         </div>
                       </div>
+
+                      <AiWorkerPanel csrfToken={csrfToken} onRefreshParent={loadS1Entities} />
                     </div>
                   )}
 
@@ -795,26 +798,30 @@ export default function App() {
                   )}
 
                   {adminRoute === '/admin/settings' && (
-                    <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
-                      <h1 className="text-lg font-bold text-slate-900">تنظیمات سیستم و مایگریشن تحت وب</h1>
-                      <p className="text-xs text-slate-600">
-                        چون روی هاست اشتراکی DirectAdmin دسترسی ترمینال (SSH) ندارید، از دکمه زیر برای اجرای مایگریشن‌های جدید دیتابیس استفاده کنید:
-                      </p>
-                      {migrationBanner && (
-                        <div className="p-3.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold">
-                          {migrationBanner}
+                    <div className="space-y-6">
+                      <div className="bg-white/85 backdrop-blur-md border border-blue-200/80 rounded-2xl p-6 space-y-5 shadow-sm">
+                        <h1 className="text-lg font-bold text-slate-900">تنظیمات سیستم و مایگریشن تحت وب حامی‌هاب گیلان</h1>
+                        <p className="text-xs text-slate-600">
+                          چون روی هاست اشتراکی DirectAdmin دسترسی ترمینال (SSH) ندارید، از دکمه زیر برای اجرای مایگریشن‌های جدید دیتابیس استفاده کنید:
+                        </p>
+                        {migrationBanner && (
+                          <div className="p-3.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold">
+                            {migrationBanner}
+                          </div>
+                        )}
+                        <div>
+                          <button
+                            type="button"
+                            onClick={handleTriggerWebMigrations}
+                            className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm"
+                          >
+                            <Play className="w-4 h-4" />
+                            بررسی و اجرای مایگریشن‌های جدید دیتابیس (/api/v1/system/migrate)
+                          </button>
                         </div>
-                      )}
-                      <div>
-                        <button
-                          type="button"
-                          onClick={handleTriggerWebMigrations}
-                          className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg"
-                        >
-                          <Play className="w-4 h-4" />
-                          بررسی و اجرای مایگریشن‌های جدید دیتابیس (/api/v1/system/migrate)
-                        </button>
                       </div>
+
+                      <AiWorkerPanel csrfToken={csrfToken} onRefreshParent={loadS1Entities} />
                     </div>
                   )}
 

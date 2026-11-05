@@ -69,7 +69,7 @@ try {
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $username = strtolower(trim((string) ($_POST['username'] ?? '')));
-        $displayName = trim((string) ($_POST['display_name'] ?? 'مدیر ارشد همی‌هاب'));
+        $displayName = trim((string) ($_POST['display_name'] ?? 'مدیر ارشد حامی‌هاب'));
         $password = (string) ($_POST['password'] ?? '');
 
         if (!preg_match('/^[a-z0-9_]{3,32}$/', $username)) {
@@ -146,7 +146,7 @@ if ($success !== '') {
       <label for="username">نام کاربری مدیر (انگلیسی)</label>
       <input id="username" name="username" type="text" value="admin" required>
       <label for="display_name">نام نمایشی (فارسی)</label>
-      <input id="display_name" name="display_name" type="text" value="مدیر ارشد همی‌هاب" required>
+      <input id="display_name" name="display_name" type="text" value="مدیر ارشد حامی‌هاب" required>
       <label for="password">رمز عبور (حداقل ۸ کاراکتر)</label>
       <input id="password" name="password" type="password" required>
       <button type="submit">ساخت مدیر ارشد و قفل کردن نصب‌کننده</button>

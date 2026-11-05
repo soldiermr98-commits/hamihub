@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 return [
     'app' => [
-        'name' => 'همی‌هاب گیلان (HamiHubX)',
+        'name' => 'حامی‌هاب گیلان (HamiHubX)',
         'url' => 'https://hamihubx.ir',
         'env' => 'production',
         'debug' => false,

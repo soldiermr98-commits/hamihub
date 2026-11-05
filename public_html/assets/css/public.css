@@ -1,5 +1,5 @@
 /* ============================================================================
- * HamiHubX.ir - استایل رسمی سایت عمومی با تم آبی لوگو و لاجوردی (مرحله S4 - بودجه < 20KB)
+ * HamiHubX.ir - استایل رسمی سایت عمومی «حامی‌هاب گیلان» (مرحله S5.0 - گلس‌مورفیسم + تم آبی لوگو و لاجوردی)
  * فونت وزیرمتن کاملاً لوکال (self-host) + آیکن‌های خطی سبک Iconsax (بدون ایموجی رنگی)
  * ============================================================================ */
 
@@ -28,10 +28,10 @@
   --hx-brand-cyan: #00d2ff;
   --hx-brand-light: #eff6ff;
   --hx-brand-border: #bfdbfe;
-  --hx-slate-50: #f6f9fc;
-  --hx-slate-100: #edf2f9;
-  --hx-slate-200: #dce5f2;
-  --hx-slate-300: #c3d2e8;
+  --hx-slate-50: #f4f8fd;
+  --hx-slate-100: #eaf1fb;
+  --hx-slate-200: #d8e4f5;
+  --hx-slate-300: #bfd2ec;
   --hx-slate-500: #64748b;
   --hx-slate-600: #475569;
   --hx-slate-700: #334155;
@@ -47,6 +47,11 @@ body {
   margin: 0;
   font-family: 'Vazirmatn', Tahoma, sans-serif;
   background-color: var(--hx-slate-50);
+  background-image:
+    radial-gradient(at 15% 12%, rgba(0, 102, 255, 0.08) 0px, transparent 45%),
+    radial-gradient(at 85% 22%, rgba(0, 210, 255, 0.09) 0px, transparent 45%),
+    radial-gradient(at 50% 80%, rgba(16, 33, 77, 0.05) 0px, transparent 50%);
+  background-attachment: fixed;
   color: var(--hx-slate-900);
   line-height: 1.75;
   direction: rtl;
@@ -67,6 +72,23 @@ a:hover {
   max-width: 1180px;
   margin: 0 auto;
   padding: 0 1.25rem;
+}
+
+/* ==================== کلاس‌های پایه گلس‌مورفیسم (Glassmorphism) ==================== */
+.hx-glass-dark {
+  background: linear-gradient(135deg, rgba(16, 33, 77, 0.62) 0%, rgba(9, 19, 46, 0.78) 100%);
+  backdrop-filter: blur(18px) saturate(175%);
+  -webkit-backdrop-filter: blur(18px) saturate(175%);
+  border: 1px solid rgba(0, 210, 255, 0.24);
+  box-shadow: 0 14px 36px rgba(4, 8, 20, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.hx-glass-light {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(191, 219, 254, 0.8);
+  box-shadow: 0 10px 30px rgba(9, 19, 46, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 /* ==================== آیکن‌های خطی سبک Iconsax ==================== */
@@ -92,11 +114,13 @@ a:hover {
   vertical-align: -4px;
 }
 
-/* ==================== هدر ناوبری لاجوردی و لوگو ==================== */
+/* ==================== هدر ناوبری شیشه‌ای لاجوردی و لوگو ==================== */
 .hx-header {
-  background: rgba(5, 11, 28, 0.96);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(0, 198, 255, 0.16);
+  background: rgba(5, 11, 28, 0.80);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid rgba(0, 210, 255, 0.22);
+  box-shadow: 0 8px 32px rgba(4, 8, 20, 0.28);
   position: sticky;
   top: 0;
   z-index: 50;
@@ -131,8 +155,8 @@ a:hover {
   height: 40px;
   border-radius: 10px;
   object-fit: cover;
-  box-shadow: 0 0 16px rgba(0, 153, 255, 0.35);
-  border: 1px solid rgba(0, 210, 255, 0.3);
+  box-shadow: 0 0 18px rgba(0, 153, 255, 0.4);
+  border: 1px solid rgba(0, 210, 255, 0.35);
 }
 
 .hx-brand-en {
@@ -161,21 +185,24 @@ a:hover {
 
 .hx-nav a {
   color: #cbd5e1;
-  padding: 0.4rem 0.75rem;
-  border-radius: 9px;
+  padding: 0.42rem 0.8rem;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
 }
 
 .hx-nav a:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   color: #00e5ff;
 }
 
 .hx-nav a.hx-nav-admin {
-  background: linear-gradient(135deg, rgba(0, 210, 255, 0.16), rgba(0, 102, 255, 0.28));
-  border: 1px solid rgba(0, 210, 255, 0.35);
+  background: linear-gradient(135deg, rgba(0, 210, 255, 0.18), rgba(0, 102, 255, 0.32));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 210, 255, 0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
   color: #ffffff;
 }
 
@@ -184,24 +211,42 @@ a:hover {
   color: #ffffff;
 }
 
-/* ==================== هیرو لاجوردی و آبی لوگو (Hero) ==================== */
+/* ==================== هیرو لاجوردی با باکس گلس‌مورفیسم ==================== */
 .hx-hero {
-  background: radial-gradient(circle at 50% 0%, rgba(0, 180, 255, 0.22) 0%, transparent 60%),
-              linear-gradient(165deg, #040814 0%, #091536 55%, #0c2359 100%);
-  border-bottom: 1px solid rgba(0, 198, 255, 0.2);
+  background:
+    radial-gradient(circle at 25% 15%, rgba(0, 210, 255, 0.25) 0%, transparent 45%),
+    radial-gradient(circle at 80% 75%, rgba(0, 102, 255, 0.28) 0%, transparent 50%),
+    linear-gradient(165deg, #040814 0%, #091536 55%, #0c2359 100%);
+  border-bottom: 1px solid rgba(0, 210, 255, 0.25);
   padding: 3.5rem 0 3rem;
-  margin-bottom: 2.25rem;
+  margin-bottom: 2.35rem;
   text-align: center;
   color: #ffffff;
+  position: relative;
+  overflow: hidden;
+}
+
+.hx-hero-glass-panel {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2.2rem 1.75rem;
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.09) 0%, rgba(0, 102, 255, 0.08) 100%);
+  backdrop-filter: blur(18px) saturate(165%);
+  -webkit-backdrop-filter: blur(18px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 20px 50px rgba(4, 8, 20, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.24);
 }
 
 .hx-hero-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  background: rgba(0, 198, 255, 0.12);
-  color: #38bdf8;
-  border: 1px solid rgba(0, 198, 255, 0.3);
+  background: rgba(0, 210, 255, 0.14);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #7dd3fc;
+  border: 1px solid rgba(0, 210, 255, 0.35);
   font-size: 0.8rem;
   font-weight: 700;
   padding: 0.35rem 0.95rem;
@@ -222,7 +267,7 @@ a:hover {
   margin: 0 auto 1.75rem;
   max-width: 740px;
   font-size: 0.98rem;
-  color: #cbd5e1;
+  color: #dbeafe;
 }
 
 .hx-city-pills {
@@ -230,7 +275,7 @@ a:hover {
   flex-wrap: wrap;
   justify-content: center;
   gap: 0.6rem;
-  max-width: 920px;
+  max-width: 900px;
   margin: 0 auto;
 }
 
@@ -238,19 +283,21 @@ a:hover {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.09);
   color: #f8fafc;
-  border: 1px solid rgba(191, 219, 254, 0.22);
-  padding: 0.5rem 1rem;
-  border-radius: 11px;
+  border: 1px solid rgba(191, 219, 254, 0.28);
+  padding: 0.5rem 1.05rem;
+  border-radius: 12px;
   font-size: 0.86rem;
   font-weight: 700;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 .hx-city-pill:hover {
   border-color: #00d2ff;
-  background: linear-gradient(135deg, rgba(0, 210, 255, 0.2), rgba(0, 102, 255, 0.35));
+  background: linear-gradient(135deg, rgba(0, 210, 255, 0.25), rgba(0, 102, 255, 0.42));
   color: #ffffff;
   transform: translateY(-1px);
 }
@@ -305,27 +352,31 @@ a:hover {
   }
 }
 
-/* ==================== کارت کسب‌وکار و مقاله ==================== */
+/* ==================== کارت کسب‌وکار و مقاله با افکت شیشه‌ای کریستالی ==================== */
 .hx-card {
-  background: #ffffff;
-  border: 1px solid var(--hx-slate-200);
-  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid rgba(191, 219, 254, 0.78);
+  border-radius: 16px;
   padding: 1.35rem;
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-  box-shadow: 0 2px 6px rgba(9, 19, 46, 0.03);
+  box-shadow: 0 8px 26px rgba(9, 19, 46, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.92);
   transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
 .hx-card:hover {
-  border-color: #93c5fd;
-  box-shadow: 0 10px 24px rgba(0, 71, 204, 0.08);
+  border-color: #60a5fa;
+  box-shadow: 0 14px 32px rgba(0, 71, 204, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  transform: translateY(-2px);
 }
 
 .hx-card-sponsored {
   border: 2px solid var(--hx-brand);
-  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 68%);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.92) 0%, rgba(255, 255, 255, 0.90) 68%);
+  box-shadow: 0 12px 32px rgba(0, 102, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
 .hx-card-top {
@@ -346,7 +397,7 @@ a:hover {
   border-radius: 8px;
   background: linear-gradient(135deg, #09132e 0%, #10214d 100%);
   color: #38bdf8;
-  border: 1px solid rgba(0, 210, 255, 0.3);
+  border: 1px solid rgba(0, 210, 255, 0.35);
   font-size: 0.82rem;
   font-weight: 700;
 }
@@ -404,13 +455,13 @@ a:hover {
 }
 
 .hx-badge-tier-a {
-  background: var(--hx-brand-light);
+  background: rgba(239, 246, 255, 0.9);
   color: var(--hx-brand-dark);
   border-color: var(--hx-brand-border);
 }
 
 .hx-badge-tier-b {
-  background: #f0f9ff;
+  background: rgba(240, 249, 255, 0.9);
   color: #0369a1;
   border-color: #bae6fd;
 }
@@ -422,7 +473,7 @@ a:hover {
 }
 
 .hx-badge-cat {
-  background: var(--hx-slate-100);
+  background: rgba(234, 241, 251, 0.85);
   color: var(--hx-lapis-800);
   border-color: var(--hx-slate-200);
 }
@@ -437,7 +488,7 @@ a:hover {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  background: var(--hx-slate-50);
+  background: rgba(244, 248, 253, 0.9);
   border: 1px solid var(--hx-slate-200);
   padding: 0.22rem 0.65rem;
   border-radius: 8px;
@@ -471,7 +522,7 @@ a:hover {
   background: linear-gradient(135deg, #0077ff 0%, #0047cc 100%);
   color: #ffffff;
   border-color: #0052ff;
-  box-shadow: 0 2px 6px rgba(0, 82, 255, 0.22);
+  box-shadow: 0 4px 12px rgba(0, 82, 255, 0.24);
 }
 
 .hx-btn-primary:hover {
@@ -491,7 +542,8 @@ a:hover {
 }
 
 .hx-btn-outline {
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
   color: var(--hx-lapis-900);
   border-color: var(--hx-slate-300);
 }
@@ -502,7 +554,7 @@ a:hover {
   color: var(--hx-brand-dark);
 }
 
-/* ==================== صفحات مقاله لیستی، جدول مقایسه و خلاصه ==================== */
+/* ==================== صفحات مقاله لیستی، جدول مقایسه و خلاصه شیشه‌ای ==================== */
 .hx-breadcrumb {
   display: flex;
   flex-wrap: wrap;
@@ -514,12 +566,14 @@ a:hover {
 }
 
 .hx-article-header, .hx-detail-hero {
-  background: #ffffff;
-  border: 1px solid var(--hx-slate-200);
-  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(191, 219, 254, 0.8);
+  border-radius: 18px;
   padding: 1.75rem;
   margin-bottom: 1.75rem;
-  box-shadow: 0 2px 6px rgba(9, 19, 46, 0.03);
+  box-shadow: 0 10px 30px rgba(9, 19, 46, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
 .hx-article-header h1 {
@@ -535,10 +589,12 @@ a:hover {
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 0.85rem;
   margin-top: 1rem;
-  padding: 1rem;
-  background: var(--hx-slate-50);
-  border: 1px solid var(--hx-slate-200);
-  border-radius: 12px;
+  padding: 1.05rem;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.72) 0%, rgba(244, 248, 253, 0.88) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(191, 219, 254, 0.85);
+  border-radius: 14px;
 }
 
 .hx-summary-item, .hx-info-box {
@@ -562,10 +618,13 @@ a:hover {
 }
 
 .hx-table-wrap {
-  background: #ffffff;
-  border: 1px solid var(--hx-slate-200);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(191, 219, 254, 0.8);
   border-radius: 14px;
   overflow-x: auto;
+  box-shadow: 0 8px 24px rgba(9, 19, 46, 0.04);
 }
 
 .hx-table {
@@ -603,17 +662,17 @@ a:hover {
 
 .hx-pros, .hx-cons {
   padding: 0.85rem 1rem;
-  border-radius: 10px;
+  border-radius: 11px;
   font-size: 0.84rem;
 }
 
 .hx-pros {
-  background: #eff6ff;
+  background: rgba(239, 246, 255, 0.82);
   border: 1px solid #bfdbfe;
 }
 
 .hx-cons {
-  background: #f8fafc;
+  background: rgba(248, 250, 252, 0.85);
   border: 1px solid var(--hx-slate-300);
 }
 
@@ -631,11 +690,14 @@ a:hover {
 
 /* ==================== باکس نقشه خودمیزبان و سؤالات متداول ==================== */
 .hx-map-box {
-  background: #ffffff;
-  border: 1px solid var(--hx-slate-200);
-  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(191, 219, 254, 0.8);
+  border-radius: 16px;
   padding: 1.25rem;
   margin-bottom: 2rem;
+  box-shadow: 0 8px 26px rgba(9, 19, 46, 0.04);
 }
 
 .hx-map-placeholder {
@@ -649,16 +711,18 @@ a:hover {
   width: 100%;
   height: 360px;
   margin-top: 0.85rem;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid var(--hx-slate-300);
   overflow: hidden;
   position: relative;
 }
 
 .hx-faq-item {
-  background: #ffffff;
-  border: 1px solid var(--hx-slate-200);
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(191, 219, 254, 0.75);
+  border-radius: 13px;
   padding: 1.1rem 1.25rem;
   margin-bottom: 0.75rem;
 }
@@ -683,7 +747,7 @@ a:hover {
 .hx-footer {
   background: linear-gradient(180deg, #060d24 0%, #040814 100%);
   color: #cbd5e1;
-  border-top: 1px solid rgba(0, 198, 255, 0.16);
+  border-top: 1px solid rgba(0, 210, 255, 0.20);
   padding: 2.5rem 0;
   margin-top: 3.5rem;
   font-size: 0.84rem;
