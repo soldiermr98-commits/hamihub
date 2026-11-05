@@ -368,9 +368,18 @@ final class PipelineService
                 ];
             }
 
-            // اگر کسب‌وکار قبلی هنوز در وضعیت pending_review مانده است، اطمینان حاصل شود که در صندوق بازبینی حضور دارد
-            if ((string) ($matchedBusiness['status'] ?? '') === 'pending_review') {
+            // اگر کسب‌وکار قبلی در وضعیت pending_review است یا داده ورودی فاقد تلفن/امتیاز کافی است و قبلاً تایید دستی نشده، در صندوق بازبینی قرار گیرد
+            $currentStatus = (string) ($matchedBusiness['status'] ?? '');
+            $inReviewQueue = false;
+
+            if ($currentStatus === 'pending_review' || ((!$hasValidPhone || $score < $minScoreThreshold) && $currentStatus !== 'published')) {
                 $existingReason = !$hasValidPhone ? 'missing_valid_phone' : 'low_bayesian_score';
+                if ($currentStatus !== 'pending_review') {
+                    DB::query(
+                        "UPDATE businesses SET status = 'pending_review', publish_reason = :rc, updated_at = NOW() WHERE id = :id",
+                        ['rc' => $existingReason, 'id' => $bizId]
+                    );
+                }
                 self::enqueueReviewIfNotExists('business', $bizId, $existingReason, [
                     'business_id' => $bizId,
                     'business_name' => $name,
@@ -379,6 +388,7 @@ final class PipelineService
                     'address' => $address,
                     'phones' => $normalizedPhones,
                 ]);
+                $inReviewQueue = true;
             }
 
             // اگر از همان منبع قبلی دوباره ارسال شده و فاصله < 80 متر یا شماره یکسان دارد -> تکراری (duplicate)
@@ -389,6 +399,7 @@ final class PipelineService
                 'reason_code' => $phoneMatched ? 'duplicate_same_phone' : 'duplicate_within_80m',
                 'business_id' => $bizId,
                 'is_new' => false,
+                'in_review_queue' => $inReviewQueue,
                 'score' => (float) $matchedBusiness['internal_score'],
             ];
         }
@@ -461,7 +472,13 @@ final class PipelineService
 
         DB::query(
             "INSERT INTO business_sources (business_id, provider, source_id, raw, rating, reviews_count, fetched_at)
-             VALUES (:bid, :p, :sid, :raw, :r, :rc, NOW())",
+             VALUES (:bid, :p, :sid, :raw, :r, :rc, NOW())
+             ON DUPLICATE KEY UPDATE
+                business_id = VALUES(business_id),
+                raw = VALUES(raw),
+                rating = COALESCE(VALUES(rating), rating),
+                reviews_count = GREATEST(reviews_count, VALUES(reviews_count)),
+                fetched_at = NOW()",
             [
                 'bid' => $bizId,
                 'p' => $provider,
@@ -503,6 +520,7 @@ final class PipelineService
             'reason_code' => $reasonCode,
             'business_id' => $bizId,
             'is_new' => true,
+            'in_review_queue' => $status === 'pending_review',
             'score' => $score,
         ];
     }

@@ -1655,8 +1655,9 @@ export async function triggerCollectorJobRun(
       }
 
       const job = nextData.job;
+      const packLabel = job.pack_name ? ` · ${job.pack_name}` : '';
       logs.push(
-        `[GET /api/v1/collector/jobs/next]: Job #${job.id} («${job.city_name_fa}» با پرووایدر ${job.provider}) دریافت و به حالت running تغییر یافت.`
+        `[GET /api/v1/collector/jobs/next]: Job #${job.id} («${job.city_name_fa}${packLabel}» با پرووایدر ${job.provider}) دریافت و به حالت running تغییر یافت.`
       );
 
       if (simulate429Fallback) {
@@ -1679,9 +1680,19 @@ export async function triggerCollectorJobRun(
         return { ok: true, logLines: logs };
       }
 
-      const sampleCafes = getSampleRashtCafesPayload(job.city_name_fa || 'رشت', job.provider);
+      const sampleItems = getSamplePayloadForJob({
+        cityId: Number(job.city_id || 1),
+        cityName: job.city_name_fa || 'رشت',
+        lat: Number(job.lat || 37.2808),
+        lng: Number(job.lng || 49.5830),
+        provider: job.provider || 'gosom',
+        packId: Number(job.pack_id || 0),
+        packName: String(job.pack_name || ''),
+        categoryId: Number(job.category_id || 1),
+        queries: Array.isArray(job.queries) ? job.queries : [],
+      });
       logs.push(
-        `[اجرای پرووایدر ${job.provider}]: ${sampleCafes.length} کسب‌وکار یافت شد. در حال ارسال به POST /api/v1/collector/ingest ...`
+        `[اجرای پرووایدر ${job.provider}]: ${sampleItems.length} کسب‌وکار مرتبط با «${job.city_name_fa}${packLabel}» یافت شد. در حال ارسال به POST /api/v1/collector/ingest ...`
       );
 
       const ingestRes = await fetch('/api/v1/collector/ingest', {
@@ -1693,7 +1704,7 @@ export async function triggerCollectorJobRun(
         body: JSON.stringify({
           job_id: job.id,
           provider: job.provider,
-          items: sampleCafes,
+          items: sampleItems,
           is_final: true,
         }),
       });
@@ -1725,7 +1736,7 @@ export async function triggerCollectorJobRun(
 
   const job = jobs[queuedIdx];
   logs.push(
-    `[GET /api/v1/collector/jobs/next]: Job #${job.id} («${job.city_name}» با پرووایدر ${job.provider}) از صف دریافت شد.`
+    `[GET /api/v1/collector/jobs/next]: Job #${job.id} («${job.city_name}${job.pack_name ? ' · ' + job.pack_name : ''}» با پرووایدر ${job.provider}) از صف دریافت شد.`
   );
 
   if (simulate429Fallback) {
@@ -1754,7 +1765,25 @@ export async function triggerCollectorJobRun(
     return { ok: true, logLines: logs };
   }
 
-  const sampleItems = getSampleRashtCafesPayload(job.city_name || 'رشت', job.provider);
+  let parsedParams: Record<string, unknown> = {};
+  try {
+    parsedParams = JSON.parse(job.params_json || '{}');
+  } catch {
+    parsedParams = {};
+  }
+
+  const sampleItems = getSamplePayloadForJob({
+    cityId: job.city_id || 1,
+    cityName: job.city_name || 'رشت',
+    lat: Number(parsedParams.lat || 37.2808),
+    lng: Number(parsedParams.lng || 49.5830),
+    provider: job.provider || 'gosom',
+    packId: Number(job.pack_id || parsedParams.pack_id || 1),
+    packName: String(job.pack_name || parsedParams.pack_name || ''),
+    categoryId: Number(parsedParams.category_id || job.pack_id || 1),
+    queries: [],
+  });
+
   let inserted = 0;
   let duplicates = 0;
   let pendingReview = 0;
@@ -1766,6 +1795,7 @@ export async function triggerCollectorJobRun(
     if (existingBiz) {
       duplicates++;
       if (existingBiz.status === 'pending_review') {
+        pendingReview++;
         const hasPendingRq = reviewQueue.some(
           (rq) => rq.kind === 'business' && rq.target_id === existingBiz.id && rq.status === 'pending'
         );
@@ -1813,7 +1843,7 @@ export async function triggerCollectorJobRun(
       id: newId,
       name: item.name,
       slug: suggestLatinSlug(item.name, 'biz'),
-      category_id: 1,
+      category_id: item.category_id,
       city_id: job.city_id,
       neighborhood_id: 1,
       address: item.address,
@@ -1827,8 +1857,8 @@ export async function triggerCollectorJobRun(
       internal_score: score,
       confidence: isPublished ? 'medium' : 'low',
       city_name: job.city_name || 'رشت',
-      category_name: 'کافه و رستوران',
-      neighborhood_name: 'گلسار',
+      category_name: item.category,
+      neighborhood_name: 'مرکز شهر',
       contacts,
       warnings: computeBusinessWarnings({ lat: item.lat, lng: item.lng, address: item.address }, contacts),
       updated_at: new Date().toLocaleDateString('fa-IR'),
@@ -1892,93 +1922,392 @@ export async function triggerCollectorJobRun(
   return { ok: true, logLines: logs };
 }
 
-function getSampleRashtCafesPayload(cityName: string, provider: string) {
-  return [
-    {
-      name: `کافه لمیز ${cityName}`,
-      category: 'کافه و رستوران',
-      address: `${cityName}، محله گلسار، بلوار سمیه، روبروی خیابان ۱۲۲`,
-      lat: 37.30412,
-      lng: 49.57621,
-      phones: ['01333721100'],
-      hours: '۸ صبح تا ۱۱ شب',
-      rating: 4.6,
-      reviews_count: 145,
+interface JobPayloadContext {
+  cityId: number;
+  cityName: string;
+  lat: number;
+  lng: number;
+  provider: string;
+  packId: number;
+  packName: string;
+  categoryId: number;
+  queries: string[];
+}
+
+function resolveCategoryType(ctx: JobPayloadContext): { catId: number; catName: string; packKey: string } {
+  const combined = `${ctx.packName} ${(ctx.queries || []).join(' ')}`;
+
+  if (
+    ctx.packId === 3 ||
+    ctx.categoryId === 3 ||
+    combined.includes('کلینیک') ||
+    combined.includes('دندانپزشک') ||
+    combined.includes('پزشک')
+  ) {
+    return { catId: 3, catName: 'کلینیک و دندانپزشکی', packKey: 'clinic' };
+  }
+
+  if (
+    ctx.packId === 4 ||
+    ctx.categoryId === 4 ||
+    combined.includes('ویلا') ||
+    combined.includes('اقامتگاه') ||
+    combined.includes('هتل')
+  ) {
+    return { catId: 4, catName: 'ویلا و اقامتگاه', packKey: 'villa' };
+  }
+
+  if (
+    ctx.packId === 2 ||
+    ctx.categoryId === 2 ||
+    combined.includes('سالن') ||
+    combined.includes('آرایشگاه') ||
+    combined.includes('پوست')
+  ) {
+    return { catId: 2, catName: 'سالن زیبایی', packKey: 'beauty' };
+  }
+
+  if (
+    ctx.packId === 5 ||
+    ctx.categoryId === 5 ||
+    combined.includes('جاذبه') ||
+    combined.includes('گردشگری') ||
+    combined.includes('موزه') ||
+    combined.includes('پارک')
+  ) {
+    return { catId: 5, catName: 'جاذبه گردشگری', packKey: 'tourism' };
+  }
+
+  return { catId: 1, catName: 'کافه و رستوران', packKey: 'cafe' };
+}
+
+function getSamplePayloadForJob(ctx: JobPayloadContext) {
+  const { catId, catName, packKey } = resolveCategoryType(ctx);
+  const cityName = ctx.cityName || 'رشت';
+  const provider = ctx.provider || 'gosom';
+  const cDigit = String(Math.min(9, Math.max(1, ctx.cityId || 1)));
+  const kDigit = String(Math.min(9, Math.max(1, catId)));
+
+  // فاصله جغرافیایی متمایز برای هر شهر و هر دسته تا با فرمول Haversine 80m تداخل نکند
+  const baseLat = (ctx.lat || 37.2808) + catId * 0.0085;
+  const baseLng = (ctx.lng || 49.583) + catId * 0.0085;
+
+  const templatesByPack: Record<
+    string,
+    Array<{
+      title: string;
+      street: string;
+      hours: string;
+      rating: number;
+      reviews: number;
+      hasPhone: boolean;
+      slugKey: string;
+    }>
+  > = {
+    clinic: [
+      {
+        title: `کلینیک تخصصی دندانپزشکی لبخند شمال ${cityName}`,
+        street: 'بلوار امام رضا، ساختمان پزشکان مهر، طبقه ۳',
+        hours: '۹ صبح تا ۹ شب',
+        rating: 4.7,
+        reviews: 134,
+        hasPhone: true,
+        slugKey: 'labkhand_dental',
+      },
+      {
+        title: `مرکز ایمپلنت و دندانپزشکی دیجیتال دکتر گیلانی ${cityName}`,
+        street: 'خیابان مطهری، روبروی بانک ملت، مجتمع سپید',
+        hours: '۱۰ صبح تا ۸:۳۰ شب',
+        rating: 4.6,
+        reviews: 98,
+        hasPhone: true,
+        slugKey: 'gilani_implant',
+      },
+      {
+        title: `کلینیک پوست، مو و زیبایی کاسپین ${cityName}`,
+        street: 'میدان انقلاب، بلوار مطهری، ساختمان پزشکان پارس',
+        hours: '۹:۳۰ صبح تا ۹ شب',
+        rating: 4.5,
+        reviews: 162,
+        hasPhone: true,
+        slugKey: 'caspian_beauty_clinic',
+      },
+      {
+        title: `کلینیک زیبایی و لیزر الماس گیلان ${cityName}`,
+        street: 'خیابان کاشف شرقی، جنب داروخانه شبانه‌روزی',
+        hours: '۱۰ صبح تا ۸ شب',
+        rating: 4.4,
+        reviews: 76,
+        hasPhone: true,
+        slugKey: 'almas_laser_clinic',
+      },
+      {
+        title: `کلینیک زیبایی و جوانسازی نیلوفر ${cityName}`,
+        street: 'خیابان شیشه گران، کوچه چهارم، پلاک ۱۲',
+        hours: '۱۱ صبح تا ۷ عصر',
+        rating: 4.1,
+        reviews: 24,
+        hasPhone: false, // بدون شماره تلفن -> مستقیم وارد صندوق بازبینی (missing_valid_phone)
+        slugKey: 'niloofar_clinic_nophone',
+      },
+      {
+        title: `درمانگاه دندانپزشکی شبانه‌روزی ساحل ${cityName}`,
+        street: 'بلوار کمربندی، نرسیده به میدان لنگرود',
+        hours: 'شبانه‌روزی',
+        rating: 2.2, // امتیاز بیزی پایین -> مستقیم وارد صندوق بازبینی (low_bayesian_score)
+        reviews: 60,
+        hasPhone: true,
+        slugKey: 'sahel_dental_lowscore',
+      },
+    ],
+    villa: [
+      {
+        title: `اقامتگاه بومگردی تلار گیلان ${cityName}`,
+        street: 'جاده تله‌کابین، محله شیطان‌کوه، کوچه باغ چای',
+        hours: 'پذیرش ۲۴ ساعته',
+        rating: 4.8,
+        reviews: 185,
+        hasPhone: true,
+        slugKey: 'talar_ecolodge',
+      },
+      {
+        title: `بوتیک هتل و ویلا بام سبز ${cityName}`,
+        street: 'بلوار استخر، روبروی جزیره، پلاک ۲۴',
+        hours: 'پذیرش ۲۴ ساعته',
+        rating: 4.6,
+        reviews: 142,
+        hasPhone: true,
+        slugKey: 'bamsabz_hotel',
+      },
+      {
+        title: `مجتمع ویلایی جنگلی ابریشم ${cityName}`,
+        street: 'کیلومتر ۳ جاده سیاهکل، دهکده توریستی ابریشم',
+        hours: '۸ صبح تا ۱۲ شب',
+        rating: 4.5,
+        reviews: 94,
+        hasPhone: true,
+        slugKey: 'abrisham_villas',
+      },
+      {
+        title: `هتل سنتی و اقامتگاه نارنجستان ${cityName}`,
+        street: 'میدان ابریشم، خیابان کاشف السلطنه',
+        hours: 'پذیرش ۲۴ ساعته',
+        rating: 4.4,
+        reviews: 112,
+        hasPhone: true,
+        slugKey: 'narenjestan_stay',
+      },
+      {
+        title: `کلبه چوبی و اقامتگاه جنگلی مهربان ${cityName}`,
+        street: 'روستای سطلسر، جاده کوهپایه‌ای، پلاک ۸',
+        hours: '۹ صبح تا ۱۰ شب',
+        rating: 4.0,
+        reviews: 18,
+        hasPhone: false, // بدون شماره تلفن -> مستقیم وارد صندوق بازبینی (missing_valid_phone)
+        slugKey: 'mehraban_cabin_nophone',
+      },
+      {
+        title: `مسافرخانه و پانسیون ساحلی قدیم ${cityName}`,
+        street: 'ابتدای ورودی غربی، جنب ترمینال قدیم',
+        hours: '۸ صبح تا ۱۱ شب',
+        rating: 2.3, // امتیاز بیزی پایین -> مستقیم وارد صندوق بازبینی (low_bayesian_score)
+        reviews: 52,
+        hasPhone: true,
+        slugKey: 'ghadim_guesthouse_lowscore',
+      },
+    ],
+    beauty: [
+      {
+        title: `سالن زیبایی و عروس رویال گیلان ${cityName}`,
+        street: 'بلوار امام رضا، نبش گلستان پنجم، طبقه ۲',
+        hours: '۱۰ صبح تا ۸ شب',
+        rating: 4.7,
+        reviews: 128,
+        hasPhone: true,
+        slugKey: 'royal_beauty',
+      },
+      {
+        title: `مرکز تخصصی مراقبت پوست و فیشیال ماهور ${cityName}`,
+        street: 'خیابان قیام، مجتمع تجاری پارسیان، واحد ۹',
+        hours: '۹:۳۰ صبح تا ۷:۳۰ عصر',
+        rating: 4.5,
+        reviews: 84,
+        hasPhone: true,
+        slugKey: 'mahoor_skincare',
+      },
+      {
+        title: `آکادمی زیبایی و استایل دیبا ${cityName}`,
+        street: 'خیابان شیخ زاهد، روبروی پارک بعثت',
+        hours: '۱۰ صبح تا ۸ شب',
+        rating: 4.4,
+        reviews: 95,
+        hasPhone: true,
+        slugKey: 'diba_salon',
+      },
+      {
+        title: `سالن تخصصی ناخن و مژه پرنسس ${cityName}`,
+        street: 'میدان حشمت، خیابان شهدا، پلاک ۴۱',
+        hours: '۱۰ صبح تا ۷ عصر',
+        rating: 4.3,
+        reviews: 63,
+        hasPhone: true,
+        slugKey: 'princess_nail',
+      },
+      {
+        title: `سالن زیبایی و میکاپ ارکیده ${cityName}`,
+        street: 'خیابان تربیت، کوچه نسترن، پلاک ۶',
+        hours: '۱۱ صبح تا ۷ عصر',
+        rating: 3.9,
+        reviews: 15,
+        hasPhone: false, // بدون شماره تلفن -> مستقیم وارد صندوق بازبینی
+        slugKey: 'orkideh_salon_nophone',
+      },
+      {
+        title: `آرایشگاه بانوان ستاره شرق ${cityName}`,
+        street: 'بلوار جانبازان، کوچه دوازدهم',
+        hours: '۱۰ صبح تا ۶ عصر',
+        rating: 2.2, // امتیاز بیزی پایین -> مستقیم وارد صندوق بازبینی
+        reviews: 48,
+        hasPhone: true,
+        slugKey: 'setareh_salon_lowscore',
+      },
+    ],
+    tourism: [
+      {
+        title: `مجموعه تفریحی و گردشگری بام سبز ${cityName}`,
+        street: 'محله شیطان‌کوه، ایستگاه اول تله‌کابین',
+        hours: '۸ صبح تا ۱۱ شب',
+        rating: 4.8,
+        reviews: 320,
+        hasPhone: true,
+        slugKey: 'bam_tourism',
+      },
+      {
+        title: `موزه تاریخ چای و میراث فرهنگی ${cityName}`,
+        street: 'خیابان کاشف‌السلطنه، آرامگاه کاشف',
+        hours: '۸ صبح تا ۶ عصر',
+        rating: 4.6,
+        reviews: 210,
+        hasPhone: true,
+        slugKey: 'tea_museum',
+      },
+      {
+        title: `پارک ساحلی و تفرجگاه استخر ${cityName}`,
+        street: 'بلوار مطهری، دور استخر بزرگ شهر',
+        hours: 'شبانه‌روزی',
+        rating: 4.7,
+        reviews: 410,
+        hasPhone: true,
+        slugKey: 'estakhr_park',
+      },
+      {
+        title: `پل تاریخی خشتی و گذر فرهنگی ${cityName}`,
+        street: 'محله پردسر، حاشیه رودخانه',
+        hours: 'شبانه‌روزی',
+        rating: 4.5,
+        reviews: 140,
+        hasPhone: true,
+        slugKey: 'kheshti_bridge',
+      },
+      {
+        title: `تالاب طبیعی و زیستگاه پرندگان ${cityName}`,
+        street: 'کیلومتر ۵ جاده لنگرود، منطقه حفاظت‌شده',
+        hours: '۷ صبح تا غروب',
+        rating: 4.1,
+        reviews: 22,
+        hasPhone: false, // بدون شماره -> وارد صندوق بازبینی
+        slugKey: 'wetland_nophone',
+      },
+      {
+        title: `نمایشگاه صنایع دستی و سوغات محلی ${cityName}`,
+        street: 'کمربندی شمالی، جنب میدان چای',
+        hours: '۹ صبح تا ۹ شب',
+        rating: 2.3, // امتیاز پایین -> وارد صندوق بازبینی
+        reviews: 45,
+        hasPhone: true,
+        slugKey: 'handicraft_lowscore',
+      },
+    ],
+    cafe: [
+      {
+        title: `کافه لمیز ${cityName}`,
+        street: 'محله گلسار، بلوار سمیه، روبروی خیابان ۱۲۲',
+        hours: '۸ صبح تا ۱۱ شب',
+        rating: 4.6,
+        reviews: 145,
+        hasPhone: true,
+        slugKey: 'lamiz',
+      },
+      {
+        title: `کافه کتاب سایه ${cityName}`,
+        street: 'خیابان معلم، جنب میدان مادر',
+        hours: '۹ صبح تا ۱۰ شب',
+        rating: 4.5,
+        reviews: 82,
+        hasPhone: true,
+        slugKey: 'sayeh',
+      },
+      {
+        title: `کافه رستوران پائول ${cityName}`,
+        street: 'بلوار گلسار، خیابان ۱۰۸',
+        hours: '۱۰ صبح تا ۱۲ شب',
+        rating: 4.4,
+        reviews: 210,
+        hasPhone: true,
+        slugKey: 'paul',
+      },
+      {
+        title: `کافه هنر ${cityName}`,
+        street: 'سبزه میدان، ابتدای خیابان بیستون',
+        hours: '۹ صبح تا ۱۰:۳۰ شب',
+        rating: 4.3,
+        reviews: 64,
+        hasPhone: true,
+        slugKey: 'honar',
+      },
+      {
+        title: `کافه سنتی باغ محتشم ${cityName}`,
+        street: 'بلوار حافظ، جنب پارک شهر',
+        hours: '۱۰ صبح تا ۱۱ شب',
+        rating: 3.9,
+        reviews: 19,
+        hasPhone: false, // بدون شماره تلفن -> مستقیم وارد صندوق بازبینی
+        slugKey: 'mohtasham',
+      },
+      {
+        title: `کافه شبانه بلوار ساحلی ${cityName}`,
+        street: 'بلوار ساحلی، نرسیده به میدان فرزانه',
+        hours: '۶ عصر تا ۲ بامداد',
+        rating: 2.3, // امتیاز بیزی پایین -> مستقیم وارد صندوق بازبینی
+        reviews: 55,
+        hasPhone: true,
+        slugKey: 'shabaneh',
+      },
+    ],
+  };
+
+  const list = templatesByPack[packKey] || templatesByPack.cafe;
+
+  return list.map((tpl, idx) => {
+    const itemNum = idx + 1;
+    // شماره تلفن یکتا به ازای هر شهر + دسته + ردیف تا در جدول business_contacts با دسته‌های دیگر همان شهر تداخل نکند
+    const uniquePhone = `0134${cDigit}${kDigit}${itemNum}11${itemNum}0`;
+    return {
+      name: tpl.title,
+      category: catName,
+      category_id: catId,
+      address: `${cityName}، ${tpl.street}`,
+      lat: Number((baseLat + itemNum * 0.0028).toFixed(6)),
+      lng: Number((baseLng + itemNum * 0.0028).toFixed(6)),
+      phones: tpl.hasPhone ? [uniquePhone] : [],
+      hours: tpl.hours,
+      rating: tpl.rating,
+      reviews_count: tpl.reviews,
       photo_urls: [],
       source: provider,
-      source_id: `${provider}_lamiz_${cityName}`,
-    },
-    {
-      name: `کافه کتاب سایه ${cityName}`,
-      category: 'کافه و رستوران',
-      address: `${cityName}، خیابان معلم، جنب میدان مادر`,
-      lat: 37.2851,
-      lng: 49.5789,
-      phones: ['01333245566'],
-      hours: '۹ صبح تا ۱۰ شب',
-      rating: 4.5,
-      reviews_count: 82,
-      photo_urls: [],
-      source: provider,
-      source_id: `${provider}_sayeh_${cityName}`,
-    },
-    {
-      name: `کافه رستوران پائول ${cityName}`,
-      category: 'کافه و رستوران',
-      address: `${cityName}، بلوار گلسار، خیابان ۱۰۸`,
-      lat: 37.3065,
-      lng: 49.5734,
-      phones: ['01333128899', '09111314455'],
-      hours: '۱۰ صبح تا ۱۲ شب',
-      rating: 4.4,
-      reviews_count: 210,
-      photo_urls: [],
-      source: provider,
-      source_id: `${provider}_paul_${cityName}`,
-    },
-    {
-      name: `کافه هنر ${cityName}`,
-      category: 'کافه و رستوران',
-      address: `${cityName}، سبزه میدان، ابتدای خیابان بیستون`,
-      lat: 37.2794,
-      lng: 49.5812,
-      phones: ['01333229911'],
-      hours: '۹ صبح تا ۱۰:۳۰ شب',
-      rating: 4.3,
-      reviews_count: 64,
-      photo_urls: [],
-      source: provider,
-      source_id: `${provider}_honar_${cityName}`,
-    },
-    {
-      name: `کافه سنتی باغ محتشم ${cityName}`,
-      category: 'کافه و رستوران',
-      address: `${cityName}، بلوار حافظ، جنب پارک شهر`,
-      lat: 37.2698,
-      lng: 49.5845,
-      phones: [],
-      hours: '۱۰ صبح تا ۱۱ شب',
-      rating: 3.9,
-      reviews_count: 19,
-      photo_urls: [],
-      source: provider,
-      source_id: `${provider}_mohtasham_${cityName}`,
-    },
-    {
-      name: `کافه شبانه بلوار انزلی ${cityName}`,
-      category: 'کافه و رستوران',
-      address: `${cityName}، بلوار انزلی، نرسیده به میدان فرزانه`,
-      lat: 37.3192,
-      lng: 49.5914,
-      phones: ['01333881122'],
-      hours: '۶ عصر تا ۲ بامداد',
-      rating: 2.3,
-      reviews_count: 55,
-      photo_urls: [],
-      source: provider,
-      source_id: `${provider}_shabaneh_${cityName}`,
-    },
-  ];
+      source_id: `${provider}_c${ctx.cityId || 1}_cat${catId}_${tpl.slugKey}_${cityName}`,
+    };
+  });
 }
 
 export function getCheckPhpReport(): CheckReport {

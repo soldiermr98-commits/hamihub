@@ -110,6 +110,8 @@ final class CollectorController
             : null;
         if ($packItem !== null && !empty($packItem['category_id'])) {
             $categoryId = (int) $packItem['category_id'];
+        } elseif ($pack !== null) {
+            $categoryId = self::resolveCategoryIdFromPack($packId, (string) ($pack['name'] ?? ''), $categoryId);
         }
 
         $params = [
@@ -118,6 +120,8 @@ final class CollectorController
             'lat' => (float) ($city['lat'] ?? 37.2808),
             'lng' => (float) ($city['lng'] ?? 49.5830),
             'bbox' => json_decode((string) ($city['bbox_json'] ?? '[37.19,49.48,37.36,49.68]'), true),
+            'pack_id' => $packId,
+            'pack_name' => (string) ($pack['name'] ?? ''),
             'category_id' => $categoryId,
             'queries_by_provider' => $packQueries,
             'custom_query' => $customQuery,
@@ -256,9 +260,12 @@ final class CollectorController
                     c.lat AS city_lat,
                     c.lng AS city_lng,
                     c.bbox_json AS city_bbox_json,
-                    c.publish_mode AS city_publish_mode
+                    c.publish_mode AS city_publish_mode,
+                    p.name AS pack_name,
+                    p.queries_json AS pack_queries_json
              FROM collector_jobs j
              INNER JOIN cities c ON c.id = j.city_id
+             LEFT JOIN category_packs p ON p.id = j.pack_id
              LEFT JOIN provider_state ps ON ps.provider = j.provider
              WHERE j.status = 'queued'
                AND (ps.enabled IS NULL OR ps.enabled = 1)
@@ -292,15 +299,27 @@ final class CollectorController
             $params = [];
         }
 
+        $packId = (int) ($job['pack_id'] ?? $params['pack_id'] ?? 0);
+        $packName = (string) ($job['pack_name'] ?? $params['pack_name'] ?? '');
+        $resolvedCatId = self::resolveCategoryIdFromPack($packId, $packName, (int) ($params['category_id'] ?? 1));
+
         // استخراج عبارت‌های جستجوی مخصوص این پرووایدر
         $prov = (string) $job['provider'];
         $queriesByProvider = $params['queries_by_provider'] ?? [];
+        if (empty($queriesByProvider) && !empty($job['pack_queries_json'])) {
+            $decodedPackQueries = json_decode((string) $job['pack_queries_json'], true);
+            if (is_array($decodedPackQueries)) {
+                $queriesByProvider = $decodedPackQueries;
+            }
+        }
         $queries = [];
 
         if (!empty($params['custom_query'])) {
             $queries[] = (string) $params['custom_query'];
         } elseif (!empty($queriesByProvider[$prov]) && is_array($queriesByProvider[$prov])) {
             $queries = $queriesByProvider[$prov];
+        } elseif ($packName !== '') {
+            $queries = [$packName];
         } else {
             $queries = ['کافه', 'رستوران'];
         }
@@ -319,7 +338,9 @@ final class CollectorController
                 'lng' => (float) ($job['city_lng'] ?? 49.5830),
                 'bbox' => json_decode((string) ($job['city_bbox_json'] ?? '[37.19,49.48,37.36,49.68]'), true),
                 'provider' => $prov,
-                'category_id' => (int) ($params['category_id'] ?? 1),
+                'pack_id' => $packId,
+                'pack_name' => $packName,
+                'category_id' => $resolvedCatId,
                 'queries' => $queries,
                 'photo_policy' => (string) ($photoPolicyRow['v'] ?? 'none'),
             ],
@@ -431,7 +452,13 @@ final class CollectorController
 
         $params = json_decode((string) ($job['params_json'] ?? '{}'), true) ?: [];
         $cityId = (int) $job['city_id'];
-        $defaultCategoryId = (int) ($params['category_id'] ?? 1);
+        $packId = (int) ($job['pack_id'] ?? $params['pack_id'] ?? 0);
+        $packName = (string) ($params['pack_name'] ?? '');
+        if ($packName === '' && $packId > 0) {
+            $packRow = DB::fetchOne("SELECT name FROM category_packs WHERE id = :id LIMIT 1", ['id' => $packId]);
+            $packName = (string) ($packRow['name'] ?? '');
+        }
+        $defaultCategoryId = self::resolveCategoryIdFromPack($packId, $packName, (int) ($params['category_id'] ?? 1));
 
         $cityRow = DB::fetchOne("SELECT publish_mode FROM cities WHERE id = :id LIMIT 1", ['id' => $cityId]);
         $cityPublishMode = (string) ($cityRow['publish_mode'] ?? 'rules');
@@ -462,10 +489,14 @@ final class CollectorController
                     continue;
                 }
 
+                $itemCatId = isset($rawItem['category_id']) && (int) $rawItem['category_id'] > 0
+                    ? (int) $rawItem['category_id']
+                    : $defaultCategoryId;
+
                 if (class_exists(PipelineService::class)) {
                     $pipeRes = PipelineService::processIncomingRecord(
                         $cityId,
-                        $defaultCategoryId,
+                        $itemCatId,
                         $provider,
                         $rawItem,
                         $cityPublishMode,
@@ -474,7 +505,7 @@ final class CollectorController
                 } else {
                     $pipeRes = self::fallbackProcessIncomingRecord(
                         $cityId,
-                        $defaultCategoryId,
+                        $itemCatId,
                         $provider,
                         $rawItem,
                         $minScoreThreshold
@@ -499,6 +530,9 @@ final class CollectorController
                     $duplicateCount++;
                     if ($pipeRes['reason_code'] === 'merged_multi_source_high_confidence') {
                         $updatedSourcesCount++;
+                    }
+                    if (!empty($pipeRes['in_review_queue'])) {
+                        $pendingReviewCount++;
                     }
                 } elseif ($pipeRes['outcome'] === 'pending_review') {
                     $pendingReviewCount++;
@@ -756,7 +790,16 @@ final class CollectorController
             );
             DB::query("UPDATE businesses SET last_collected_at = NOW() WHERE id = :id", ['id' => $bizId]);
 
-            if ((string) ($matchedBiz['status'] ?? '') === 'pending_review') {
+            $inReviewQueue = false;
+            $currSt = (string) ($matchedBiz['status'] ?? '');
+            if ($currSt === 'pending_review' || ((!$hasValidPhone || $score < $minScoreThreshold) && $currSt !== 'published')) {
+                $rc = !$hasValidPhone ? 'missing_valid_phone' : 'low_bayesian_score';
+                if ($currSt !== 'pending_review') {
+                    DB::query("UPDATE businesses SET status = 'pending_review', publish_reason = :rc WHERE id = :id", [
+                        'rc' => $rc,
+                        'id' => $bizId,
+                    ]);
+                }
                 $existingRq = DB::fetchOne(
                     "SELECT id FROM review_queue WHERE kind = 'business' AND target_id = :tid AND status = 'pending' LIMIT 1",
                     ['tid' => $bizId]
@@ -767,11 +810,12 @@ final class CollectorController
                          VALUES ('business', :tid, :rc, :p, 'pending', NOW())",
                         [
                             'tid' => $bizId,
-                            'rc' => !$hasValidPhone ? 'missing_valid_phone' : 'low_bayesian_score',
+                            'rc' => $rc,
                             'p' => json_encode(['business_id' => $bizId, 'business_name' => $name, 'provider' => $provider, 'score' => $score, 'address' => $address], JSON_UNESCAPED_UNICODE),
                         ]
                     );
                 }
+                $inReviewQueue = true;
             }
 
             return [
@@ -779,6 +823,7 @@ final class CollectorController
                 'reason_code' => 'duplicate_within_80m',
                 'business_id' => $bizId,
                 'is_new' => false,
+                'in_review_queue' => $inReviewQueue,
                 'score' => (float) ($matchedBiz['internal_score'] ?? $score),
             ];
         }
@@ -815,7 +860,13 @@ final class CollectorController
 
         DB::query(
             "INSERT INTO business_sources (business_id, provider, source_id, raw, rating, reviews_count, fetched_at)
-             VALUES (:bid, :p, :sid, :raw, :r, :rc, NOW())",
+             VALUES (:bid, :p, :sid, :raw, :r, :rc, NOW())
+             ON DUPLICATE KEY UPDATE
+                business_id = VALUES(business_id),
+                raw = VALUES(raw),
+                rating = COALESCE(VALUES(rating), rating),
+                reviews_count = GREATEST(reviews_count, VALUES(reviews_count)),
+                fetched_at = NOW()",
             [
                 'bid' => $bizId,
                 'p' => $provider,
@@ -857,7 +908,48 @@ final class CollectorController
             'reason_code' => $reasonCode,
             'business_id' => $bizId,
             'is_new' => true,
+            'in_review_queue' => $status === 'pending_review',
             'score' => $score,
         ];
+    }
+
+    /**
+     * تشخیص دقیق شناسه دسته‌بندی (category_id) از روی بسته دسته (pack_id / pack_name)
+     */
+    private static function resolveCategoryIdFromPack(int $packId, string $packName, int $fallbackCatId = 1): int
+    {
+        if ($packId > 0) {
+            $itemRow = DB::fetchOne(
+                "SELECT category_id FROM category_pack_items WHERE pack_id = :pid LIMIT 1",
+                ['pid' => $packId]
+            );
+            if ($itemRow !== null && (int) ($itemRow['category_id'] ?? 0) > 0) {
+                return (int) $itemRow['category_id'];
+            }
+        }
+
+        if ($packName !== '') {
+            if (str_contains($packName, 'کلینیک') || str_contains($packName, 'دندانپزشک') || str_contains($packName, 'پزشک')) {
+                return 3;
+            }
+            if (str_contains($packName, 'ویلا') || str_contains($packName, 'اقامتگاه') || str_contains($packName, 'هتل')) {
+                return 4;
+            }
+            if (str_contains($packName, 'سالن') || str_contains($packName, 'آرایشگاه') || str_contains($packName, 'پوست')) {
+                return 2;
+            }
+            if (str_contains($packName, 'جاذبه') || str_contains($packName, 'گردشگری') || str_contains($packName, 'طبیعی')) {
+                return 5;
+            }
+            if (str_contains($packName, 'کافه') || str_contains($packName, 'رستوران')) {
+                return 1;
+            }
+        }
+
+        if (in_array($packId, [1, 2, 3, 4, 5], true)) {
+            return $packId;
+        }
+
+        return $fallbackCatId > 0 ? $fallbackCatId : 1;
     }
 }
