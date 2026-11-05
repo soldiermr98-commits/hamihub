@@ -368,6 +368,19 @@ final class PipelineService
                 ];
             }
 
+            // اگر کسب‌وکار قبلی هنوز در وضعیت pending_review مانده است، اطمینان حاصل شود که در صندوق بازبینی حضور دارد
+            if ((string) ($matchedBusiness['status'] ?? '') === 'pending_review') {
+                $existingReason = !$hasValidPhone ? 'missing_valid_phone' : 'low_bayesian_score';
+                self::enqueueReviewIfNotExists('business', $bizId, $existingReason, [
+                    'business_id' => $bizId,
+                    'business_name' => $name,
+                    'provider' => $provider,
+                    'score' => $score,
+                    'address' => $address,
+                    'phones' => $normalizedPhones,
+                ]);
+            }
+
             // اگر از همان منبع قبلی دوباره ارسال شده و فاصله < 80 متر یا شماره یکسان دارد -> تکراری (duplicate)
             DB::query("UPDATE businesses SET last_collected_at = NOW() WHERE id = :id", ['id' => $bizId]);
 

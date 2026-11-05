@@ -447,6 +447,7 @@ final class CollectorController
         $pendingReviewCount = 0;
         $sourceConflictCount = 0;
         $errorCount = 0;
+        $lastErrorMsg = null;
         $ingestedBusinesses = [];
 
         foreach ($items as $rawItem) {
@@ -461,14 +462,24 @@ final class CollectorController
                     continue;
                 }
 
-                $pipeRes = PipelineService::processIncomingRecord(
-                    $cityId,
-                    $defaultCategoryId,
-                    $provider,
-                    $rawItem,
-                    $cityPublishMode,
-                    $minScoreThreshold
-                );
+                if (class_exists(PipelineService::class)) {
+                    $pipeRes = PipelineService::processIncomingRecord(
+                        $cityId,
+                        $defaultCategoryId,
+                        $provider,
+                        $rawItem,
+                        $cityPublishMode,
+                        $minScoreThreshold
+                    );
+                } else {
+                    $pipeRes = self::fallbackProcessIncomingRecord(
+                        $cityId,
+                        $defaultCategoryId,
+                        $provider,
+                        $rawItem,
+                        $minScoreThreshold
+                    );
+                }
 
                 $bizId = (int) $pipeRes['business_id'];
                 $address = SlugService::normalizePersianText((string) ($rawItem['address'] ?? ''));
@@ -510,11 +521,12 @@ final class CollectorController
                 ];
             } catch (Throwable $e) {
                 $errorCount++;
+                $lastErrorMsg = $e->getMessage();
             }
         }
 
         // بازمحاسبه Tier A/B/C بر اساس امتیاز بیزی در شهر و دسته هدف
-        if ($insertedCount > 0 || $updatedSourcesCount > 0) {
+        if (($insertedCount > 0 || $updatedSourcesCount > 0) && class_exists(PipelineService::class)) {
             PipelineService::recalculateTiersForCityCategory($cityId, $defaultCategoryId);
         }
 
@@ -533,6 +545,7 @@ final class CollectorController
             'pending_review' => (int) ($prevResult['pending_review'] ?? 0) + $pendingReviewCount,
             'source_conflict' => (int) ($prevResult['source_conflict'] ?? 0) + $sourceConflictCount,
             'errors' => (int) ($prevResult['errors'] ?? 0) + $errorCount,
+            'last_error' => $lastErrorMsg,
             'finished_at' => date('Y-m-d H:i:s'),
         ];
 
@@ -669,5 +682,182 @@ final class CollectorController
         }
 
         return null;
+    }
+
+    /**
+     * فال‌بک داخلی پایپ‌لاین S3 در صورتی که فایل PipelineService.php هنوز روی هاست آپلود نشده باشد
+     *
+     * @param array<string, mixed> $rawItem
+     * @return array{outcome: string, reason_code: string, business_id: int, is_new: bool, score: float}
+     */
+    private static function fallbackProcessIncomingRecord(
+        int $cityId,
+        int $defaultCategoryId,
+        string $provider,
+        array $rawItem,
+        float $minScoreThreshold = 3.85
+    ): array {
+        $name = SlugService::normalizePersianText((string) ($rawItem['name'] ?? ''));
+        $normKey = preg_replace('/[^\p{L}\p{N}]+/u', '', mb_strtolower(SlugService::toEnglishDigits($name), 'UTF-8')) ?: $name;
+        $address = SlugService::normalizePersianText((string) ($rawItem['address'] ?? ''));
+        $lat = (isset($rawItem['lat']) && $rawItem['lat'] !== '' && $rawItem['lat'] !== null) ? (float) $rawItem['lat'] : null;
+        $lng = (isset($rawItem['lng']) && $rawItem['lng'] !== '' && $rawItem['lng'] !== null) ? (float) $rawItem['lng'] : null;
+        $hours = SlugService::normalizePersianText((string) ($rawItem['hours'] ?? ''));
+        $rating = (isset($rawItem['rating']) && $rawItem['rating'] !== '' && $rawItem['rating'] !== null) ? (float) $rawItem['rating'] : null;
+        $reviewsCount = isset($rawItem['reviews_count']) ? max(0, (int) $rawItem['reviews_count']) : 0;
+
+        $rawPhones = isset($rawItem['phones']) && is_array($rawItem['phones']) ? $rawItem['phones'] : [];
+        $normalizedPhones = [];
+        foreach ($rawPhones as $ph) {
+            $np = SlugService::normalizePhone((string) $ph);
+            if ($np !== '' && !in_array($np, $normalizedPhones, true)) {
+                $normalizedPhones[] = $np;
+            }
+        }
+
+        $sourceId = trim((string) ($rawItem['source_id'] ?? ''));
+        if ($sourceId === '') {
+            $sourceId = md5($provider . ':' . $normKey . ':' . ($lat ?? '') . ':' . ($lng ?? ''));
+        }
+
+        $hasValidPhone = !empty($normalizedPhones);
+        $hasCoords = ($lat !== null && $lng !== null);
+        $hasAddress = ($address !== '');
+
+        $m = 20.0;
+        $c = 4.10;
+        $v = (float) $reviewsCount;
+        $r = ($rating !== null && $rating > 0) ? $rating : $c;
+        $score = min(5.0, round((($v / ($v + $m)) * $r) + (($m / ($v + $m)) * $c) + ($hasValidPhone ? 0.12 : 0.0) + ($hasCoords ? 0.08 : 0.0), 3));
+
+        $matchedBiz = DB::fetchOne(
+            "SELECT * FROM businesses WHERE city_id = :cid AND normalized_name = :norm LIMIT 1",
+            ['cid' => $cityId, 'norm' => $normKey]
+        );
+
+        if ($matchedBiz !== null) {
+            $bizId = (int) $matchedBiz['id'];
+            DB::query(
+                "INSERT INTO business_sources (business_id, provider, source_id, raw, rating, reviews_count, fetched_at)
+                 VALUES (:bid, :p, :sid, :raw, :r, :rc, NOW())
+                 ON DUPLICATE KEY UPDATE
+                    raw = VALUES(raw),
+                    rating = COALESCE(VALUES(rating), rating),
+                    reviews_count = GREATEST(reviews_count, VALUES(reviews_count)),
+                    fetched_at = NOW()",
+                [
+                    'bid' => $bizId,
+                    'p' => $provider,
+                    'sid' => $sourceId,
+                    'raw' => json_encode($rawItem, JSON_UNESCAPED_UNICODE),
+                    'r' => $rating,
+                    'rc' => $reviewsCount,
+                ]
+            );
+            DB::query("UPDATE businesses SET last_collected_at = NOW() WHERE id = :id", ['id' => $bizId]);
+
+            if ((string) ($matchedBiz['status'] ?? '') === 'pending_review') {
+                $existingRq = DB::fetchOne(
+                    "SELECT id FROM review_queue WHERE kind = 'business' AND target_id = :tid AND status = 'pending' LIMIT 1",
+                    ['tid' => $bizId]
+                );
+                if ($existingRq === null) {
+                    DB::query(
+                        "INSERT INTO review_queue (kind, target_id, reason_code, payload_json, status, created_at)
+                         VALUES ('business', :tid, :rc, :p, 'pending', NOW())",
+                        [
+                            'tid' => $bizId,
+                            'rc' => !$hasValidPhone ? 'missing_valid_phone' : 'low_bayesian_score',
+                            'p' => json_encode(['business_id' => $bizId, 'business_name' => $name, 'provider' => $provider, 'score' => $score, 'address' => $address], JSON_UNESCAPED_UNICODE),
+                        ]
+                    );
+                }
+            }
+
+            return [
+                'outcome' => 'duplicate',
+                'reason_code' => 'duplicate_within_80m',
+                'business_id' => $bizId,
+                'is_new' => false,
+                'score' => (float) ($matchedBiz['internal_score'] ?? $score),
+            ];
+        }
+
+        $status = ($hasValidPhone && $hasCoords && $hasAddress && $score >= $minScoreThreshold) ? 'published' : 'pending_review';
+        $reasonCode = !$hasValidPhone ? 'missing_valid_phone' : ($score < $minScoreThreshold ? 'low_bayesian_score' : 'bayes_score_above_threshold');
+        $tier = $score >= 4.35 ? 'A' : ($score >= 4.00 ? 'B' : 'C');
+        $uniqueSlug = SlugService::ensureUniqueSlug('businesses', SlugService::suggestSlug($name, 'biz'));
+
+        DB::query(
+            "INSERT INTO businesses
+                (name, normalized_name, slug, category_id, city_id, address, lat, lng, hours, status, tier, internal_score, confidence, publish_reason, last_collected_at, created_at, updated_at)
+             VALUES
+                (:name, :norm, :slug, :cat_id, :city_id, :addr, :lat, :lng, :hours, :status, :tier, :score, :conf, :reason, NOW(), NOW(), NOW())",
+            [
+                'name' => $name,
+                'norm' => $normKey,
+                'slug' => $uniqueSlug,
+                'cat_id' => $defaultCategoryId,
+                'city_id' => $cityId,
+                'addr' => $hasAddress ? $address : null,
+                'lat' => $lat,
+                'lng' => $lng,
+                'hours' => $hours !== '' ? $hours : null,
+                'status' => $status,
+                'tier' => $tier,
+                'score' => $score,
+                'conf' => $hasValidPhone ? 'medium' : 'low',
+                'reason' => $reasonCode,
+            ]
+        );
+
+        $bizId = DB::lastInsertId();
+
+        DB::query(
+            "INSERT INTO business_sources (business_id, provider, source_id, raw, rating, reviews_count, fetched_at)
+             VALUES (:bid, :p, :sid, :raw, :r, :rc, NOW())",
+            [
+                'bid' => $bizId,
+                'p' => $provider,
+                'sid' => $sourceId,
+                'raw' => json_encode($rawItem, JSON_UNESCAPED_UNICODE),
+                'r' => $rating,
+                'rc' => $reviewsCount,
+            ]
+        );
+
+        foreach ($normalizedPhones as $idx => $np) {
+            DB::query(
+                "INSERT INTO business_contacts (business_id, type, value, is_primary, source, confidence, last_verified_at)
+                 VALUES (:bid, :type, :val, :prim, :src, 'medium', NOW())",
+                [
+                    'bid' => $bizId,
+                    'type' => str_starts_with($np, '+989') ? 'mobile' : 'phone',
+                    'val' => $np,
+                    'prim' => $idx === 0 ? 1 : 0,
+                    'src' => $provider,
+                ]
+            );
+        }
+
+        if ($status === 'pending_review') {
+            DB::query(
+                "INSERT INTO review_queue (kind, target_id, reason_code, payload_json, status, created_at)
+                 VALUES ('business', :tid, :rc, :p, 'pending', NOW())",
+                [
+                    'tid' => $bizId,
+                    'rc' => $reasonCode,
+                    'p' => json_encode(['business_id' => $bizId, 'business_name' => $name, 'provider' => $provider, 'score' => $score, 'address' => $address], JSON_UNESCAPED_UNICODE),
+                ]
+            );
+        }
+
+        return [
+            'outcome' => $status === 'published' ? 'published' : 'pending_review',
+            'reason_code' => $reasonCode,
+            'business_id' => $bizId,
+            'is_new' => true,
+            'score' => $score,
+        ];
     }
 }

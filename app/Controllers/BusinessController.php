@@ -290,8 +290,9 @@ final class BusinessController
             );
         }
 
-        // ابطال کش صفحه کسب‌وکار در صورت تغییر
+        // ابطال کش صفحات عمومی (صفحه کسب‌وکار، صفحه شهر، دسته و مقالات لیستی) در صورت تغییر
         Cache::forgetPage('/b/' . $uniqueSlug);
+        Cache::flushAll();
 
         $savedBiz = DB::fetchOne("SELECT * FROM businesses WHERE id = :id", ['id' => $bizId]);
         $savedContacts = DB::fetchAll("SELECT * FROM business_contacts WHERE business_id = :id", ['id' => $bizId]);

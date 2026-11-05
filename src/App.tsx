@@ -40,6 +40,7 @@ import {
 import { CitiesAndCategoriesView } from './components/CitiesAndCategoriesView';
 import { BusinessesManagerView } from './components/BusinessesManagerView';
 import { ReviewQueueView } from './components/ReviewQueueView';
+import { ArticlesManagerView } from './components/ArticlesManagerView';
 
 type AdminRoute =
   | '/admin/dashboard'
@@ -61,8 +62,8 @@ const NAV_ITEMS: Array<{
   { path: '/admin/review', label: 'صندوق بازبینی', icon: Inbox, stageNote: 'فعال در مرحله S3' },
   { path: '/admin/cities', label: 'شهرها و جمع‌آوری', icon: MapPin, stageNote: 'فعال در مراحل S1/S2' },
   { path: '/admin/businesses', label: 'کسب‌وکارها', icon: Store, stageNote: 'فعال در مرحله S1' },
-  { path: '/admin/articles', label: 'مقالات', icon: FileText, stageNote: 'تکمیل در مراحل S4 و S5' },
-  { path: '/admin/settings', label: 'تنظیمات', icon: Settings, stageNote: 'فعال در S0-S3' },
+  { path: '/admin/articles', label: 'مقالات لیستی سئو', icon: FileText, stageNote: 'فعال در مرحله S4' },
+  { path: '/admin/settings', label: 'تنظیمات', icon: Settings, stageNote: 'فعال در S0-S4' },
 ];
 
 export default function App() {
@@ -815,15 +816,12 @@ export default function App() {
                   )}
 
                   {adminRoute === '/admin/articles' && (
-                    <div className="bg-white border border-slate-200 rounded-xl p-8">
-                      <h2 className="text-base font-bold text-slate-900">
-                        بخش «{NAV_ITEMS.find((n) => n.path === adminRoute)?.label}»
-                      </h2>
-                      <p className="text-sm text-slate-600 mt-2">
-                        این بخش طبق برنامه مرحله‌به‌مرحله در{' '}
-                        <strong>{NAV_ITEMS.find((n) => n.path === adminRoute)?.stageNote}</strong> تکمیل می‌شود.
-                      </p>
-                    </div>
+                    <ArticlesManagerView
+                      cities={cities}
+                      categories={categories}
+                      businesses={businesses}
+                      csrfToken={csrfToken}
+                    />
                   )}
                 </main>
               </div>

@@ -28,6 +28,35 @@ final class ReviewQueueController
     {
         Auth::requireRole(['admin', 'editor']);
 
+        // همگام‌سازی خودکار کسب‌وکارهایی که در وضعیت pending_review هستند ولی در جدول review_queue رکورد فعالی ندارند
+        $unsyncedBiz = DB::fetchAll(
+            "SELECT b.id, b.name, b.address, b.internal_score, b.publish_reason
+             FROM businesses b
+             LEFT JOIN review_queue rq ON (rq.kind = 'business' AND rq.target_id = b.id AND rq.status = 'pending')
+             WHERE b.status = 'pending_review' AND rq.id IS NULL
+             LIMIT 100"
+        );
+        foreach ($unsyncedBiz as $ub) {
+            $reason = trim((string) ($ub['publish_reason'] ?? ''));
+            if ($reason === '' || $reason === 'missing_phone_or_low_score') {
+                $reason = 'missing_valid_phone';
+            }
+            DB::query(
+                "INSERT INTO review_queue (kind, target_id, reason_code, payload_json, status, created_at)
+                 VALUES ('business', :tid, :rc, :p, 'pending', NOW())",
+                [
+                    'tid' => (int) $ub['id'],
+                    'rc' => $reason,
+                    'p' => json_encode([
+                        'business_id' => (int) $ub['id'],
+                        'business_name' => (string) $ub['name'],
+                        'address' => (string) ($ub['address'] ?? ''),
+                        'score' => (float) ($ub['internal_score'] ?? 3.9),
+                    ], JSON_UNESCAPED_UNICODE),
+                ]
+            );
+        }
+
         $statusFilter = trim((string) ($_GET['status'] ?? 'pending'));
         $kindFilter = trim((string) ($_GET['kind'] ?? 'all'));
 

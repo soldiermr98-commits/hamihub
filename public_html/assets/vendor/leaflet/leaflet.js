@@ -1,0 +1,159 @@
+/**
+ * HamiHubX.ir - موتور نقشه تعاملی سلف‌هاست (Self-Hosted OSM Slippy Map / Leaflet-Compatible)
+ * بدون نیاز به CDN خارجی، با پشتیبانی از تایل‌های OpenStreetMap، بزرگ‌نمایی، جابه‌جایی (Pan) و پاپ‌آپ کسب‌وکارها
+ */
+(function () {
+  'use strict';
+
+  function lng2tileX(lng, z) {
+    return ((lng + 180) / 360) * Math.pow(2, z);
+  }
+
+  function lat2tileY(lat, z) {
+    var rad = (lat * Math.PI) / 180;
+    return (
+      ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) *
+      Math.pow(2, z)
+    );
+  }
+
+  function render(container, markers, tileTemplate) {
+    if (!container) return;
+    var valid = (markers || []).filter(function (m) {
+      return m && isFinite(Number(m.lat)) && isFinite(Number(m.lng));
+    });
+    var centerLat = valid.length ? Number(valid[0].lat) : 37.2808;
+    var centerLng = valid.length ? Number(valid[0].lng) : 49.583;
+    var zoom = valid.length === 1 ? 15 : 13;
+
+    container.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'hhx-slippy-wrap';
+
+    var tileLayer = document.createElement('div');
+    tileLayer.className = 'hhx-tile-layer';
+    wrap.appendChild(tileLayer);
+
+    var markerLayer = document.createElement('div');
+    markerLayer.className = 'hhx-tile-layer';
+    wrap.appendChild(markerLayer);
+
+    var popup = document.createElement('div');
+    popup.className = 'hhx-popup';
+    popup.style.display = 'none';
+    wrap.appendChild(popup);
+
+    var ctrl = document.createElement('div');
+    ctrl.className = 'hhx-zoom-ctrl';
+    var btnIn = document.createElement('button');
+    btnIn.type = 'button';
+    btnIn.className = 'hhx-zoom-btn';
+    btnIn.textContent = '+';
+    var btnOut = document.createElement('button');
+    btnOut.type = 'button';
+    btnOut.className = 'hhx-zoom-btn';
+    btnOut.textContent = '−';
+    ctrl.appendChild(btnIn);
+    ctrl.appendChild(btnOut);
+    wrap.appendChild(ctrl);
+
+    var attr = document.createElement('div');
+    attr.className = 'hhx-attr';
+    attr.innerHTML = '© OpenStreetMap contributors';
+    wrap.appendChild(attr);
+
+    container.appendChild(wrap);
+
+    function showPopup(m) {
+      popup.style.display = 'block';
+      var html = '<div style="font-weight:700;color:#0f172a;margin-bottom:4px;">' + (m.name || '') + '</div>';
+      if (m.address) {
+        html += '<div style="color:#475569;font-size:11.5px;margin-bottom:6px;">' + m.address + '</div>';
+      }
+      html += '<div style="display:flex;gap:8px;align-items:center;">';
+      if (m.url) {
+        html += '<a href="' + m.url + '" style="font-weight:700;color:#047857;">مشاهده صفحه کسب‌وکار</a>';
+      }
+      html +=
+        '<a href="https://www.google.com/maps/dir/?api=1&destination=' +
+        m.lat +
+        ',' +
+        m.lng +
+        '" target="_blank" rel="noopener" style="color:#0369a1;font-weight:700;">مسیریابی</a>';
+      html += '</div>';
+      popup.innerHTML = html;
+    }
+
+    function draw() {
+      var w = wrap.clientWidth || 600;
+      var h = wrap.clientHeight || 340;
+      var centerX = lng2tileX(centerLng, zoom);
+      var centerY = lat2tileY(centerLat, zoom);
+
+      tileLayer.innerHTML = '';
+      var startX = Math.floor(centerX - w / 512) - 1;
+      var endX = Math.ceil(centerX + w / 512) + 1;
+      var startY = Math.floor(centerY - h / 512) - 1;
+      var endY = Math.ceil(centerY + h / 512) + 1;
+      var maxTile = Math.pow(2, zoom);
+
+      for (var tx = startX; tx <= endX; tx++) {
+        for (var ty = startY; ty <= endY; ty++) {
+          if (ty < 0 || ty >= maxTile) continue;
+          var normX = ((tx % maxTile) + maxTile) % maxTile;
+          var img = document.createElement('img');
+          img.className = 'hhx-tile';
+          var sub = ['a', 'b', 'c'][Math.abs(tx + ty) % 3];
+          img.src = tileTemplate
+            .replace('{s}', sub)
+            .replace('{z}', String(zoom))
+            .replace('{x}', String(normX))
+            .replace('{y}', String(ty));
+          img.style.left = Math.round(w / 2 + (tx - centerX) * 256) + 'px';
+          img.style.top = Math.round(h / 2 + (ty - centerY) * 256) + 'px';
+          tileLayer.appendChild(img);
+        }
+      }
+
+      markerLayer.innerHTML = '';
+      valid.forEach(function (m, idx) {
+        var mx = lng2tileX(Number(m.lng), zoom);
+        var my = lat2tileY(Number(m.lat), zoom);
+        var px = Math.round(w / 2 + (mx - centerX) * 256);
+        var py = Math.round(h / 2 + (my - centerY) * 256);
+
+        var el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'hhx-marker';
+        el.style.left = px + 'px';
+        el.style.top = py + 'px';
+        el.textContent = (m.rank ? m.rank + '. ' : '') + (m.name || '#' + (idx + 1));
+        el.onclick = function (e) {
+          e.stopPropagation();
+          showPopup(m);
+        };
+        markerLayer.appendChild(el);
+      });
+    }
+
+    btnIn.onclick = function () {
+      if (zoom < 18) {
+        zoom++;
+        draw();
+      }
+    };
+    btnOut.onclick = function () {
+      if (zoom > 8) {
+        zoom--;
+        draw();
+      }
+    };
+
+    draw();
+    if (valid.length === 1) {
+      showPopup(valid[0]);
+    }
+  }
+
+  window.HHXMap = { render: render };
+})();

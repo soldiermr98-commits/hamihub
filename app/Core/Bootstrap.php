@@ -28,6 +28,22 @@ final class Bootstrap
 
             if (is_file($file)) {
                 require_once $file;
+                return;
+            }
+
+            // فال‌بک هوشمند برای هاست اشتراکی (در صورتی که فایل در پوشه هم‌سطح آپلود شده باشد)
+            $shortName = basename(str_replace('\\', '/', $relativeClass)) . '.php';
+            $fallbacks = [
+                $baseDir . 'Services/' . $shortName,
+                $baseDir . 'Controllers/' . $shortName,
+                $baseDir . 'Core/' . $shortName,
+                $baseDir . $shortName,
+            ];
+            foreach ($fallbacks as $candidate) {
+                if (is_file($candidate)) {
+                    require_once $candidate;
+                    return;
+                }
             }
         });
 

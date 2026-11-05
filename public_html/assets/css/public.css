@@ -1,6 +1,7 @@
 /* ============================================================================
- * HamiHubX.ir - استایل فوق‌سبک سایت عمومی (< 4KB، بدون هیچ CDN خارجی)
- * فونت وزیرمتن به‌صورت کاملاً لوکال (self-host) با font-display: swap
+ * HamiHubX.ir - استایل فوق‌سبک سایت عمومی (مرحله S4 - بودجه < 20KB)
+ * فونت وزیرمتن کاملاً لوکال (self-host) با font-display: swap
+ * بدون هیچ وابستگی به CDN خارجی
  * ============================================================================ */
 
 @font-face {
@@ -30,10 +31,403 @@ body {
   color: #0f172a;
   line-height: 1.75;
   direction: rtl;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: #047857;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+a:hover {
+  color: #065f46;
 }
 
 .container {
   max-width: 1120px;
   margin: 0 auto;
   padding: 0 1rem;
+}
+
+/* هدر سایت عمومی */
+.site-header {
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.site-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 62px;
+  flex-wrap: wrap;
+  padding: 0.5rem 0;
+}
+
+.site-brand {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.site-brand-badge {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 6px;
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  flex-wrap: wrap;
+}
+
+.site-nav a {
+  color: #334155;
+}
+
+.site-nav a:hover {
+  color: #047857;
+}
+
+/* مسیر راهنما (Breadcrumbs) */
+.breadcrumbs {
+  font-size: 0.82rem;
+  color: #64748b;
+  padding: 0.85rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.breadcrumbs span.sep {
+  color: #cbd5e1;
+}
+
+/* بخش معرفی بالای صفحه (Hero) */
+.page-hero {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.page-hero h1 {
+  margin: 0 0 0.6rem 0;
+  font-size: 1.55rem;
+  line-height: 1.4;
+  color: #0f172a;
+}
+
+.page-hero-meta {
+  font-size: 0.82rem;
+  color: #64748b;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.page-hero p.lead {
+  margin: 0;
+  font-size: 0.96rem;
+  color: #334155;
+}
+
+/* شبکه‌ها و کارت‌ها */
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.85rem;
+}
+
+.section-block {
+  margin-bottom: 2.25rem;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #0f172a;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1.15rem;
+  transition: border-color 0.15s ease;
+}
+
+.card:hover {
+  border-color: #94a3b8;
+}
+
+/* کارت آیتم‌های مقاله لیستی و کسب‌وکارها */
+.biz-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.biz-item {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.35rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 720px) {
+  .biz-item.with-thumb {
+    grid-template-columns: 200px 1fr;
+  }
+}
+
+.biz-item.is-sponsored {
+  border: 2px solid #f59e0b;
+  background: #fffbeb;
+}
+
+.biz-thumb {
+  width: 100%;
+  height: 145px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 0.8rem;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+.biz-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.biz-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 0.45rem;
+  background: #0f172a;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  margin-left: 0.5rem;
+}
+
+.biz-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.biz-title a {
+  color: #0f172a;
+}
+
+.biz-title a:hover {
+  color: #047857;
+}
+
+.badges-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.73rem;
+  font-weight: 700;
+  padding: 0.15rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.badge-tier-a {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+
+.badge-tier-b {
+  background: #f0f9ff;
+  color: #0369a1;
+  border-color: #bae6fd;
+}
+
+.badge-sponsor {
+  background: #fef3c7;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+.biz-meta {
+  font-size: 0.85rem;
+  color: #475569;
+  margin: 0.45rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.biz-desc {
+  margin: 0.5rem 0 0.85rem 0;
+  font-size: 0.92rem;
+  color: #334155;
+}
+
+.biz-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: #f1f5f9;
+}
+
+.btn-primary {
+  background: #047857;
+  color: #ffffff;
+  border-color: #047857;
+}
+
+.btn-primary:hover {
+  background: #065f46;
+  color: #ffffff;
+}
+
+/* باکس نقشه تعاملی با بارگذاری تنبل (Lazy-Loaded Leaflet) */
+.hhx-map-box {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.hhx-map-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.hhx-map-canvas {
+  width: 100%;
+  height: 340px;
+  border-radius: 8px;
+  margin-top: 0.85rem;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  display: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.hhx-map-canvas.is-active {
+  display: block;
+}
+
+/* آکاردئون سؤالات متداول (FAQPage) */
+.faq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+details.faq-item {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.85rem 1.1rem;
+}
+
+details.faq-item summary {
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  color: #0f172a;
+}
+
+details.faq-item .faq-ans {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  color: #334155;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 0.6rem;
+}
+
+/* فوتر */
+.site-footer {
+  background: #ffffff;
+  border-top: 1px solid #e2e8f0;
+  padding: 2rem 0;
+  margin-top: 3rem;
+  font-size: 0.85rem;
+  color: #64748b;
 }

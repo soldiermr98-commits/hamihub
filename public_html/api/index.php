@@ -3,17 +3,19 @@ declare(strict_types=1);
 
 /**
  * نقطه ورود تمام درخواست‌های API نسخه ۱ (/api/v1/*)
- * شامل مسیرهای مراحل S0، S1، S2 و S3 (صندوق بازبینی، change_log و پایپ‌لاین ۱۰۰ رکورد)
+ * شامل مسیرهای مراحل S0، S1، S2، S3 و S4 (مقالات لیستی، اسکیما و رهگیری رویدادها)
  */
 
 define('BASE_PATH', dirname(__DIR__, 2));
 require_once BASE_PATH . '/app/Core/Bootstrap.php';
 
+use App\Controllers\ArticleController;
 use App\Controllers\AuthController;
 use App\Controllers\BusinessController;
 use App\Controllers\CategoryController;
 use App\Controllers\CityController;
 use App\Controllers\CollectorController;
+use App\Controllers\PublicSiteController;
 use App\Controllers\ReviewQueueController;
 use App\Core\Bootstrap;
 use App\Core\Request;
@@ -59,5 +61,11 @@ $router->post('/api/v1/collector/photo', [CollectorController::class, 'uploadCol
 $router->get('/api/v1/review-queue', [ReviewQueueController::class, 'index']);
 $router->post('/api/v1/review-queue/decide', [ReviewQueueController::class, 'decide']);
 $router->post('/api/v1/pipeline/benchmark-100', [ReviewQueueController::class, 'runBenchmark100']);
+
+// ۵. مسیرهای مدیریت مقالات لیستی سئو و رهگیری کلیک‌های عمومی (مرحله S4)
+$router->get('/api/v1/articles', [ArticleController::class, 'index']);
+$router->post('/api/v1/articles', [ArticleController::class, 'storeOrUpdate']);
+$router->post('/api/v1/articles/auto-build', [ArticleController::class, 'autoBuild']);
+$router->post('/api/v1/events/track', [PublicSiteController::class, 'trackEvent']);
 
 $router->dispatch($request);

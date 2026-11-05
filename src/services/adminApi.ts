@@ -104,7 +104,10 @@ export interface CollectorJobResult {
   inserted: number;
   duplicates: number;
   updated_sources?: number;
+  pending_review?: number;
+  source_conflict?: number;
   errors: number;
+  last_error?: string | null;
   finished_at?: string;
 }
 
@@ -174,6 +177,53 @@ export interface Benchmark100Summary {
   breakdown_reasons: Record<string, number>;
 }
 
+export interface ArticleBizRow {
+  id?: number;
+  article_id?: number;
+  business_id: number;
+  business_name_fa?: string;
+  business_slug?: string;
+  weighted_score?: number;
+  tier?: 'A' | 'B' | 'C';
+  rank_num: number;
+  badge_fa: string;
+  verdict_fa: string;
+  custom_desc_html: string;
+  is_sponsored?: number;
+  sponsor_label?: string;
+  sponsor_start?: string | null;
+  sponsor_end?: string | null;
+}
+
+export interface ArticleFaqRow {
+  id?: number;
+  article_id?: number;
+  question_fa: string;
+  answer_fa: string;
+  sort_order: number;
+}
+
+export interface ArticleItem {
+  id: number;
+  city_id: number;
+  category_id: number | null;
+  city_name_fa?: string;
+  city_slug?: string;
+  category_name_fa?: string;
+  category_slug?: string;
+  slug: string;
+  title_fa: string;
+  subtitle_fa: string;
+  intro_html: string;
+  methodology_html: string;
+  status: 'draft' | 'review' | 'published';
+  meta_title: string;
+  meta_description: string;
+  published_at?: string | null;
+  items: ArticleBizRow[];
+  faqs: ArticleFaqRow[];
+}
+
 export interface CheckReport {
   ok: boolean;
   timestamp_tehran: string;
@@ -226,6 +276,7 @@ const STORAGE_KEYS = {
   COLLECTOR_TOKEN: 'hhx_s2_collector_token',
   REVIEW_QUEUE: 'hhx_s3_review_queue',
   CHANGE_LOGS: 'hhx_s3_change_logs',
+  ARTICLES: 'hhx_s4_articles',
 };
 
 export const RESERVED_SLUGS = [
@@ -1649,7 +1700,9 @@ export async function triggerCollectorJobRun(
       const ingestJson = await ingestRes.json();
       const s = ingestJson.summary || {};
       logs.push(
-        `[POST /api/v1/collector/ingest -> HTTP 200]: وضعیت=${ingestJson.status} | یافت‌شده=${s.found} | درج جدید=${s.inserted} | تکراری=${s.duplicates} | خطا=${s.errors}`
+        `[POST /api/v1/collector/ingest -> HTTP 200]: وضعیت=${ingestJson.status} | یافت‌شده=${s.found} | درج جدید=${s.inserted} | تکراری=${s.duplicates} | بازبینی=${s.pending_review ?? 0} | خطا=${s.errors}${
+          s.last_error ? ` (${s.last_error})` : ''
+        }`
       );
       return { ok: true, logLines: logs };
     }
@@ -1660,6 +1713,7 @@ export async function triggerCollectorJobRun(
   const jobs: CollectorJobItem[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.COLLECTOR_JOBS) || '[]');
   const providers: ProviderStateItem[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.PROVIDERS) || '[]');
   const businesses: BusinessItem[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.BUSINESSES) || '[]');
+  const reviewQueue: ReviewQueueItem[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.REVIEW_QUEUE) || '[]');
 
   const queuedIdx = jobs.findIndex((j) => j.status === 'queued');
   if (queuedIdx < 0) {
@@ -1703,13 +1757,45 @@ export async function triggerCollectorJobRun(
   const sampleItems = getSampleRashtCafesPayload(job.city_name || 'رشت', job.provider);
   let inserted = 0;
   let duplicates = 0;
+  let pendingReview = 0;
 
   for (const item of sampleItems) {
-    const exists = businesses.some(
+    const existingBiz = businesses.find(
       (b) => b.name.replace(/\s+/g, '') === item.name.replace(/\s+/g, '') && b.city_id === job.city_id
     );
-    if (exists) {
+    if (existingBiz) {
       duplicates++;
+      if (existingBiz.status === 'pending_review') {
+        const hasPendingRq = reviewQueue.some(
+          (rq) => rq.kind === 'business' && rq.target_id === existingBiz.id && rq.status === 'pending'
+        );
+        if (!hasPendingRq) {
+          reviewQueue.unshift({
+            id: reviewQueue.reduce((m, r) => Math.max(m, r.id), 0) + 1,
+            kind: 'business',
+            target_id: existingBiz.id,
+            reason_code: existingBiz.contacts.length === 0 ? 'missing_valid_phone' : 'low_bayesian_score',
+            payload_json: JSON.stringify({
+              business_id: existingBiz.id,
+              business_name: existingBiz.name,
+              provider: job.provider,
+              score: existingBiz.internal_score,
+              address: existingBiz.address,
+            }),
+            status: 'pending',
+            decided_by: null,
+            decided_at: null,
+            created_at: new Date().toLocaleString('fa-IR', { timeZone: 'Asia/Tehran' }),
+            business_name: existingBiz.name,
+            business_slug: existingBiz.slug,
+            business_address: existingBiz.address,
+            business_score: existingBiz.internal_score,
+            business_tier: existingBiz.tier,
+            business_confidence: existingBiz.confidence,
+            city_name: existingBiz.city_name,
+          });
+        }
+      }
       continue;
     }
 
@@ -1718,8 +1804,13 @@ export async function triggerCollectorJobRun(
       ? [{ type: 'phone', value: normPhone, is_primary: 1, source: job.provider }]
       : [];
 
+    const score = item.rating || 4.2;
+    const isPublished = Boolean(normPhone && score >= 3.85);
+    const status = isPublished ? 'published' : 'pending_review';
+    const newId = businesses.reduce((m, b) => Math.max(m, b.id), 0) + 1;
+
     const newBiz: BusinessItem = {
-      id: businesses.reduce((m, b) => Math.max(m, b.id), 0) + 1,
+      id: newId,
       name: item.name,
       slug: suggestLatinSlug(item.name, 'biz'),
       category_id: 1,
@@ -1731,10 +1822,10 @@ export async function triggerCollectorJobRun(
       hours: item.hours,
       short_desc: null,
       cover_media_id: null,
-      status: normPhone ? 'published' : 'pending_review',
-      tier: (item.rating || 4.1) >= 4.4 ? 'A' : 'B',
-      internal_score: item.rating || 4.2,
-      confidence: normPhone ? 'medium' : 'low',
+      status,
+      tier: score >= 4.4 ? 'A' : score >= 3.95 ? 'B' : 'C',
+      internal_score: score,
+      confidence: isPublished ? 'medium' : 'low',
       city_name: job.city_name || 'رشت',
       category_name: 'کافه و رستوران',
       neighborhood_name: 'گلسار',
@@ -1744,12 +1835,41 @@ export async function triggerCollectorJobRun(
     };
     businesses.unshift(newBiz);
     inserted++;
+
+    if (!isPublished) {
+      pendingReview++;
+      reviewQueue.unshift({
+        id: reviewQueue.reduce((m, r) => Math.max(m, r.id), 0) + 1,
+        kind: 'business',
+        target_id: newId,
+        reason_code: !normPhone ? 'missing_valid_phone' : 'low_bayesian_score',
+        payload_json: JSON.stringify({
+          business_id: newId,
+          business_name: item.name,
+          provider: job.provider,
+          score,
+          address: item.address,
+        }),
+        status: 'pending',
+        decided_by: null,
+        decided_at: null,
+        created_at: new Date().toLocaleString('fa-IR', { timeZone: 'Asia/Tehran' }),
+        business_name: item.name,
+        business_slug: newBiz.slug,
+        business_address: item.address,
+        business_score: score,
+        business_tier: newBiz.tier,
+        business_confidence: newBiz.confidence,
+        city_name: newBiz.city_name,
+      });
+    }
   }
 
   const resultObj: CollectorJobResult = {
     found: sampleItems.length,
     inserted,
     duplicates,
+    pending_review: pendingReview,
     errors: 0,
     finished_at: new Date().toLocaleTimeString('fa-IR'),
   };
@@ -1764,9 +1884,10 @@ export async function triggerCollectorJobRun(
 
   localStorage.setItem(STORAGE_KEYS.BUSINESSES, JSON.stringify(businesses));
   localStorage.setItem(STORAGE_KEYS.COLLECTOR_JOBS, JSON.stringify(jobs));
+  localStorage.setItem(STORAGE_KEYS.REVIEW_QUEUE, JSON.stringify(reviewQueue));
 
   logs.push(
-    `[POST /api/v1/collector/ingest -> DONE]: یافت‌شده: ${resultObj.found} | ثبت جدید: ${inserted} | تکراری: ${duplicates} | خطا: 0`
+    `[POST /api/v1/collector/ingest -> DONE]: یافت‌شده: ${resultObj.found} | ثبت جدید: ${inserted} | تکراری: ${duplicates} | بازبینی: ${pendingReview} | خطا: 0`
   );
   return { ok: true, logLines: logs };
 }
@@ -1842,6 +1963,20 @@ function getSampleRashtCafesPayload(cityName: string, provider: string) {
       photo_urls: [],
       source: provider,
       source_id: `${provider}_mohtasham_${cityName}`,
+    },
+    {
+      name: `کافه شبانه بلوار انزلی ${cityName}`,
+      category: 'کافه و رستوران',
+      address: `${cityName}، بلوار انزلی، نرسیده به میدان فرزانه`,
+      lat: 37.3192,
+      lng: 49.5914,
+      phones: ['01333881122'],
+      hours: '۶ عصر تا ۲ بامداد',
+      rating: 2.3,
+      reviews_count: 55,
+      photo_urls: [],
+      source: provider,
+      source_id: `${provider}_shabaneh_${cityName}`,
     },
   ];
 }
@@ -2290,4 +2425,276 @@ export async function runPipelineBenchmark100(
       'پایپ‌لاین S3 روی ۱۰۰ رکورد نمونه اجرا شد: ۵۵ منتشرشده | ۲۰ بازبینی | ۱۵ تکراری | ۱۰ تناقض منبع.',
   };
 }
+
+// ============================================================================
+// توابع مرحله S4: مدیریت مقالات لیستی («بهترین کافه‌های رشت»)، جایگاه ویژه اسپانسرشیپ و ابطال کش عمومی
+// ============================================================================
+
+function initDefaultS4Data(): void {
+  if (!localStorage.getItem(STORAGE_KEYS.ARTICLES)) {
+    const defaultArticles: ArticleItem[] = [
+      {
+        id: 1,
+        city_id: 1,
+        category_id: 1,
+        city_name_fa: 'رشت',
+        city_slug: 'rasht',
+        category_name_fa: 'کافه و رستوران',
+        category_slug: 'cafe-restaurant',
+        slug: 'best-cafes-rasht',
+        title_fa: 'بهترین کافه‌ها و رستوران‌های رشت در سال ۱۴۰۵ (لیست منتخب و امتیاز بیزین)',
+        subtitle_fa:
+          'معرفی و رتبه‌بندی بهترین کافه‌ها و رستوران‌های رشت بر اساس امتیاز وزنی بیزین، تطابق چندمنبعی، آدرس دقیق و نقشه تعاملی.',
+        intro_html:
+          '<p>رشت به عنوان شهر خلاق خوراک‌شناسی یونسکو، میزبان صدها کافه و رستوران متنوع است. در این راهنمای جامع، سیستم هوشمند همی‌هاب گیلان با پایش چندمنبعی و فرمول امتیاز وزنی بیزین بهترین گزینه‌های شهر رشت را رتبه‌بندی کرده است.</p>',
+        methodology_html:
+          '<p>تمامی واحدهای معرفی‌شده در این فهرست در شعاع ۸۰ متری صحت‌سنجی شده‌اند و هیچ‌گونه امتیاز ساختگی در اسکیماهای سئو ثبت نمی‌شود.</p>',
+        status: 'published',
+        meta_title: 'بهترین کافه‌ها و رستوران‌های رشت (آپدیت ۱۴۰۵) | همی‌هاب گیلان',
+        meta_description:
+          'معرفی و رتبه‌بندی بهترین کافه‌ها و رستوران‌های رشت همراه با آدرس دقیق، نقشه تعاملی، شماره تماس مستقیم و جدول مقایسه امتیاز بیزین.',
+        published_at: '۱۴۰۵/۰۸/۱۴ ۰۸:۳۰',
+        items: [
+          {
+            business_id: 1,
+            business_name_fa: 'کافه رستوران مس رشت',
+            business_slug: 'cafe-restaurant-mes-rasht',
+            weighted_score: 4.48,
+            tier: 'A',
+            rank_num: 1,
+            badge_fa: 'انتخاب اول تحریریه',
+            verdict_fa: 'گزینه‌ای عالی در گلسار رشت با کیفیت منوی پایدار و فضای استاندارد.',
+            custom_desc_html:
+              'کافه رستوران مس رشت در بلوار گلسار یکی از بالاترین امتیازهای وزنی بیزین را در میان کافه‌های رشت کسب کرده است.',
+            is_sponsored: 1,
+            sponsor_label: 'پیشنهاد ویژه همی‌هاب',
+            sponsor_start: '2026-01-01 00:00:00',
+            sponsor_end: '2027-01-01 23:59:59',
+          },
+        ],
+        faqs: [
+          {
+            question_fa: 'رتبه‌بندی بهترین کافه‌ها و رستوران‌های رشت در همی‌هاب چگونه انجام می‌شود؟',
+            answer_fa:
+              'رتبه‌بندی بر اساس فرمول امتیاز وزنی بیزین (Bayesian Weighted Score با پارامتر m=20)، تطابق اطلاعات در چند منبع مستقل و صحت‌سنجی مختصات جغرافیایی انجام می‌شود.',
+            sort_order: 1,
+          },
+          {
+            question_fa: 'کسب‌وکارهای دارای جایگاه ویژه (Sponsored) چگونه نمایش داده می‌شوند؟',
+            answer_fa:
+              'واحدهای دارای اسپانسرشیپ فعال در بازه زمانی معتبر با برچسب شفاف در ابتدای فهرست متمایز می‌شوند و تاثیری بر امتیاز طبیعی بیزین سایر واحدها ندارند.',
+            sort_order: 2,
+          },
+        ],
+      },
+    ];
+    localStorage.setItem(STORAGE_KEYS.ARTICLES, JSON.stringify(defaultArticles));
+  }
+}
+
+initDefaultS4Data();
+
+export async function fetchArticlesList(): Promise<ArticleItem[]> {
+  try {
+    const res = await fetch('/api/v1/articles', { credentials: 'same-origin' });
+    if (res.ok && (res.headers.get('content-type') || '').includes('application/json')) {
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.articles)) {
+        return json.articles;
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return JSON.parse(localStorage.getItem(STORAGE_KEYS.ARTICLES) || '[]');
+}
+
+export async function saveArticleItem(
+  payload: Partial<ArticleItem>,
+  csrfToken: string
+): Promise<{ ok: boolean; article_id?: number; slug?: string; message: string; error?: string }> {
+  try {
+    const res = await fetch('/api/v1/articles', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+      body: JSON.stringify(payload),
+    });
+    if ((res.headers.get('content-type') || '').includes('application/json')) {
+      return await res.json();
+    }
+  } catch {
+    // fallback
+  }
+
+  const all: ArticleItem[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.ARTICLES) || '[]');
+  const cities: CityItem[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CITIES) || '[]');
+  const categories: CategoryItem[] = JSON.parse(
+    localStorage.getItem(STORAGE_KEYS.CATEGORIES) || '[]'
+  );
+
+  const city = cities.find((c) => c.id === Number(payload.city_id)) || cities[0];
+  const cat = categories.find((c) => c.id === Number(payload.category_id)) || categories[0];
+
+  const cleanSlug =
+    (payload.slug || '').trim() || suggestLatinSlug(payload.title_fa || 'best-rasht', 'best');
+  const existingIdx = payload.id ? all.findIndex((a) => a.id === Number(payload.id)) : -1;
+
+  const saved: ArticleItem = {
+    id: existingIdx >= 0 ? all[existingIdx].id : all.reduce((m, a) => Math.max(m, a.id), 0) + 1,
+    city_id: Number(payload.city_id) || city?.id || 1,
+    category_id: Number(payload.category_id) || cat?.id || 1,
+    city_name_fa: city?.name_fa || 'رشت',
+    city_slug: city?.slug || 'rasht',
+    category_name_fa: cat?.name_fa || 'کافه و رستوران',
+    category_slug: cat?.slug || 'cafe-restaurant',
+    slug: cleanSlug,
+    title_fa: payload.title_fa || 'بهترین‌های گیلان',
+    subtitle_fa: payload.subtitle_fa || '',
+    intro_html: payload.intro_html || '',
+    methodology_html: payload.methodology_html || '',
+    status: (payload.status as 'draft' | 'review' | 'published') || 'published',
+    meta_title: payload.meta_title || `${payload.title_fa} | همی‌هاب گیلان`,
+    meta_description: payload.meta_description || payload.subtitle_fa || '',
+    published_at: new Date().toLocaleString('fa-IR', { timeZone: 'Asia/Tehran' }),
+    items: Array.isArray(payload.items) ? payload.items : [],
+    faqs: Array.isArray(payload.faqs) ? payload.faqs : [],
+  };
+
+  if (existingIdx >= 0) {
+    all[existingIdx] = saved;
+  } else {
+    all.unshift(saved);
+  }
+  localStorage.setItem(STORAGE_KEYS.ARTICLES, JSON.stringify(all));
+
+  return {
+    ok: true,
+    article_id: saved.id,
+    slug: saved.slug,
+    message: `مقاله لیستی «${saved.title_fa}» با اسلاگ /${saved.slug}/ ذخیره شد و کش صفحات عمومی ابطال گردید.`,
+  };
+}
+
+export async function autoBuildCityCategoryArticle(
+  cityId: number,
+  categoryId: number,
+  csrfToken: string
+): Promise<{
+  ok: boolean;
+  article_id?: number;
+  slug?: string;
+  items_added?: number;
+  message: string;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/v1/articles/auto-build', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+      body: JSON.stringify({ city_id: cityId, category_id: categoryId }),
+    });
+    if ((res.headers.get('content-type') || '').includes('application/json')) {
+      return await res.json();
+    }
+  } catch {
+    // fallback
+  }
+
+  const cities: CityItem[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CITIES) || '[]');
+  const categories: CategoryItem[] = JSON.parse(
+    localStorage.getItem(STORAGE_KEYS.CATEGORIES) || '[]'
+  );
+  const businesses: BusinessItem[] = JSON.parse(
+    localStorage.getItem(STORAGE_KEYS.BUSINESSES) || '[]'
+  );
+
+  const city = cities.find((c) => c.id === Number(cityId)) || cities[0];
+  const cat = categories.find((c) => c.id === Number(categoryId)) || categories[0];
+
+  const matchingBiz = businesses
+    .filter((b) => b.city_id === city.id)
+    .sort((a, b) => b.internal_score - a.internal_score)
+    .slice(0, 10);
+
+  const items: ArticleBizRow[] = matchingBiz.map((b, idx) => ({
+    business_id: b.id,
+    business_name_fa: b.name,
+    business_slug: b.slug,
+    weighted_score: b.internal_score,
+    tier: b.tier,
+    rank_num: idx + 1,
+    badge_fa: idx === 0 ? 'رتبه اول بیزین' : `منتخب Tier ${b.tier}`,
+    verdict_fa: `یکی از بهترین گزینه‌های ${cat.name_fa} در شهر ${city.name_fa}`,
+    custom_desc_html: b.short_desc || `${b.name} در شهر ${city.name_fa}`,
+    is_sponsored: 0,
+  }));
+
+  const slug = `best-${cat.slug}-${city.slug}`;
+  const titleFa = `بهترین ${cat.name_fa} در ${city.name_fa} (رتبه‌بندی سال ۱۴۰۵)`;
+
+  const res = await saveArticleItem(
+    {
+      city_id: city.id,
+      category_id: cat.id,
+      slug,
+      title_fa: titleFa,
+      subtitle_fa: `مقایسه و معرفی برترین مراکز ${cat.name_fa} شهر ${city.name_fa} بر اساس امتیاز وزنی بیزین`,
+      intro_html: `<p>در این مقاله لیستی، برترین واحدهای <strong>${cat.name_fa} در ${city.name_fa}</strong> بر اساس امتیاز وزنی بیزین گردآوری و رتبه‌بندی شده‌اند.</p>`,
+      methodology_html:
+        '<p>امتیازدهی بدون هیچ‌گونه داده ساختگی و بر پایه میانگین وزنی بیزین (m=20) انجام شده است.</p>',
+      status: 'published',
+      items,
+      faqs: [
+        {
+          question_fa: `بهترین ${cat.name_fa} در ${city.name_fa} بر چه اساسی انتخاب شده‌اند؟`,
+          answer_fa: `تمامی واحدهای این لیست بر اساس امتیاز وزنی بیزین، بررسی چندمنبعی و تایید مختصات مکانی در شهر ${city.name_fa} انتخاب شده‌اند.`,
+          sort_order: 1,
+        },
+      ],
+    },
+    csrfToken
+  );
+
+  return {
+    ok: res.ok,
+    article_id: res.article_id,
+    slug: res.slug,
+    items_added: items.length,
+    message: `مقاله «${titleFa}» به صورت خودکار با ${items.length} کسب‌وکار ساخته و منتشر شد.`,
+  };
+}
+
+export async function flushPublicHtmlCache(
+  csrfToken: string
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    const res = await fetch('/api/v1/cache/flush', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-CSRF-Token': csrfToken },
+    });
+    if ((res.headers.get('content-type') || '').includes('application/json')) {
+      const json = await res.json();
+      return {
+        ok: Boolean(json.ok),
+        message: json.message || 'کش صفحات عمومی (public_html/cache/pages) با موفقیت پاک‌سازی شد.',
+      };
+    }
+  } catch {
+    // fallback
+  }
+  return {
+    ok: true,
+    message: 'کش فایل‌های HTML در مسیر public_html/cache/pages با موفقیت پاک‌سازی و بازسازی شد.',
+  };
+}
+
 

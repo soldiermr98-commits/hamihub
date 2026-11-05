@@ -2,13 +2,14 @@
 declare(strict_types=1);
 
 /**
- * نقطه ورود اصلی وب‌سایت عمومی HamiHubX.ir
- * تعریف ثابت BASE_PATH برای ساخت تمام مسیرهای پروژه
+ * نقطه ورود اصلی وب‌سایت عمومی HamiHubX.ir (مرحله S4)
+ * شامل سرو فوق‌سریع کش HTML از دیسک، قالب‌های سئو، اسکیماهای JSON-LD، نقشه سایت و Robots.txt
  */
 
 define('BASE_PATH', dirname(__DIR__));
 require_once BASE_PATH . '/app/Core/Bootstrap.php';
 
+use App\Controllers\PublicSiteController;
 use App\Core\Bootstrap;
 use App\Core\Cache;
 use App\Core\Request;
@@ -20,13 +21,13 @@ Bootstrap::init(BASE_PATH);
 $request = new Request();
 $path = $request->path();
 
-// اگر درخواست مربوط به مسیرهای API بود به کنترلر API هدایت شود
+// ۱. اگر درخواست مربوط به مسیرهای API بود به کنترلر API هدایت شود
 if (str_starts_with($path, '/api/')) {
     require BASE_PATH . '/public_html/api/index.php';
     exit;
 }
 
-// اگر درخواست مربوط به زیرمسیرهای پنل مدیریت (/admin/review, /admin/cities و غیره) بود، فایل SPA پنل سرو شود
+// ۲. اگر درخواست مربوط به زیرمسیرهای پنل مدیریت (/admin/review, /admin/articles و غیره) بود، فایل SPA پنل سرو شود
 if ($path === '/admin' || str_starts_with($path, '/admin/')) {
     $adminIndexFile = __DIR__ . '/admin/index.html';
     if (is_file($adminIndexFile)) {
@@ -34,8 +35,8 @@ if ($path === '/admin' || str_starts_with($path, '/admin/')) {
     }
 }
 
-// سرو از کش در صورت اجرای مستقیم از طریق PHP (در حالت عادی آپاچی مستقیم فایل کش را می‌دهد)
-if ($request->method() === 'GET' && empty($_GET)) {
+// ۳. سرو از کش دیسک (public_html/cache/pages) در صورت اجرای مستقیم از طریق PHP
+if ($request->method() === 'GET' && empty($_GET) && $path !== '/sitemap.xml' && $path !== '/robots.txt') {
     $cachedHtml = Cache::getPage($path);
     if ($cachedHtml !== null) {
         Response::html($cachedHtml);
@@ -44,28 +45,13 @@ if ($request->method() === 'GET' && empty($_GET)) {
 
 $router = new Router();
 
-// صفحه اصلی موقت در مرحله S0 با فونت لوکال وزیرمتن (در مرحله S4 با قالب کامل سئو جایگزین می‌شود)
-$router->get('/', static function (Request $req): void {
-    $html = '<!doctype html>
-<html lang="fa" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>همی‌هاب گیلان (HamiHubX.ir) — معرفی بهترین‌های استان گیلان</title>
-  <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/assets/css/public.css">
-</head>
-<body>
-  <div class="container" style="padding:4rem 1rem;text-align:center;">
-    <h1>همی‌هاب گیلان (HamiHubX.ir)</h1>
-    <p>پلتفرم خودکار معرفی بهترین کسب‌وکارهای استان گیلان — فونت لوکال وزیرمتن و کش سطح دیسک فعال است.</p>
-    <p><a href="/admin/">ورود به پنل مدیریت (/admin/)</a> | <a href="/check.php?key=hhx-check-2026-key">گزارش سلامت سرور (check.php)</a></p>
-  </div>
-</body>
-</html>';
-    Cache::putPage('/', $html);
-    Response::html($html);
-});
+// ۴. مسیرهای عمومی سئو، نقشه سایت، Robots.txt و قالب‌های مرحله S4
+$router->get('/', [PublicSiteController::class, 'home']);
+$router->get('/sitemap.xml', [PublicSiteController::class, 'sitemapXml']);
+$router->get('/robots.txt', [PublicSiteController::class, 'robotsTxt']);
+$router->get('/b/{slug}', [PublicSiteController::class, 'businessDetail']);
+$router->get('/city/{city}', [PublicSiteController::class, 'cityHub']);
+$router->get('/city/{city}/{category}', [PublicSiteController::class, 'cityCategory']);
+$router->get('/{slug}', [PublicSiteController::class, 'articleDetail']);
 
 $router->dispatch($request);
