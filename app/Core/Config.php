@@ -23,7 +23,7 @@ final class Config
         }
 
         if (!is_file($configPath)) {
-            throw new RuntimeException('فایل تنظیمات config.php یافت نشد. لطفاً config.sample.php را به config.php کپی کنید.');
+            throw new RuntimeException('فایل تنظیمات یافت نشد. config.sample.php را به config.local.php کپی و تنظیم کنید.');
         }
 
         $data = require $configPath;

@@ -80,7 +80,7 @@ final class BusinessController
 
         $hasPhone = false;
         foreach ($contacts as $c) {
-            if (in_array(($c['type'] ?? ''), ['phone', 'mobile'], true) && trim((string) ($c['value'] ?? '')) !== '') {
+            if (in_array(($c['type'] ?? ''), ['phone', 'mobile'], true) && (int)($c['is_primary'] ?? 0) === 1 && trim((string) ($c['value'] ?? '')) !== '') {
                 $hasPhone = true;
                 break;
             }
@@ -142,6 +142,16 @@ final class BusinessController
             ], 422);
         }
 
+        if (!DB::fetchOne('SELECT id FROM cities WHERE id=:id', ['id'=>$cityId]) || !DB::fetchOne('SELECT id FROM categories WHERE id=:id', ['id'=>$categoryId])) {
+            Response::json(['ok'=>false,'error'=>'شهر یا دسته‌بندی یافت نشد.'],422);
+        }
+        $websiteInput = trim((string) $request->input('website', ''));
+        if ($websiteInput !== '' && !preg_match('~^https?://~i', $websiteInput)) Response::json(['ok'=>false,'error'=>'نشانی وب‌سایت باید با http یا https شروع شود.','field'=>'website'],422);
+        $phoneInput = trim((string) $request->input('phone', ''));
+        if ($phoneInput !== '' && SlugService::normalizePhone($phoneInput) === '') {
+            Response::json(['ok' => false, 'error' => 'شماره تماس معتبر نیست.', 'field' => 'phone'], 422);
+        }
+
         $rawSlug = trim((string) $request->input('slug', ''));
         if ($rawSlug === '') {
             $rawSlug = SlugService::suggestSlug($name, 'biz');
@@ -160,11 +170,16 @@ final class BusinessController
 
         $neighborhoodId = $request->input('neighborhood_id') ? (int) $request->input('neighborhood_id') : null;
         $address = SlugService::normalizePersianText((string) $request->input('address', ''));
-        $lat = ($request->input('lat') !== null && $request->input('lat') !== '') ? (float) $request->input('lat') : null;
-        $lng = ($request->input('lng') !== null && $request->input('lng') !== '') ? (float) $request->input('lng') : null;
+        $latInput = $request->input('lat'); $lngInput = $request->input('lng');
+        if (($latInput !== null && $latInput !== '' && !is_numeric($latInput)) || ($lngInput !== null && $lngInput !== '' && !is_numeric($lngInput))) Response::json(['ok'=>false,'error'=>'مختصات معتبر نیست.'],422);
+        $lat = ($latInput !== null && $latInput !== '') ? (float)$latInput : null;
+        $lng = ($lngInput !== null && $lngInput !== '') ? (float)$lngInput : null;
+        if (($lat === null) !== ($lng === null) || ($lat !== null && abs($lat) > 90) || ($lng !== null && abs($lng) > 180)) Response::json(['ok'=>false,'error'=>'عرض و طول جغرافیایی باید هر دو معتبر باشند.'],422);
+        if ($neighborhoodId && !DB::fetchOne('SELECT id FROM neighborhoods WHERE id=:id AND city_id=:city', ['id'=>$neighborhoodId,'city'=>$cityId])) Response::json(['ok'=>false,'error'=>'محله به شهر انتخاب‌شده تعلق ندارد.'],422);
         $hours = SlugService::normalizePersianText((string) $request->input('hours', ''));
         $shortDesc = SlugService::normalizePersianText((string) $request->input('short_desc', ''));
         $coverMediaId = $request->input('cover_media_id') ? (int) $request->input('cover_media_id') : null;
+        if ($coverMediaId && !DB::fetchOne('SELECT id FROM media WHERE id=:id', ['id'=>$coverMediaId])) Response::json(['ok'=>false,'error'=>'تصویر یافت نشد.'],422);
 
         $requestedStatus = (string) $request->input('status', 'draft');
         if (!in_array($requestedStatus, ['draft', 'pending_review', 'published', 'hidden', 'rejected'], true)) {
@@ -181,7 +196,10 @@ final class BusinessController
             $tier = 'B';
         }
 
-        $normalizedName = preg_replace('/\s+/u', '', $name) ?: $name;
+        $normalizedName = \App\Services\PipelineService::canonicalNameKey($name);
+        if ($id > 0 && !DB::fetchOne('SELECT id FROM businesses WHERE id=:id', ['id'=>$id])) Response::json(['ok'=>false,'error'=>'کسب‌وکار یافت نشد.'], 404);
+        $pdo = DB::connection();
+        $pdo->beginTransaction();
 
         if ($id > 0) {
             DB::query(
@@ -227,7 +245,7 @@ final class BusinessController
                 "INSERT INTO businesses
                     (name, normalized_name, slug, category_id, city_id, neighborhood_id, address, lat, lng, hours, short_desc, cover_media_id, status, tier, internal_score, confidence, publish_reason, created_at, updated_at)
                  VALUES
-                    (:name, :norm, :slug, :cat_id, :city_id, :nid, :addr, :lat, :lng, :hours, :desc, :media_id, :status, :tier, 4.100, 'medium', 'manual_entry', NOW(), NOW())",
+                    (:name, :norm, :slug, :cat_id, :city_id, :nid, :addr, :lat, :lng, :hours, :desc, :media_id, :status, :tier, 0.000, 'low', 'manual_entry', NOW(), NOW())",
                 [
                     'name' => $name,
                     'norm' => $normalizedName,
@@ -257,6 +275,12 @@ final class BusinessController
         $whatsapp = SlugService::normalizePhone((string) $request->input('whatsapp', ''));
         $website = trim((string) $request->input('website', ''));
 
+        // Preserve provider-supplied contacts as evidence, but make the editor's
+        // chosen phone authoritative (including an explicit clear).
+        DB::query("UPDATE business_contacts SET is_primary=0 WHERE business_id=:id AND type IN ('phone','mobile')", ['id'=>$bizId]);
+        if ($phone === '' && DB::fetchOne("SELECT id FROM business_contacts WHERE business_id=:id AND type IN ('phone','mobile') LIMIT 1", ['id'=>$bizId])) {
+            DB::query("INSERT INTO business_contacts (business_id,type,value,is_primary,source,confidence,last_verified_at) VALUES (:id,'phone','',1,'manual','high',NOW())", ['id'=>$bizId]);
+        }
         if ($phone !== '') {
             $phoneType = str_starts_with($phone, '+989') ? 'mobile' : 'phone';
             DB::query(
@@ -289,6 +313,13 @@ final class BusinessController
                 ['bid' => $bizId, 'val' => $website]
             );
         }
+
+        if ($requestedStatus === 'pending_review') {
+            \App\Services\PipelineService::enqueueReviewIfNotExists('business', $bizId, 'manual_entry', ['business_id'=>$bizId,'business_name'=>$name,'address'=>$address]);
+        } else {
+            DB::query("UPDATE review_queue SET status=:status,decided_by=:user,decided_at=NOW() WHERE kind='business' AND target_id=:id AND status='pending'", ['status'=>$requestedStatus === 'published' ? 'approved' : 'rejected','user'=>(int)$user['id'],'id'=>$bizId]);
+        }
+        $pdo->commit();
 
         // ابطال کش صفحات عمومی (صفحه کسب‌وکار، صفحه شهر، دسته و مقالات لیستی) در صورت تغییر
         Cache::forgetPage('/b/' . $uniqueSlug);

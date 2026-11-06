@@ -24,7 +24,6 @@ import {
   ProviderStateItem,
   createCollectorJob,
   fetchCollectorQueueState,
-  rotateCollectorToken,
   saveCategoryItem,
   saveCategoryPackItem,
   saveCityItem,
@@ -54,15 +53,13 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
   // وضعیت صف جمع‌آوری (مرحله S2)
   const [jobs, setJobs] = useState<CollectorJobItem[]>([]);
   const [providers, setProviders] = useState<ProviderStateItem[]>([]);
-  const [bearerToken, setBearerToken] = useState<string>('');
   const [selectedCityId, setSelectedCityId] = useState<number>(cities[0]?.id || 1);
   const [selectedPackId, setSelectedPackId] = useState<number>(packs[0]?.id || 1);
-  const [selectedProvider, setSelectedProvider] = useState<string>('auto');
+  const [selectedProvider, setSelectedProvider] = useState<string>('osm');
   const [customQuery, setCustomQuery] = useState<string>('');
   const [queueMsg, setQueueMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [runnerLogs, setRunnerLogs] = useState<string[]>([]);
   const [runningWorker, setRunningWorker] = useState<boolean>(false);
-  const [copiedToken, setCopiedToken] = useState<boolean>(false);
 
   // ۱. افزودن سریع شهر فقط با یک فیلد نام (قانون بخش ۷ و ۸ UX)
   const [quickCityName, setQuickCityName] = useState<string>('');
@@ -85,10 +82,10 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
   const [packMsg, setPackMsg] = useState<{ type: 'ok' | 'err'; text: string; field?: string } | null>(null);
 
   const loadQueueData = async () => {
-    const state = await fetchCollectorQueueState();
-    setJobs(state.jobs);
-    setProviders(state.providers);
-    setBearerToken(state.collector_bearer_token);
+    try {
+      const state = await fetchCollectorQueueState();
+      setJobs(state.jobs); setProviders(state.providers);
+    } catch (e) { setQueueMsg({type:'err', text:e instanceof Error ? e.message : 'خطا در دریافت صف'}); }
   };
 
   useEffect(() => {
@@ -119,12 +116,13 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
     await loadQueueData();
   };
 
-  const handleRunNextJobNow = async (simulate429 = false) => {
+  const handleRunNextJobNow = async () => {
     setRunningWorker(true);
     setQueueMsg(null);
 
-    const res = await triggerCollectorJobRun(bearerToken, simulate429);
+    const res = await triggerCollectorJobRun(csrfToken);
     setRunnerLogs(res.logLines);
+    setQueueMsg({type:res.ok ? 'ok' : 'err', text:res.logLines[0]});
     setRunningWorker(false);
 
     await Promise.all([loadQueueData(), onRefreshData()]);
@@ -142,16 +140,9 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
       csrfToken
     );
     if (res.ok) {
+      setQueueMsg({type:'ok', text:res.message});
       await loadQueueData();
-    }
-  };
-
-  const handleRotateToken = async () => {
-    const res = await rotateCollectorToken('', csrfToken);
-    if (res.ok) {
-      setBearerToken(res.collector_bearer_token);
-      setQueueMsg({ type: 'ok', text: res.message });
-    }
+    } else setQueueMsg({type:'err', text:res.error || 'خطا در تغییر وضعیت منبع'});
   };
 
   const handleQuickAddCity = async (e: React.FormEvent) => {
@@ -161,7 +152,7 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
     const res = await saveCityItem(
       {
         name_fa: quickCityName,
-        publish_mode: 'rules',
+        publish_mode: 'manual',
         is_active: 1,
       },
       csrfToken
@@ -361,7 +352,7 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
           {/* فرم ساخت Job جدید («رشت + کافه») */}
           <section className="bg-white border border-slate-200 rounded-xl p-6">
             <h2 className="text-base font-bold text-slate-900 pb-4 mb-4 border-b border-slate-200">
-              ۱. افزودن Job جمع‌آوری به صف (مثلاً: رشت + بسته کافه و رستوران)
+              ۱. افزودن Job جمع‌آوری به صف (مثلاً: رشت + بسته کافه‌ها)
             </h2>
 
             <form onSubmit={handleCreateJob} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
@@ -402,11 +393,8 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                   onChange={(e) => setSelectedProvider(e.target.value)}
                   className="mt-1 w-full px-3 py-2.5 text-sm font-mono bg-white border border-slate-300 rounded-lg"
                 >
-                  <option value="auto">خودکار بر اساس اولویت (auto)</option>
                   <option value="osm">OpenStreetMap (osm)</option>
-                  <option value="csv">فایل نمونه/محلی (csv)</option>
-                  <option value="gosom">Gosom Scraper (gosom)</option>
-                  <option value="neshan">API رسمی نشان (neshan)</option>
+                  <option value="neshan">نشان (نیازمند کلید و بررسی شرایط)</option>
                 </select>
               </div>
 
@@ -429,7 +417,7 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                   ۲. لیست صف Jobهای جمع‌آوری (collector_jobs)
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  کامپیوتر شما با <code className="font-mono">php collector-remote/run.php</code> کارها را می‌گیرد؛ همچنین با دکمه زیر می‌توانید همین الان چرخه <code className="font-mono">jobs/next ← ingest</code> را مستقیم روی سرور تست کنید.
+                  اجرای کار روی همین هاست انجام می‌شود. با ثبت کرون، کارهای صف هر پنج دقیقه بررسی می‌شوند. تغییر خودکار منبع انجام نمی‌شود.
                 </p>
               </div>
 
@@ -437,19 +425,11 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                 <button
                   type="button"
                   disabled={runningWorker}
-                  onClick={() => handleRunNextJobNow(false)}
+                  onClick={() => handleRunNextJobNow()}
                   className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg disabled:opacity-50"
                 >
                   <Play className="w-3.5 h-3.5" />
-                  {runningWorker ? 'در حال اجرا...' : 'اجرای فوری Job بعدی صف (Pull + Ingest)'}
-                </button>
-                <button
-                  type="button"
-                  disabled={runningWorker}
-                  onClick={() => handleRunNextJobNow(true)}
-                  className="px-3 py-2 bg-amber-50 border border-amber-300 text-amber-900 hover:bg-amber-100 text-xs font-semibold rounded-lg"
-                >
-                  تست خطای 429 و Fallback خودکار
+                  {runningWorker ? 'در حال اجرا...' : 'اجرای کار بعدی روی هاست'}
                 </button>
               </div>
             </div>
@@ -504,19 +484,17 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                             {j.status === 'queued' && <span className="text-amber-700">در صف (queued)</span>}
                             {j.status === 'running' && <span className="text-blue-700">در حال اجرا (running)</span>}
                             {j.status === 'failed' && <span className="text-rose-700">خطا (failed)</span>}
+                            {j.status === 'paused' && <span className="text-amber-700">متوقف (paused)</span>}
                           </td>
                           <td className="py-3 px-3 text-xs">
                             {parsedRes ? (
                               <div className="space-y-1">
                                 <span className="font-mono tabular-nums text-slate-700">
                                   یافت‌شده: {parsedRes.found} · جدید: {parsedRes.inserted}
-                                  {parsedRes.inserted > 0 && parsedRes.pending_review !== undefined
-                                    ? ` (انتشار خودکار: ${Math.max(0, parsedRes.inserted - parsedRes.pending_review)} · بازبینی: ${parsedRes.pending_review})`
-                                    : parsedRes.pending_review !== undefined
-                                      ? ` · بازبینی: ${parsedRes.pending_review}`
-                                      : ''}{' '}
+                                  {parsedRes.pending_review !== undefined ? ` · بازبینی: ${parsedRes.pending_review}` : ''}{' '}
                                   · تکراری: {parsedRes.duplicates} · خطا: {parsedRes.errors}
                                 </span>
+                                {parsedRes.warning && <div className="text-amber-700">{parsedRes.warning}</div>}
                                 {parsedRes.last_error && (
                                   <div className="text-[11px] text-rose-700 font-mono">
                                     جزئیات خطا: {parsedRes.last_error}
@@ -526,7 +504,7 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                             ) : j.error ? (
                               <span className="text-amber-800">{j.error}</span>
                             ) : (
-                              <span className="text-slate-400">منتظر دریافت توسط collector-remote</span>
+                              <span className="text-slate-400">منتظر اجرای ورکر روی هاست</span>
                             )}
                           </td>
                         </tr>
@@ -543,7 +521,7 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
             <section className="bg-white border border-slate-200 rounded-xl p-6">
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-4 mb-4 border-b border-slate-200">
                 <Server className="w-4 h-4 text-emerald-700" />
-                ۳. وضعیت پرووایدرها (توقف ۲۴ ساعته خودکار روی کپچا/429)
+                ۳. وضعیت منابع (توقف ۲۴ ساعته در پاسخ 403 یا 429)
               </h2>
               <div className="divide-y divide-slate-200 text-xs">
                 {providers.map((p) => (
@@ -585,42 +563,9 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
               </div>
             </section>
 
-            <section className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-4 border-b border-slate-200">
-                <KeyRound className="w-4 h-4 text-emerald-700" />
-                ۴. توکن امنیتی Bearer برای collector-remote
-              </h2>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                این توکن را در فایل <code className="font-mono">collector-remote/config.php</code> روی کامپیوتر خود قرار دهید تا اسکریپت <code className="font-mono">run.php</code> بتواند به اندپوینت‌های <code className="font-mono">/api/v1/collector/jobs/next</code> و <code className="font-mono">ingest</code> متصل شود:
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  dir="ltr"
-                  value={bearerToken}
-                  className="flex-1 px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-300 rounded-lg"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(bearerToken);
-                    setCopiedToken(true);
-                    setTimeout(() => setCopiedToken(false), 1800);
-                  }}
-                  className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 rounded-lg"
-                >
-                  {copiedToken ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedToken ? 'کپی شد' : 'کپی'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRotateToken}
-                  className="px-3 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg"
-                >
-                  تولید توکن جدید
-                </button>
-              </div>
+            <section className="bg-white border border-slate-200 rounded-xl p-6 text-sm text-slate-600 leading-7">
+              منبع OSM بدون کلید قابل استفاده است. برای نشان، پیش از فعال‌سازی باید کلید و شرایط استفاده را روی هاست تنظیم و بررسی کنید.
+              در صورت خطا منبع به‌طور خودکار عوض نمی‌شود.
             </section>
           </div>
         </div>
@@ -695,7 +640,7 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                         /city/{city.slug}/
                       </td>
                       <td className="py-3 px-3 font-mono text-xs text-slate-600 tabular-nums" dir="ltr">
-                        {Number(city.lat).toFixed(4)}, {Number(city.lng).toFixed(4)}
+                        {city.lat != null && city.lng != null ? `${Number(city.lat).toFixed(4)}, ${Number(city.lng).toFixed(4)}` : '—'}
                       </td>
                       <td className="py-3 px-3 text-xs text-slate-700">{city.publish_mode}</td>
                       <td className="py-3 px-3 text-left">
@@ -739,24 +684,14 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                       className="mt-1 w-full px-3 py-2 text-sm font-mono bg-white border border-slate-300 rounded-lg"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700">حالت انتشار</label>
-                    <select
-                      value={editingCity.publish_mode}
-                      onChange={(e) =>
-                        setEditingCity({
-                          ...editingCity,
-                          publish_mode: e.target.value as CityItem['publish_mode'],
-                        })
-                      }
-                      className="mt-1 w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg"
-                    >
-                      <option value="rules">قانون‌مند (rules)</option>
-                      <option value="full_auto">تمام‌خودکار (full_auto)</option>
-                      <option value="manual">دستی (manual)</option>
-                    </select>
-                  </div>
+                  <div className="text-xs text-slate-700">حالت انتشار: دستی</div>
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" dir="ltr">
+                  <label className="text-xs">Latitude <input type="number" step="any" value={editingCity.lat ?? ''} onChange={e=>setEditingCity({...editingCity,lat:e.target.value === '' ? null : Number(e.target.value)})} className="w-full border rounded p-2" /></label>
+                  <label className="text-xs">Longitude <input type="number" step="any" value={editingCity.lng ?? ''} onChange={e=>setEditingCity({...editingCity,lng:e.target.value === '' ? null : Number(e.target.value)})} className="w-full border rounded p-2" /></label>
+                  <label className="text-xs">Bbox [S,W,N,E] <input value={editingCity.bbox_json ?? ''} onChange={e=>setEditingCity({...editingCity,bbox_json:e.target.value})} className="w-full border rounded p-2" /></label>
+                </div>
+                <p className="text-xs text-slate-600">محدوده را پیش از جمع‌آوری روی نقشه و با داده معتبر بررسی کنید.</p>
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"

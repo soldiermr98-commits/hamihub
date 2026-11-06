@@ -138,7 +138,7 @@ final class SlugService
             $digits = '+9813' . $digits;
         }
 
-        return $digits;
+        return preg_match('/^\+98(?:9[0-9]{9}|[1-8][0-9]{9})$/', $digits) ? $digits : '';
     }
 
     /**

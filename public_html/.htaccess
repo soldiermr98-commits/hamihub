@@ -26,6 +26,9 @@ DirectoryIndex index.php index.html
     RewriteEngine On
     RewriteBase /
 
+    # Cache files must only be served through the application, never as static paths.
+    RewriteRule ^cache/ - [F,L]
+
     # ۱. هدایت تمام درخواست‌های /api/v1/* به درگاه API
     RewriteRule ^api/v1/(.*)$ api/index.php [QSA,L]
 
@@ -34,22 +37,6 @@ DirectoryIndex index.php index.html
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^admin(?:/.*)?$ admin/index.html [L]
-
-    # ۳. سرو مستقیم کش صفحه اصلی (GET با Query String خالی - بدون اجرای PHP)
-    RewriteCond %{REQUEST_METHOD} =GET
-    RewriteCond %{QUERY_STRING} ^$
-    RewriteCond %{REQUEST_URI} ^/?$
-    RewriteCond %{DOCUMENT_ROOT}/cache/pages/_home/index.html -f
-    RewriteRule ^/?$ cache/pages/_home/index.html [L]
-
-    # ۴. سرو مستقیم کش سایر صفحات عمومی (/b/{slug}/، /{slug}/، /city/...)
-    # اسلاگ‌های رزروشده (admin, api, assets, uploads, cache, install, check, storage) از این قاعده مستثنی هستند
-    RewriteCond %{REQUEST_METHOD} =GET
-    RewriteCond %{QUERY_STRING} ^$
-    RewriteCond %{REQUEST_URI} !^/(admin|api|assets|uploads|cache|install|check|storage)(/|$)
-    RewriteCond %{REQUEST_URI} ^/([a-z0-9/\-]+?)/?$
-    RewriteCond %{DOCUMENT_ROOT}/cache/pages/%1/index.html -f
-    RewriteRule ^([a-z0-9/\-]+?)/?$ cache/pages/$1/index.html [L]
 
     # ۵. اگر فایل یا پوشه فیزیکی وجود نداشت، به index.php هدایت شود
     RewriteCond %{REQUEST_FILENAME} !-f

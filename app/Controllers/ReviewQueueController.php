@@ -28,69 +28,6 @@ final class ReviewQueueController
     {
         Auth::requireRole(['admin', 'editor']);
 
-        // ۱. همگام‌سازی خودکار کسب‌وکارهای تک‌منبعی جمع‌آوری‌شده در Jobهای قبلی که بدون ورود به صندوق بازبینی رد شده بودند
-        $unreviewedSingleSource = DB::fetchAll(
-            "SELECT b.id, b.name, b.address, b.internal_score, b.publish_reason
-             FROM businesses b
-             LEFT JOIN review_queue rq ON (rq.kind = 'business' AND rq.target_id = b.id)
-             WHERE b.publish_reason = 'bayes_score_above_threshold'
-               AND b.slug NOT LIKE 's3-bench-%'
-               AND rq.id IS NULL
-             ORDER BY b.id DESC
-             LIMIT 100"
-        );
-        foreach ($unreviewedSingleSource as $usb) {
-            $bid = (int) $usb['id'];
-            DB::query(
-                "UPDATE businesses SET status = 'pending_review', publish_reason = 'single_source_ready' WHERE id = :id",
-                ['id' => $bid]
-            );
-            DB::query(
-                "INSERT INTO review_queue (kind, target_id, reason_code, payload_json, status, created_at)
-                 VALUES ('business', :tid, 'single_source_ready', :p, 'pending', NOW())",
-                [
-                    'tid' => $bid,
-                    'p'   => json_encode([
-                        'business_id'   => $bid,
-                        'business_name' => (string) $usb['name'],
-                        'address'       => (string) ($usb['address'] ?? ''),
-                        'score'         => (float) ($usb['internal_score'] ?? 4.5),
-                    ], JSON_UNESCAPED_UNICODE),
-                ]
-            );
-        }
-
-        // ۲. همگام‌سازی خودکار کسب‌وکارهایی که در وضعیت pending_review هستند ولی در جدول review_queue رکورد فعالی ندارند
-        $unsyncedBiz = DB::fetchAll(
-            "SELECT b.id, b.name, b.address, b.internal_score, b.publish_reason
-             FROM businesses b
-             LEFT JOIN review_queue rq ON (rq.kind = 'business' AND rq.target_id = b.id AND rq.status = 'pending')
-             WHERE b.status = 'pending_review' AND rq.id IS NULL
-             LIMIT 100"
-        );
-        foreach ($unsyncedBiz as $ub) {
-            $reason = trim((string) ($ub['publish_reason'] ?? ''));
-            if ($reason === '' || $reason === 'missing_phone_or_low_score') {
-                $reason = 'missing_valid_phone';
-            } elseif ($reason === 'bayes_score_above_threshold') {
-                $reason = 'single_source_ready';
-            }
-            DB::query(
-                "INSERT INTO review_queue (kind, target_id, reason_code, payload_json, status, created_at)
-                 VALUES ('business', :tid, :rc, :p, 'pending', NOW())",
-                [
-                    'tid' => (int) $ub['id'],
-                    'rc'  => $reason,
-                    'p'   => json_encode([
-                        'business_id'   => (int) $ub['id'],
-                        'business_name' => (string) $ub['name'],
-                        'address'       => (string) ($ub['address'] ?? ''),
-                        'score'         => (float) ($ub['internal_score'] ?? 3.9),
-                    ], JSON_UNESCAPED_UNICODE),
-                ]
-            );
-        }
-
         $statusFilter = trim((string) ($_GET['status'] ?? 'pending'));
         $kindFilter = trim((string) ($_GET['kind'] ?? 'all'));
 
@@ -193,86 +130,68 @@ final class ReviewQueueController
         }
 
         $processedCount = 0;
-
-        foreach ($cleanIds as $rqId) {
-            $item = DB::fetchOne("SELECT * FROM review_queue WHERE id = :id LIMIT 1", ['id' => $rqId]);
-            if ($item === null) {
-                continue;
-            }
-
-            $kind = (string) $item['kind'];
-            $targetId = (int) $item['target_id'];
-            $payload = json_decode((string) ($item['payload_json'] ?? '{}'), true) ?: [];
-
-            DB::query(
-                "UPDATE review_queue
-                 SET status = :st, decided_by = :uid, decided_at = NOW()
-                 WHERE id = :id",
-                [
-                    'st' => $decision,
-                    'uid' => (int) $user['id'],
-                    'id' => $rqId,
-                ]
-            );
-
-            // اعمال اثر تصمیم روی موجودیت هدف
-            if ($kind === 'business') {
-                $newBizStatus = $decision === 'approved' ? 'published' : 'rejected';
-                DB::query(
-                    "UPDATE businesses
-                     SET status = :st,
-                         publish_reason = :pr,
-                         last_verified_at = NOW(),
-                         updated_at = NOW()
-                     WHERE id = :id",
-                    [
-                        'st' => $newBizStatus,
-                        'pr' => $decision === 'approved' ? 'approved_in_review_queue' : 'rejected_in_review_queue',
-                        'id' => $targetId,
-                    ]
-                );
-            } elseif ($kind === 'change') {
-                $field = (string) ($payload['field'] ?? '');
-                $newVal = (string) ($payload['new_value'] ?? '');
-
-                if ($decision === 'approved' && $targetId > 0 && $newVal !== '') {
-                    if ($field === 'address') {
-                        DB::query("UPDATE businesses SET address = :v, updated_at = NOW() WHERE id = :id", [
-                            'v' => $newVal,
-                            'id' => $targetId,
-                        ]);
-                    } elseif ($field === 'phone') {
-                        DB::query(
-                            "UPDATE business_contacts SET value = :v, last_verified_at = NOW()
-                             WHERE business_id = :bid AND is_primary = 1",
-                            ['v' => $newVal, 'bid' => $targetId]
-                        );
+        $skipped = 0;
+        foreach (array_unique($cleanIds) as $rqId) {
+            $pdo = DB::connection();
+            $pdo->beginTransaction();
+            try {
+                $item = DB::fetchOne("SELECT * FROM review_queue WHERE id=:id FOR UPDATE", ['id'=>$rqId]);
+                if (!$item || $item['status'] !== 'pending') { $pdo->rollBack(); $skipped++; continue; }
+                $kind = (string)$item['kind'];
+                $targetId = (int)$item['target_id'];
+                $payload = json_decode((string)($item['payload_json'] ?? '{}'), true) ?: [];
+                if ($kind === 'business') {
+                    $target = DB::fetchOne("SELECT status FROM businesses WHERE id=:id FOR UPDATE", ['id'=>$targetId]);
+                    if (!$target || $target['status'] !== 'pending_review') { $pdo->rollBack(); $skipped++; continue; }
+                    DB::query("UPDATE businesses SET status=:status,publish_reason=:reason,last_verified_at=NOW(),updated_at=NOW() WHERE id=:id", ['status'=>$decision === 'approved'?'published':'rejected','reason'=>$decision . '_in_review_queue','id'=>$targetId]);
+                } elseif ($kind === 'article') {
+                    $target = DB::fetchOne("SELECT status FROM articles WHERE id=:id FOR UPDATE", ['id'=>$targetId]);
+                    if (!$target || $target['status'] !== 'review') { $pdo->rollBack(); $skipped++; continue; }
+                    $status = $decision === 'approved' ? 'published' : 'draft';
+                    DB::query("UPDATE articles SET status=:status,published_at=CASE WHEN :s='published' AND published_at IS NULL THEN NOW() ELSE published_at END,updated_at=NOW() WHERE id=:id", ['status'=>$status,'s'=>$status,'id'=>$targetId]);
+                } elseif ($kind === 'change') {
+                    $field = (string)($payload['field'] ?? '');
+                    $new = (string)($payload['new_value'] ?? '');
+                    $old = (string)($payload['old_value'] ?? '');
+                    $target = DB::fetchOne("SELECT * FROM businesses WHERE id=:id FOR UPDATE", ['id'=>$targetId]);
+                    if (!$target || !in_array($field, ['address','name','hours','coordinates','status','phone'], true) || $new === '') { $pdo->rollBack(); $skipped++; continue; }
+                    $phoneRow = null;
+                    if ($field === 'phone') {
+                        $phoneRow = DB::fetchOne("SELECT id,value FROM business_contacts WHERE business_id=:id AND type IN ('phone','mobile') ORDER BY is_primary DESC,id ASC LIMIT 1 FOR UPDATE", ['id'=>$targetId]);
+                        $current = (string)($phoneRow['value'] ?? '');
+                    } elseif ($field === 'coordinates') $current = ($target['lat'] ?? '') . ',' . ($target['lng'] ?? '');
+                    else $current = (string)($target[$field] ?? '');
+                    // Never apply an old proposal over a newer manual or approved value.
+                    if ($decision === 'approved' && $current !== $old) { $pdo->rollBack(); $skipped++; continue; }
+                    if ($decision === 'approved') {
+                        if ($field === 'name') DB::query("UPDATE businesses SET name=:v,normalized_name=:n,updated_at=NOW() WHERE id=:id", ['v'=>$new,'n'=>PipelineService::canonicalNameKey($new),'id'=>$targetId]);
+                        elseif (in_array($field, ['address','hours'], true)) DB::query("UPDATE businesses SET {$field}=:v,updated_at=NOW() WHERE id=:id", ['v'=>$new,'id'=>$targetId]);
+                        elseif ($field === 'coordinates') {
+                            $coords=explode(',', $new);
+                            if (count($coords)!==2 || !is_numeric($coords[0]) || !is_numeric($coords[1]) || abs((float)$coords[0])>90 || abs((float)$coords[1])>180) { $pdo->rollBack(); $skipped++; continue; }
+                            DB::query("UPDATE businesses SET lat=:lat,lng=:lng,updated_at=NOW() WHERE id=:id", ['lat'=>(float)$coords[0],'lng'=>(float)$coords[1],'id'=>$targetId]);
+                        } elseif ($field === 'status') {
+                            if ($new !== 'hidden') { $pdo->rollBack(); $skipped++; continue; }
+                            DB::query("UPDATE businesses SET status='hidden',updated_at=NOW() WHERE id=:id", ['id'=>$targetId]);
+                        } elseif ($field === 'phone') {
+                            $phone=\App\Services\SlugService::normalizePhone($new);
+                            if ($phone === '') { $pdo->rollBack(); $skipped++; continue; }
+                            $type = str_starts_with($phone, '+989') ? 'mobile' : 'phone';
+                            if ($phoneRow) DB::query("UPDATE business_contacts SET value=:v,type=:type,source='manual',confidence='high',last_verified_at=NOW() WHERE id=:id", ['v'=>$phone,'type'=>$type,'id'=>(int)$phoneRow['id']]);
+                            else DB::query("INSERT INTO business_contacts (business_id,type,value,is_primary,source,confidence,last_verified_at) VALUES (:id,:type,:v,1,'manual','high',NOW())", ['id'=>$targetId,'type'=>$type,'v'=>$phone]);
+                        }
                     }
-                }
-
-                DB::query(
-                    "UPDATE change_log SET status = :st WHERE business_id = :bid AND status = 'pending'",
-                    ['st' => $decision, 'bid' => $targetId]
-                );
-            } elseif ($kind === 'article') {
-                $newArtStatus = $decision === 'approved' ? 'published' : 'draft';
-                DB::query(
-                    "UPDATE articles
-                     SET status = :st,
-                         published_at = CASE WHEN :st2 = 'published' THEN NOW() ELSE published_at END,
-                         updated_at = NOW()
-                     WHERE id = :id",
-                    ['st' => $newArtStatus, 'st2' => $newArtStatus, 'id' => $targetId]
-                );
-                Cache::flushAll();
-            } elseif ($kind === 'claim') {
-                DB::query("UPDATE claims SET status = :st WHERE id = :id", ['st' => $decision, 'id' => $targetId]);
-            } elseif ($kind === 'report') {
-                $repStatus = $decision === 'approved' ? 'resolved' : 'rejected';
-                DB::query("UPDATE reports SET status = :st WHERE id = :id", ['st' => $repStatus, 'id' => $targetId]);
+                    DB::query("UPDATE change_log SET status=:status WHERE id=:id AND business_id=:bid AND status='pending'", ['status'=>$decision,'id'=>(int)($payload['change_id'] ?? 0),'bid'=>$targetId]);
+                } elseif ($kind === 'claim') DB::query("UPDATE claims SET status=:status WHERE id=:id AND status='pending'", ['status'=>$decision,'id'=>$targetId]);
+                elseif ($kind === 'report') DB::query("UPDATE reports SET status=:status WHERE id=:id AND status='pending'", ['status'=>$decision==='approved'?'resolved':'rejected','id'=>$targetId]);
+                else { $pdo->rollBack(); $skipped++; continue; }
+                DB::query("UPDATE review_queue SET status=:status,decided_by=:uid,decided_at=NOW() WHERE id=:id", ['status'=>$decision,'uid'=>(int)$user['id'],'id'=>$rqId]);
+                $pdo->commit();
+                $processedCount++;
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                throw $e;
             }
-
-            $processedCount++;
         }
 
         if ($processedCount > 0) {
@@ -282,11 +201,13 @@ final class ReviewQueueController
         Response::json([
             'ok' => true,
             'processed_count' => $processedCount,
+            'skipped_count' => $skipped,
             'decision' => $decision,
             'message' => sprintf(
-                '%d مورد در صندوق بازبینی با موفقیت «%s» شد.',
+                '%d مورد «%s» شد؛ %d مورد قبلاً بررسی شده یا تغییر کرده و اعمال نشد.',
                 $processedCount,
-                $decision === 'approved' ? 'تأیید و منتشر' : 'رد'
+                $decision === 'approved' ? 'تأیید' : 'رد',
+                $skipped
             ),
         ]);
     }
@@ -298,24 +219,7 @@ final class ReviewQueueController
     public static function runBenchmark100(Request $request): void
     {
         Csrf::verifyOrFail($request);
-        Auth::requireRole(['admin', 'editor']);
-
-        $cityId = (int) $request->input('city_id', 1);
-        $categoryId = (int) $request->input('category_id', 1);
-
-        $summary = PipelineService::runPredictable100Benchmark($cityId, $categoryId);
-
-        Response::json([
-            'ok' => true,
-            'summary' => $summary,
-            'message' => sprintf(
-                'پایپ‌لاین S3 روی %d رکورد نمونه اجرا شد: %d منتشرشده | %d بازبینی | %d تکراری | %d تناقض منبع.',
-                $summary['total_processed'],
-                $summary['published'],
-                $summary['pending_review'],
-                $summary['duplicate'],
-                $summary['source_conflict']
-            ),
-        ]);
+        Auth::requireRole(['admin']);
+        Response::json(['ok' => false, 'error' => 'بنچمارک داده‌ساز در محیط عملیاتی غیرفعال است.'], 410);
     }
 }

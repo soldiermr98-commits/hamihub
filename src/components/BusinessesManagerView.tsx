@@ -59,7 +59,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
   const [instagram, setInstagram] = useState<string>('');
   const [whatsapp, setWhatsapp] = useState<string>('');
   const [website, setWebsite] = useState<string>('');
-  const [status, setStatus] = useState<BusinessItem['status']>('published');
+  const [status, setStatus] = useState<BusinessItem['status']>('draft');
   const [tier, setTier] = useState<BusinessItem['tier']>('B');
   const [coverMediaId, setCoverMediaId] = useState<number | null>(null);
   const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
@@ -86,7 +86,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
     setInstagram('');
     setWhatsapp('');
     setWebsite('');
-    setStatus('published');
+    setStatus('draft');
     setTier('B');
     setCoverMediaId(null);
     setCoverPreviewUrl(null);

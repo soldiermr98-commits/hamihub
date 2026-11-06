@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS `cities` (
     `lat` DECIMAL(10, 7) NULL DEFAULT NULL,
     `lng` DECIMAL(10, 7) NULL DEFAULT NULL,
     `bbox_json` LONGTEXT NULL,
-    `publish_mode` ENUM('manual', 'rules', 'full_auto') NOT NULL DEFAULT 'rules',
+    `publish_mode` ENUM('manual', 'rules', 'full_auto') NOT NULL DEFAULT 'manual',
     `is_active` TINYINT(1) NOT NULL DEFAULT 1,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -208,7 +208,7 @@ CREATE TABLE IF NOT EXISTS `articles` (
     `city_id` INT UNSIGNED NOT NULL,
     `intro` LONGTEXT NULL,
     `tips_html` LONGTEXT NULL,
-    `year_label` VARCHAR(32) NOT NULL DEFAULT '۱۴۰۵',
+    `year_label` VARCHAR(32) NOT NULL DEFAULT '',
     `status` ENUM('draft', 'review', 'published') NOT NULL DEFAULT 'draft',
     `ai_generated` TINYINT(1) NOT NULL DEFAULT 0,
     `published_at` DATETIME NULL DEFAULT NULL,
@@ -363,17 +363,13 @@ INSERT IGNORE INTO `settings` (`k`, `v`) VALUES
     ('site_title', 'حامی‌هاب گیلان — معرفی بهترین‌های استان گیلان'),
     ('photo_policy', 'none'),
     ('map_tile_url', 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'),
-    ('bayes_m_weight', '20'),
-    ('bayes_global_mean', '4.10'),
-    ('auto_publish_min_score', '3.85'),
-    ('sponsor_last_check', '2026-01-01 00:00:00'),
-    ('collector_bearer_token', 'hhx-collector-bearer-token-local-dev');
+    ('sponsor_last_check', NULL);
 
 INSERT IGNORE INTO `provider_state` (`provider`, `enabled`, `priority`) VALUES
-    ('gosom', 1, 1),
+    ('gosom', 0, 1),
     ('osm', 1, 2),
-    ('neshan', 1, 3),
-    ('csv', 1, 4),
+    ('neshan', 0, 3),
+    ('csv', 0, 4),
     ('wikidata', 0, 5),
     ('google_places', 0, 6),
     ('balad', 0, 7);

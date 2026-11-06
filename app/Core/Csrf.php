@@ -38,9 +38,7 @@ final class Csrf
 
         // استثنای مسیر ردیابی کلیک و مسیرهای ارتباط با collector-remote
         if (
-            $path === '/api/v1/track' ||
-            str_starts_with($path, '/api/v1/collector/') ||
-            str_starts_with($path, '/api/v1/ai/')
+            in_array($path, ['/api/v1/events/track', '/api/v1/collector/ingest', '/api/v1/collector/photo', '/api/v1/ai/tasks/complete'], true)
         ) {
             return;
         }

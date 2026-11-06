@@ -65,7 +65,7 @@ final class AiWorkerController
                 'ok'           => true,
                 'tasks'        => $tasks,
                 'stats'        => $stats,
-                'bearer_token' => (string) ($tokenRow['v'] ?? 'hhx-collector-bearer-token-local-dev'),
+                'bearer_token' => '',
             ]);
         } catch (Throwable $e) {
             Response::json([
@@ -73,6 +73,11 @@ final class AiWorkerController
                 'error' => 'خطا در خواندن صف هوش مصنوعی: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    public static function disabled(Request $request): void
+    {
+        Response::json(['ok' => false, 'error' => 'هوش مصنوعی در این فاز غیرفعال است.'], 503);
     }
 
     /**

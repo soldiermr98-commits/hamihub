@@ -12,14 +12,10 @@ import {
   Keyboard,
 } from 'lucide-react';
 import {
-  Benchmark100Summary,
   ChangeLogItem,
   ReviewQueueItem,
   decideReviewQueueItems,
   fetchReviewQueueState,
-  runPipelineBenchmark100,
-  submitPublicClaimS6,
-  submitPublicReportS6,
 } from '../services/adminApi';
 
 interface Props {
@@ -38,6 +34,7 @@ const KIND_TABS: Array<{ key: string; label: string }> = [
 ];
 
 const REASON_LABELS: Record<string, { label: string; badgeClass: string }> = {
+  manual_review: { label: 'در انتظار بررسی دستی', badgeClass: 'bg-blue-50 text-blue-800 border-blue-200' },
   missing_valid_phone: {
     label: 'بدون شماره تلفن معتبر (+98)',
     badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
@@ -82,6 +79,7 @@ const REASON_LABELS: Record<string, { label: string; badgeClass: string }> = {
     label: 'انتشار خودکار چندمنبعی (تأیید حداقل ۲ منبع مستقل)',
     badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   },
+  legacy_revalidation: { label: 'محتوای قدیمی نیازمند بازبینی مجدد', badgeClass: 'bg-amber-50 text-amber-800 border-amber-200' },
   owner_claim_request: {
     label: 'درخواست ادعای مالکیت کسب‌وکار (مرحله S6)',
     badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
@@ -103,8 +101,6 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
-  const [benchRunning, setBenchRunning] = useState<boolean>(false);
-  const [benchResult, setBenchResult] = useState<Benchmark100Summary | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err' | null; text: string }>({
     type: null,
     text: '',
@@ -112,10 +108,10 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
-    const data = await fetchReviewQueueState(statusFilter, kindFilter);
-    setItems(data.items);
-    setChangeLogs(data.change_logs);
-    setPendingCounts(data.pending_counts);
+    try {
+      const data = await fetchReviewQueueState(statusFilter, kindFilter);
+      setItems(data.items); setChangeLogs(data.change_logs); setPendingCounts(data.pending_counts);
+    } catch (e) { setFeedback({type:'err',text:e instanceof Error ? e.message : 'خطا در دریافت صف'}); }
     setSelectedIds([]);
     setFocusedIndex(0);
     setLoading(false);
@@ -191,19 +187,6 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const handleRunBenchmark100 = async () => {
-    setBenchRunning(true);
-    setFeedback({ type: null, text: '' });
-    const res = await runPipelineBenchmark100(1, 1, csrfToken);
-    setBenchRunning(false);
-    if (res.ok) {
-      setBenchResult(res.summary);
-      setFeedback({ type: 'ok', text: res.message });
-      await loadQueue();
-      await onRefreshParent();
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* هدر صندوق بازبینی و کارت اجرای بنچمارک ۱۰۰ رکورد مرحله S3 */}
@@ -214,53 +197,11 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
               صندوق بازبینی متمرکز و پایپ‌لاین هوشمند (مرحله S3)
             </h1>
             <p className="text-xs text-slate-600 mt-1">
-              نرمال‌ساز فارسی و شماره (+98 / 013) · حذف تکراری با فاصله جغرافیایی Haversine (&lt; ۸۰ متر) ·
-              امتیازدهی بیزی (m=20) و Tierبندی A/B/C · قانون انتشار خودکار چندمنبعی
+              اطلاعات جمع‌آوری‌شده قبل از انتشار به بررسی دستی نیاز دارند. منبع و اطلاعات ناقص را بررسی کنید.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              type="button"
-              onClick={handleRunBenchmark100}
-              disabled={benchRunning}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white text-xs font-semibold rounded-lg"
-            >
-              <Sparkles className="w-4 h-4" />
-              {benchRunning
-                ? 'در حال پردازش ۱۰۰ رکورد در پایپ‌لاین...'
-                : 'اجرای تست معیار S3 (۱۰۰ رکورد نمونه با نتیجه قابل‌پیش‌بینی)'}
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                const res = await submitPublicClaimS6({
-                  business_id: 1,
-                  name: 'علی گیلانی (مدیر مجموعه)',
-                  phone: '09111314455',
-                  note: 'درخواست ثبت نشان تایید مالکیت رسمی و بروزرسانی ساعت کاری',
-                });
-                setFeedback({ type: res.ok ? 'ok' : 'err', text: res.message || res.error || '' });
-                await loadQueue();
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-xs font-semibold rounded-lg"
-            >
-              + تست ادعای مالکیت (S6)
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                const res = await submitPublicReportS6({
-                  business_id: 1,
-                  message: 'ساعت کاری مجموعه در روزهای جمعه از ۱۰ صبح تا ۱۲ شب تغییر یافته است.',
-                });
-                setFeedback({ type: res.ok ? 'ok' : 'err', text: res.message || res.error || '' });
-                await loadQueue();
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 text-xs font-semibold rounded-lg"
-            >
-              + تست گزارش خطا (S6)
-            </button>
             <button
               type="button"
               onClick={loadQueue}
@@ -272,51 +213,6 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
           </div>
         </div>
 
-        {/* نمایش نتیجه دقیق بنچمارک ۱۰۰ رکورد در صورت اجرا */}
-        {benchResult && (
-          <div className="mt-5 p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-900">
-                گزارش تفکیکی اجرای پایپ‌لاین S3 روی {benchResult.total_processed} رکورد نمونه:
-              </span>
-              <span className="text-[11px] font-mono text-emerald-700 font-semibold">
-                POST /api/v1/pipeline/benchmark-100 → 200 OK
-              </span>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <div className="bg-white border border-slate-200 rounded-lg p-3">
-                <div className="text-[11px] text-slate-500">کل رکوردهای ورودی</div>
-                <div className="text-xl font-bold font-mono tabular-nums text-slate-900 mt-0.5">
-                  {benchResult.total_processed}
-                </div>
-              </div>
-              <div className="bg-emerald-50/70 border border-emerald-200 rounded-lg p-3">
-                <div className="text-[11px] text-emerald-800">۱. منتشرشده خودکار (published)</div>
-                <div className="text-xl font-bold font-mono tabular-nums text-emerald-700 mt-0.5">
-                  {benchResult.published}
-                </div>
-              </div>
-              <div className="bg-amber-50/70 border border-amber-200 rounded-lg p-3">
-                <div className="text-[11px] text-amber-800">۲. صندوق بازبینی (pending_review)</div>
-                <div className="text-xl font-bold font-mono tabular-nums text-amber-700 mt-0.5">
-                  {benchResult.pending_review}
-                </div>
-              </div>
-              <div className="bg-sky-50/70 border border-sky-200 rounded-lg p-3">
-                <div className="text-[11px] text-sky-800">۳. تکراری ادغام‌شده (duplicate &lt;80m)</div>
-                <div className="text-xl font-bold font-mono tabular-nums text-sky-700 mt-0.5">
-                  {benchResult.duplicate}
-                </div>
-              </div>
-              <div className="bg-rose-50/70 border border-rose-200 rounded-lg p-3">
-                <div className="text-[11px] text-rose-800">۴. تناقض منبع (source_conflict)</div>
-                <div className="text-xl font-bold font-mono tabular-nums text-rose-700 mt-0.5">
-                  {benchResult.source_conflict}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {feedback.type && (
@@ -502,7 +398,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
                       };
 
                       const title =
-                        item.business_name || payload.business_name || payload.name || `#${item.target_id}`;
+                        item.business_name || payload.business_name || payload.title || payload.name || `#${item.target_id}`;
 
                       return (
                         <tr
@@ -538,6 +434,8 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
                               {item.city_name ? `شهر: ${item.city_name}` : ''}{' '}
                               {payload.provider ? `· منبع: ${payload.provider}` : ''}
                             </div>
+                            {typeof payload.source_url === 'string' && /^https:\/\/www\.openstreetmap\.org\/(node|way|relation)\/\d+$/.test(payload.source_url) && <a className="text-blue-700 underline text-xs" target="_blank" rel="noreferrer" href={payload.source_url}>مشاهده منبع OpenStreetMap</a>}
+                            {Array.isArray(payload.raw_phones) && payload.raw_phones.length > 0 && <div className="text-xs text-slate-500">شماره در منبع: {payload.raw_phones.join('، ')}</div>}
                           </td>
                           <td className="py-3 px-3">
                             <span
@@ -550,7 +448,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
                             {item.reason_code === 'source_conflict' && (
                               <div className="space-y-1">
                                 <div className="font-semibold text-rose-700">
-                                  اختلاف فاصله مکانی: {payload.distance_meters ?? '450'} متر (≥ ۱۰۰ متر)
+                                  اختلاف فاصله مکانی: {payload.distance_meters ?? 'نامشخص'} متر (≥ ۱۰۰ متر)
                                 </div>
                                 {payload.old_address && (
                                   <div className="text-slate-500">قبلی: {payload.old_address}</div>

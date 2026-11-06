@@ -57,16 +57,16 @@ export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
   const [subtitleFa, setSubtitleFa] = useState<string>('');
   const [introHtml, setIntroHtml] = useState<string>('');
   const [methodologyHtml, setMethodologyHtml] = useState<string>('');
-  const [status, setStatus] = useState<'draft' | 'review' | 'published'>('published');
+  const [status, setStatus] = useState<'draft' | 'review' | 'published'>('draft');
   const [items, setItems] = useState<ArticleBizRow[]>([]);
   const [faqs, setFaqs] = useState<ArticleFaqRow[]>([]);
   const [saving, setSaving] = useState<boolean>(false);
 
   const loadArticles = async () => {
     setLoading(true);
-    const list = await fetchArticlesList();
-    setArticles(Array.isArray(list) ? list : []);
-    setLoading(false);
+    try { setArticles(await fetchArticlesList()); }
+    catch(e) { setBanner({type:'err',text:e instanceof Error ? e.message : 'خطا در دریافت مقالات'}); }
+    finally { setLoading(false); }
   };
 
   useEffect(() => {
@@ -87,7 +87,7 @@ export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
     setSubtitleFa(art.subtitle_fa || '');
     setIntroHtml(art.intro_html || '');
     setMethodologyHtml(art.methodology_html || '');
-    setStatus(art.status || 'published');
+    setStatus(art.status || 'draft');
     setItems(Array.isArray(art.items) ? art.items : []);
     setFaqs(Array.isArray(art.faqs) ? art.faqs : []);
     setBanner(null);
@@ -100,16 +100,9 @@ export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
     setSubtitleFa('');
     setIntroHtml('');
     setMethodologyHtml('');
-    setStatus('published');
+    setStatus('draft');
     setItems([]);
-    setFaqs([
-      {
-        question_fa: 'رتبه‌بندی این لیست بر چه اساسی انجام شده است؟',
-        answer_fa:
-          'بر اساس امتیاز وزنی بیزین (Bayesian Weighted Score با m=20) و تطابق چندمنبعی در حامی‌هاب گیلان.',
-        sort_order: 1,
-      },
-    ]);
+    setFaqs([]);
   };
 
   const handleAutoBuild = async () => {
@@ -145,9 +138,9 @@ export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
         weighted_score: biz.internal_score,
         tier: biz.tier,
         rank_num: prev.length + 1,
-        badge_fa: prev.length === 0 ? 'انتخاب اول تحریریه' : `منتخب Tier ${biz.tier}`,
-        verdict_fa: `یکی از بهترین گزینه‌های ${biz.city_name || 'شهر'} با امتیاز بیزین بالا.`,
-        custom_desc_html: biz.short_desc || `${biz.name} در ${biz.address || biz.city_name || ''}`,
+        badge_fa: '',
+        verdict_fa: '',
+        custom_desc_html: biz.short_desc || '',
         is_sponsored: 0,
         sponsor_label: 'پیشنهاد ویژه',
       },
@@ -197,7 +190,7 @@ export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
               مدیریت مقالات لیستی سئو، اسکیماهای JSON-LD و کش صفحات عمومی (مرحله S4)
             </h1>
             <p className="text-xs text-slate-600 mt-1">
-              ساخت مقالات «بهترین X در شهر Y» همراه با جدول مقایسه امتیاز بیزین، جایگاه ویژه اسپانسرشیپ (Sponsored)، نقشه تعاملی خودمیزبان Leaflet و کش کامل دیسک.
+              مقالات ابتدا پیش‌نویس هستند و پیش از انتشار باید دستی بازبینی شوند.
             </p>
           </div>
           <div className="flex items-center gap-2.5">
@@ -294,7 +287,7 @@ export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
       <div className="bg-white border border-slate-200 rounded-xl p-6">
         <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2 mb-3">
           <Sparkles className="w-4 h-4 text-emerald-700" />
-          ساخت خودکار مقاله لیستی («بهترین [دسته] در [شهر]») بر اساس امتیاز وزنی بیزین
+          ساخت پیش‌نویس مقاله از کسب‌وکارهای منتشرشده
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
           <div>
@@ -333,7 +326,7 @@ export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
               className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg disabled:opacity-50"
             >
               <Sparkles className="w-4 h-4" />
-              {autoBuilding ? 'در حال ساخت مقاله و اسکیما...' : 'تولید و انتشار خودکار مقاله لیستی'}
+              {autoBuilding ? 'در حال ساخت مقاله و اسکیما...' : 'ساخت پیش‌نویس از موارد تأییدشده'}
             </button>
           </div>
         </div>
@@ -456,7 +449,7 @@ export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
                   type="text"
                   value={titleFa}
                   onChange={(e) => setTitleFa(e.target.value)}
-                  placeholder="مثلاً: بهترین کافه‌ها و رستوران‌های رشت در سال ۱۴۰۵"
+                  placeholder="مثلاً: راهنمای کافه‌های رشت"
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
                   required
                 />

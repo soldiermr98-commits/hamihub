@@ -51,7 +51,7 @@ function hhxAiHttpJson(string $method, string $url, string $token, ?array $paylo
         CURLOPT_HTTPHEADER     => $headers,
         CURLOPT_CONNECTTIMEOUT => $connectTimeout,
         CURLOPT_TIMEOUT        => $timeout,
-        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYPEER => true,
     ]);
 
     $raw = curl_exec($ch);

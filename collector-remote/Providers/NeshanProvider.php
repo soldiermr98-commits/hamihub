@@ -26,15 +26,19 @@ final class NeshanProvider implements ProviderInterface
     {
         $apiKey = trim((string) ($this->config['api_key'] ?? ''));
         if ($apiKey === '') {
-            throw new RuntimeException('کلید API رسمی نشان (neshan.api_key) در collector-remote/config.php تنظیم نشده است.', 401);
+            throw new RuntimeException('کلید API رسمی نشان (neshan.api_key) در config/config.local.php تنظیم نشده است.', 401);
         }
 
-        $lat = (float) ($job['lat'] ?? 37.2808);
-        $lng = (float) ($job['lng'] ?? 49.5830);
-        $cityName = (string) ($job['city_name_fa'] ?? 'رشت');
+        $bbox = $job['bbox'] ?? null;
+        if (!is_array($bbox) || count($bbox) !== 4 || count(array_filter($bbox, 'is_numeric')) !== 4 || $bbox[0] >= $bbox[2] || $bbox[1] >= $bbox[3]) throw new RuntimeException('محدوده جغرافیایی شهر معتبر نیست.');
+        if (!isset($job['lat'], $job['lng']) || !is_numeric($job['lat']) || !is_numeric($job['lng'])) throw new RuntimeException('مختصات مرکز شهر معتبر نیست.');
+        $lat = (float)$job['lat'];
+        $lng = (float)$job['lng'];
+        $cityName = (string) ($job['city_name_fa'] ?? '');
         $queries = isset($job['queries']) && is_array($job['queries']) ? $job['queries'] : ['کافه'];
 
         $searchUrl = (string) ($this->config['search_url'] ?? 'https://api.neshan.org/v1/search');
+        if (parse_url($searchUrl, PHP_URL_SCHEME) !== 'https') throw new RuntimeException('نشانی API نشان باید HTTPS باشد.');
         $results = [];
 
         foreach ($queries as $q) {
@@ -62,7 +66,8 @@ final class NeshanProvider implements ProviderInterface
             }
 
             $decoded = json_decode((string) $raw, true);
-            $items = isset($decoded['items']) && is_array($decoded['items']) ? $decoded['items'] : [];
+            if (!is_array($decoded) || !isset($decoded['items']) || !is_array($decoded['items'])) throw new RuntimeException('پاسخ API نشان معتبر نیست.');
+            $items = $decoded['items'];
 
             foreach ($items as $it) {
                 $title = trim((string) ($it['title'] ?? ''));
@@ -73,10 +78,12 @@ final class NeshanProvider implements ProviderInterface
                 $itemLng = isset($loc['x']) ? (float) $loc['x'] : null;
                 $itemLat = isset($loc['y']) ? (float) $loc['y'] : null;
 
+                if ($itemLat === null || $itemLng === null || $itemLat < $bbox[0] || $itemLng < $bbox[1] || $itemLat > $bbox[2] || $itemLng > $bbox[3]) continue;
+
                 $results[] = [
                     'name' => $title,
                     'category' => (string) ($it['category'] ?? $q),
-                    'address' => trim((string) ($it['address'] ?? $it['region'] ?? $cityName)),
+                    'address' => trim((string) ($it['address'] ?? '')),
                     'lat' => $itemLat,
                     'lng' => $itemLng,
                     'phones' => [],

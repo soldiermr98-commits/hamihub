@@ -59,29 +59,42 @@
 
     var attr = document.createElement('div');
     attr.className = 'hhx-attr';
-    attr.innerHTML = '© OpenStreetMap contributors';
+    var attrLink = document.createElement('a');
+    attrLink.href = 'https://www.openstreetmap.org/copyright';
+    attrLink.target = '_blank'; attrLink.rel = 'noopener';
+    attrLink.textContent = '© OpenStreetMap contributors';
+    attr.appendChild(attrLink);
     wrap.appendChild(attr);
 
     container.appendChild(wrap);
 
     function showPopup(m) {
       popup.style.display = 'block';
-      var html = '<div style="font-weight:700;color:#0f172a;margin-bottom:4px;">' + (m.name || '') + '</div>';
+      popup.replaceChildren();
+      var title = document.createElement('div');
+      title.style.cssText = 'font-weight:700;color:#0f172a;margin-bottom:4px';
+      title.textContent = m.name || '';
+      popup.appendChild(title);
       if (m.address) {
-        html += '<div style="color:#475569;font-size:11.5px;margin-bottom:6px;">' + m.address + '</div>';
+        var address = document.createElement('div');
+        address.style.cssText = 'color:#475569;font-size:11.5px;margin-bottom:6px';
+        address.textContent = m.address;
+        popup.appendChild(address);
       }
-      html += '<div style="display:flex;gap:8px;align-items:center;">';
-      if (m.url) {
-        html += '<a href="' + m.url + '" style="font-weight:700;color:#0052ff;">مشاهده صفحه کسب‌وکار</a>';
+      var links = document.createElement('div');
+      links.style.cssText = 'display:flex;gap:8px;align-items:center';
+      if (typeof m.url === 'string' && /^\/b\/[a-z0-9-]+\/$/.test(m.url)) {
+        var detail = document.createElement('a');
+        detail.href = m.url;
+        detail.textContent = 'مشاهده صفحه کسب‌وکار';
+        links.appendChild(detail);
       }
-      html +=
-        '<a href="https://www.google.com/maps/dir/?api=1&destination=' +
-        m.lat +
-        ',' +
-        m.lng +
-        '" target="_blank" rel="noopener" style="color:#09132e;font-weight:700;">مسیریابی</a>';
-      html += '</div>';
-      popup.innerHTML = html;
+      var directions = document.createElement('a');
+      directions.href = 'https://www.google.com/maps/dir/?api=1&destination=' + Number(m.lat) + ',' + Number(m.lng);
+      directions.target = '_blank'; directions.rel = 'noopener';
+      directions.textContent = 'مسیریابی';
+      links.appendChild(directions);
+      popup.appendChild(links);
     }
 
     function draw() {
