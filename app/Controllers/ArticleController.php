@@ -22,7 +22,7 @@ final class ArticleController
      */
     public static function index(Request $req, array $params = []): void
     {
-        PublicSiteController::ensureDefaultListArticle();
+        Auth::requireRole(['admin', 'editor']);
 
         $articles = DB::fetchAll(
             "SELECT a.*,
@@ -51,7 +51,7 @@ final class ArticleController
             foreach ($items as &$it) {
                 $hl = !empty($it['highlights']) ? (json_decode((string)$it['highlights'], true) ?: []) : [];
                 $it['rank_num'] = (int)$it['position'];
-                $it['badge_fa'] = (string)($hl['badge'] ?? 'منتخب حامی‌هاب');
+                $it['badge_fa'] = (string)($hl['badge'] ?? '');
                 $it['verdict_fa'] = (string)($hl['verdict'] ?? '');
                 $it['custom_desc_html'] = (string)($it['custom_desc'] ?? '');
             }
@@ -87,7 +87,7 @@ final class ArticleController
     public static function storeOrUpdate(Request $req, array $params = []): void
     {
         Csrf::verifyOrFail($req);
-        Auth::requireRole(['admin', 'editor']);
+        $user = Auth::requireRole(['admin', 'editor']);
 
         $id = (int)$req->input('id', 0);
         $cityId = (int)$req->input('city_id', 0);
@@ -97,10 +97,11 @@ final class ArticleController
         $slugInput = trim((string)$req->input('slug', ''));
         $introHtml = trim((string)($req->input('intro_html', $req->input('intro', ''))));
         $methodologyHtml = trim((string)($req->input('methodology_html', $req->input('tips_html', ''))));
-        $status = (string)$req->input('status', 'published');
+        $status = (string)$req->input('status', 'draft');
         if (!in_array($status, ['draft', 'review', 'published'], true)) {
-            $status = 'published';
+            $status = 'draft';
         }
+        if ($user['role'] !== 'admin' && $status === 'published') { $status = 'review'; }
         $metaTitle = trim((string)$req->input('meta_title', '')) ?: ($titleFa . ' | حامی‌هاب گیلان');
         $metaDesc = trim((string)$req->input('meta_description', '')) ?: $subtitleFa;
 
@@ -118,8 +119,14 @@ final class ArticleController
         }
 
         $rawSlug = $slugInput !== '' ? $slugInput : SlugService::suggestSlug($titleFa, 'best');
+        $slugCheck = SlugService::validateSlug($rawSlug);
+        if (!$slugCheck['ok']) Response::json(['ok'=>false,'error'=>$slugCheck['error'],'field'=>'slug'],422);
+        if (!DB::fetchOne('SELECT id FROM cities WHERE id=:id', ['id'=>$cityId]) || !DB::fetchOne('SELECT id FROM categories WHERE id=:id', ['id'=>$categoryId])) Response::json(['ok'=>false,'error'=>'شهر یا دسته‌بندی یافت نشد.'],422);
         $slug = SlugService::ensureUniqueSlug('articles', strtolower($rawSlug), $id > 0 ? $id : null);
 
+        if ($id > 0 && !DB::fetchOne('SELECT id FROM articles WHERE id=:id', ['id'=>$id])) Response::json(['ok'=>false,'error'=>'مقاله یافت نشد.'], 404);
+        $pdo = DB::connection();
+        $pdo->beginTransaction();
         if ($id > 0) {
             DB::query(
                 "UPDATE articles SET
@@ -157,7 +164,7 @@ final class ArticleController
                     intro, tips_html, year_label, status, ai_generated, published_at, created_at, updated_at
                  ) VALUES (
                     :title, :slug, :meta_title, :meta_desc, :cat_id, :city_id,
-                    :intro, :tips, '۱۴۰۵', :status, 0,
+                    :intro, :tips, '', :status, 0,
                     CASE WHEN :status2 = 'published' THEN NOW() ELSE NULL END, NOW(), NOW()
                  )",
                 [
@@ -188,10 +195,10 @@ final class ArticleController
                 }
                 $isSponsored = !empty($it['is_sponsored']) ? 1 : 0;
                 $highlights = json_encode([
-                    'badge'   => trim((string)($it['badge_fa'] ?? 'منتخب حامی‌هاب')),
-                    'verdict' => trim((string)($it['verdict_fa'] ?? 'گزینه تاییدشده در رتبه‌بندی بیزین.')),
-                    'pros'    => is_array($it['pros'] ?? null) ? $it['pros'] : ['کیفیت خدمات بالا', 'موقعیت مکانی مناسب'],
-                    'cons'    => is_array($it['cons'] ?? null) ? $it['cons'] : ['شلوغی در ساعات پیک'],
+                    'badge'   => trim((string)($it['badge_fa'] ?? '')),
+                    'verdict' => trim((string)($it['verdict_fa'] ?? '')),
+                    'pros'    => is_array($it['pros'] ?? null) ? $it['pros'] : [],
+                    'cons'    => is_array($it['cons'] ?? null) ? $it['cons'] : [],
                 ], JSON_UNESCAPED_UNICODE);
 
                 DB::query(
@@ -240,6 +247,12 @@ final class ArticleController
             }
         }
 
+        if ($status === 'review') {
+            \App\Services\PipelineService::enqueueReviewIfNotExists('article', $articleId, 'manual_review', ['article_id'=>$articleId,'title'=>$titleFa]);
+        } else {
+            DB::query("UPDATE review_queue SET status=:status,decided_by=:user,decided_at=NOW() WHERE kind='article' AND target_id=:id AND status='pending'", ['status'=>$status === 'published' ? 'approved' : 'rejected','user'=>(int)$user['id'],'id'=>$articleId]);
+        }
+        $pdo->commit();
         Cache::flushAll();
 
         Response::json([
@@ -258,110 +271,41 @@ final class ArticleController
     {
         Csrf::verifyOrFail($req);
         Auth::requireRole(['admin', 'editor']);
-
-        $cityId = (int)$req->input('city_id', 0);
-        $categoryId = (int)$req->input('category_id', 0);
-
-        if ($cityId <= 0 || $categoryId <= 0) {
-            Response::json([
-                'ok'    => false,
-                'error' => 'لطفاً شهر و دسته‌بندی را برای ساخت خودکار مقاله انتخاب کنید.',
-            ], 422);
-            return;
+        $cityId = (int) $req->input('city_id', 0);
+        $categoryId = (int) $req->input('category_id', 0);
+        $city = DB::fetchOne("SELECT id, name_fa, slug FROM cities WHERE id = :id", ['id' => $cityId]);
+        $category = DB::fetchOne("SELECT id, name_fa, slug FROM categories WHERE id = :id", ['id' => $categoryId]);
+        if (!$city || !$category) {
+            Response::json(['ok' => false, 'error' => 'شهر و دسته معتبر را انتخاب کنید.'], 422);
         }
-
-        $city = DB::fetchOne("SELECT * FROM cities WHERE id = :id LIMIT 1", ['id' => $cityId]);
-        $cat = DB::fetchOne("SELECT * FROM categories WHERE id = :id LIMIT 1", ['id' => $categoryId]);
-
-        if (!$city || !$cat) {
-            Response::json([
-                'ok'    => false,
-                'error' => 'شهر یا دسته‌بندی انتخاب‌شده معتبر نیست.',
-            ], 404);
-            return;
-        }
-
-        $baseSlug = 'best-' . $cat['slug'] . '-' . $city['slug'];
-        $slug = SlugService::ensureUniqueSlug('articles', strtolower($baseSlug));
-        $titleFa = 'بهترین ' . $cat['name_fa'] . ' در ' . $city['name_fa'] . ' (رتبه‌بندی سال ۱۴۰۵)';
-        $subtitleFa = 'مقایسه و معرفی برترین مراکز ' . $cat['name_fa'] . ' شهر ' . $city['name_fa'] . ' بر اساس امتیاز وزنی بیزین و بازبینی تحریریه حامی‌هاب گیلان.';
-
-        DB::query(
-            "INSERT INTO articles (
-                title, slug, meta_title, meta_description, category_id, city_id,
-                intro, tips_html, year_label, status, ai_generated, published_at, created_at, updated_at
-             ) VALUES (
-                :title, :slug, :meta_title, :meta_desc, :cat_id, :city_id,
-                :intro, :tips, '۱۴۰۵', 'published', 0, NOW(), NOW(), NOW()
-             )",
-            [
-                'title'      => $titleFa,
-                'slug'       => $slug,
-                'meta_title' => $titleFa . ' | آدرس، تلفن و نقشه | حامی‌هاب گیلان',
-                'meta_desc'  => $subtitleFa,
-                'cat_id'     => $categoryId,
-                'city_id'    => $cityId,
-                'intro'      => '<p>در این مقاله لیستی، برترین واحدهای <strong>' . htmlspecialchars((string)$cat['name_fa'], ENT_QUOTES, 'UTF-8') . ' در ' . htmlspecialchars((string)$city['name_fa'], ENT_QUOTES, 'UTF-8') . '</strong> بر اساس امتیاز وزنی بیزین (Bayesian Weighted Score) و تایید چندمنبعی گردآوری و رتبه‌بندی شده‌اند.</p>',
-                'tips'       => '<p>امتیازدهی بدون هیچ‌گونه داده ساختگی و بر پایه میانگین وزنی بیزین (با پارامتر m=20) و صحت‌سنجی مختصات در شعاع ۸۰ متری انجام شده است.</p>',
-            ]
-        );
-        $articleId = DB::lastInsertId();
-
         $businesses = DB::fetchAll(
-            "SELECT id, name, short_desc, tier
-             FROM businesses
-             WHERE city_id = :city_id AND (category_id = :cat_id OR status = 'published')
-             ORDER BY (category_id = :cat_id2) DESC, (status = 'published') DESC, internal_score DESC
-             LIMIT 10",
-            [
-                'city_id' => $cityId,
-                'cat_id'  => $categoryId,
-                'cat_id2' => $categoryId,
-            ]
+            "SELECT id FROM businesses WHERE city_id = :cid AND category_id = :cat AND status = 'published' ORDER BY name ASC, id ASC LIMIT 50",
+            ['cid' => $cityId, 'cat' => $categoryId]
         );
-
-        foreach ($businesses as $idx => $b) {
-            $pos = $idx + 1;
-            $highlights = json_encode([
-                'badge'   => $pos === 1 ? 'رتبه اول بیزین' : ('منتخب Tier ' . $b['tier']),
-                'verdict' => 'یکی از بهترین گزینه‌های ' . $cat['name_fa'] . ' در شهر ' . $city['name_fa'],
-                'pros'    => ['امتیاز وزنی مطلوب', 'دسترسی مناسب در ' . $city['name_fa']],
-                'cons'    => ['توصیه به تماس تلفنی پیش از مراجعه در روزهای تعطیل'],
-            ], JSON_UNESCAPED_UNICODE);
-
-            DB::query(
-                "INSERT IGNORE INTO article_items (
-                    article_id, business_id, position, custom_desc, highlights, is_sponsored
-                 ) VALUES (
-                    :aid, :bid, :pos, :desc, :hl, 0
-                 )",
-                [
-                    'aid'  => $articleId,
-                    'bid'  => (int)$b['id'],
-                    'pos'  => $pos,
-                    'desc' => (string)($b['short_desc'] ?: ($b['name'] . ' در شهر ' . $city['name_fa'])),
-                    'hl'   => $highlights,
-                ]
-            );
+        if (!$businesses) {
+            Response::json(['ok' => false, 'error' => 'برای این شهر و دسته کسب‌وکار تأییدشده‌ای وجود ندارد.'], 422);
         }
-
-        DB::query(
-            "INSERT INTO article_faqs (article_id, question, answer, sort) VALUES (:aid, :q, :a, 1)",
-            [
-                'aid' => $articleId,
-                'q'   => 'بهترین ' . $cat['name_fa'] . ' در ' . $city['name_fa'] . ' بر چه اساسی انتخاب شده‌اند؟',
-                'a'   => 'تمامی واحدهای این لیست بر اساس امتیاز وزنی بیزین (Bayesian Score)، بررسی چندمنبعی و تایید مختصات مکانی در شهر ' . $city['name_fa'] . ' انتخاب شده‌اند.',
-            ]
-        );
-
-        Cache::flushAll();
-
-        Response::json([
-            'ok'          => true,
-            'article_id'  => $articleId,
-            'slug'        => $slug,
-            'items_added' => count($businesses),
-            'message'     => 'مقاله «' . $titleFa . '» به صورت خودکار با ' . count($businesses) . ' کسب‌وکار ساخته و منتشر شد.',
-        ]);
+        $slug = SlugService::ensureUniqueSlug('articles', 'list-' . $category['slug'] . '-' . $city['slug']);
+        $title = $category['name_fa'] . ' در ' . $city['name_fa'];
+        $pdo = DB::connection();
+        $pdo->beginTransaction();
+        try {
+            DB::query(
+                "INSERT INTO articles (title, slug, category_id, city_id, year_label, status, ai_generated, created_at, updated_at)
+                 VALUES (:title, :slug, :cat, :city, '', 'draft', 0, NOW(), NOW())",
+                ['title' => $title, 'slug' => $slug, 'cat' => $categoryId, 'city' => $cityId]
+            );
+            $articleId = DB::lastInsertId();
+            foreach ($businesses as $index => $biz) {
+                DB::query("INSERT INTO article_items (article_id, business_id, position, is_sponsored) VALUES (:aid, :bid, :pos, 0)",
+                    ['aid' => $articleId, 'bid' => (int) $biz['id'], 'pos' => $index + 1]);
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
+        Response::json(['ok' => true, 'article_id' => $articleId, 'slug' => $slug,
+            'items_added' => count($businesses), 'message' => 'پیش‌نویس ساخته شد؛ قبل از انتشار آن را بررسی کنید.']);
     }
 }

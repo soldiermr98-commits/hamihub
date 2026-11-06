@@ -21,7 +21,7 @@ Bootstrap::init(BASE_PATH);
 $expectedKey = (string) Config::get('app.check_key', '');
 $providedKey = trim((string) ($_GET['key'] ?? ''));
 
-if (PHP_SAPI !== 'cli' && $expectedKey !== '' && !hash_equals($expectedKey, $providedKey)) {
+if (PHP_SAPI !== 'cli' && (strlen($expectedKey) < 24 || !hash_equals($expectedKey, $providedKey))) {
     Response::json([
         'ok' => false,
         'error' => 'کلید دسترسی به گزارش سرور (check_key) نامعتبر است. کلید را با ?key=... ارسال کنید.',
@@ -83,9 +83,7 @@ try {
     $dbStatus['version'] = $versionRow['ver'] ?? 'unknown';
     $dbStatus['time_zone'] = $versionRow['tz'] ?? 'unknown';
 
-    if (isset($_GET['migrate']) && $_GET['migrate'] === '1') {
-        $dbStatus['migrations'] = Migrator::runIncremental();
-    }
+    // Migrations are only executed through the authenticated admin endpoint or installer.
 } catch (Throwable $e) {
     $dbStatus['error'] = $e->getMessage();
 }
@@ -95,7 +93,7 @@ $workerPath = BASE_PATH . '/cron/worker.php';
 $cronCommand = sprintf('*/5 * * * * %s -q %s >/dev/null 2>&1', $phpCli, $workerPath);
 
 $report = [
-    'ok' => true,
+    'ok' => $dbStatus['connected'] && version_compare(PHP_VERSION, '8.1.0', '>=') && extension_loaded('pdo_mysql') && extension_loaded('mbstring') && extension_loaded('curl'),
     'timestamp_tehran' => date('Y-m-d H:i:s P'),
     'php' => [
         'version' => PHP_VERSION,

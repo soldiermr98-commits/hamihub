@@ -22,11 +22,11 @@
 
     var link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = '/assets/vendor/leaflet/leaflet.css?v=s6';
+    link.href = '/assets/vendor/leaflet/leaflet.css?v=s7';
     document.head.appendChild(link);
 
     var script = document.createElement('script');
-    script.src = '/assets/vendor/leaflet/leaflet.js?v=s6';
+    script.src = '/assets/vendor/leaflet/leaflet.js?v=s7';
     script.async = true;
     script.onload = function () {
       leafletLoaded = true;
@@ -64,6 +64,17 @@
       }
     });
   }
+
+  function trackPageView() {
+    var page = document.querySelector('[data-hx-page-view]');
+    if (!page || !navigator.sendBeacon) return;
+    navigator.sendBeacon('/api/v1/events/track', JSON.stringify({
+      event_type: 'view', business_id: Number(page.getAttribute('data-business-id') || 0),
+      article_id: Number(page.getAttribute('data-article-id') || 0)
+    }));
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', trackPageView);
+  else trackPageView();
 
   document.addEventListener('click', function (ev) {
     var target = ev.target;
@@ -138,7 +149,7 @@
       .then(function (res) {
         if (msgEl) {
           msgEl.style.color = res.ok ? '#15803d' : '#b91c1c';
-          msgEl.textContent = res.message || res.error || 'ثبت انجام شد.';
+          msgEl.textContent = res.message || res.error || (res.ok ? 'درخواست ثبت شد.' : 'پاسخ نامعتبر از سرور.');
         }
         if (res.ok) {
           form.reset();

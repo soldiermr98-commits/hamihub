@@ -5,6 +5,7 @@ namespace App\Controllers;
 
 use App\Core\Auth;
 use App\Core\Csrf;
+use App\Core\Cache;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
@@ -105,16 +106,19 @@ final class CityController
         $lngInput = $request->input('lng');
         $bboxInput = (string) $request->input('bbox_json', '');
 
-        $lat = ($latInput !== null && $latInput !== '') ? (float) $latInput : ($preset['lat'] ?? 37.280834);
-        $lng = ($lngInput !== null && $lngInput !== '') ? (float) $lngInput : ($preset['lng'] ?? 49.583057);
-        $bboxJson = $bboxInput !== ''
-            ? $bboxInput
-            : json_encode($preset['bbox'] ?? [37.15, 49.40, 37.38, 49.70]);
-
-        $publishMode = (string) $request->input('publish_mode', 'rules');
-        if (!in_array($publishMode, ['manual', 'rules', 'full_auto'], true)) {
-            $publishMode = 'rules';
+        $lat = ($latInput !== null && $latInput !== '') ? (is_numeric($latInput) ? (float)$latInput : null) : ($preset['lat'] ?? null);
+        $lng = ($lngInput !== null && $lngInput !== '') ? (is_numeric($lngInput) ? (float)$lngInput : null) : ($preset['lng'] ?? null);
+        if (($latInput !== null && $latInput !== '' && !is_numeric($latInput)) || ($lngInput !== null && $lngInput !== '' && !is_numeric($lngInput)) || ($lat !== null && abs($lat) > 90) || ($lng !== null && abs($lng) > 180) || (($lat === null) !== ($lng === null))) {
+            Response::json(['ok'=>false,'error'=>'مختصات شهر معتبر نیست.'], 422);
         }
+        $bbox = $bboxInput !== '' ? json_decode($bboxInput, true) : ($preset['bbox'] ?? null);
+        if ($bbox !== null && (!is_array($bbox) || count($bbox)!==4 || count(array_filter($bbox, 'is_numeric'))!==4 || $bbox[0] < -90 || $bbox[2] > 90 || $bbox[1] < -180 || $bbox[3] > 180 || $bbox[0] >= $bbox[2] || $bbox[1] >= $bbox[3] || $bbox[2]-$bbox[0] > 1 || $bbox[3]-$bbox[1] > 1)) {
+            Response::json(['ok'=>false,'error'=>'محدوده شهر باید چهار عدد معتبر [جنوب، غرب، شمال، شرق] باشد.'], 422);
+        }
+        if ($bboxInput !== '' && $bbox === null) Response::json(['ok'=>false,'error'=>'JSON محدوده شهر معتبر نیست.'],422);
+        $bboxJson = $bbox !== null ? json_encode(array_values($bbox)) : null;
+        $publishMode = 'manual';
+        if ($id > 0 && !DB::fetchOne('SELECT id FROM cities WHERE id=:id', ['id'=>$id])) Response::json(['ok'=>false,'error'=>'شهر یافت نشد.'], 404);
         $isActive = (int) $request->input('is_active', 1) === 1 ? 1 : 0;
 
         if ($id > 0) {
@@ -157,9 +161,10 @@ final class CityController
                 ]
             );
             $cityId = DB::lastInsertId();
-            $msg = "شهر «{$nameFa}» با اسلاگ «{$uniqueSlug}» و مختصات جغرافیایی اضافه شد.";
+            $msg = "شهر «{$nameFa}» با اسلاگ «{$uniqueSlug}» اضافه شد؛ برای جمع‌آوری، محدوده و مختصات شهر را بررسی کنید.";
         }
 
+        Cache::flushAll();
         $city = DB::fetchOne("SELECT * FROM cities WHERE id = :id", ['id' => $cityId]);
 
         Response::json([
@@ -179,17 +184,13 @@ final class CityController
         Auth::requireRole(['admin']);
 
         $id = (int) ($params['id'] ?? 0);
-        $bizCount = DB::fetchOne("SELECT COUNT(*) AS cnt FROM businesses WHERE city_id = :id", ['id' => $id]);
-
-        if (((int) ($bizCount['cnt'] ?? 0)) > 0) {
-            Response::json([
-                'ok' => false,
-                'error' => 'این شهر دارای کسب‌وکار ثبت‌شده است. ابتدا کسب‌وکارهای آن را منتقل کنید یا وضعیت شهر را «غیرفعال» کنید.',
-            ], 422);
+        foreach (['businesses','articles','collector_jobs','neighborhoods'] as $table) {
+            $count = DB::fetchOne("SELECT COUNT(*) AS cnt FROM {$table} WHERE city_id=:id", ['id'=>$id]);
+            if ((int)$count['cnt'] > 0) Response::json(['ok'=>false,'error'=>'این شهر دارای اطلاعات وابسته است؛ برای حفظ داده‌ها آن را غیرفعال کنید.'],422);
         }
-
-        DB::query("DELETE FROM neighborhoods WHERE city_id = :id", ['id' => $id]);
-        DB::query("DELETE FROM cities WHERE id = :id", ['id' => $id]);
+        $deleted = DB::query("DELETE FROM cities WHERE id=:id", ['id'=>$id])->rowCount();
+        if (!$deleted) Response::json(['ok'=>false,'error'=>'شهر یافت نشد.'],404);
+        Cache::flushAll();
 
         Response::json([
             'ok' => true,

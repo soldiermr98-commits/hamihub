@@ -8,7 +8,6 @@ use App\Core\Cache;
 use App\Core\Config;
 use App\Core\Csrf;
 use App\Core\DB;
-use App\Core\Logger;
 use App\Core\Request;
 use App\Core\Response;
 use App\Services\Normalizer;
@@ -50,124 +49,10 @@ final class PublicSiteController
      */
     public static function ensureDefaultListArticle(): void
     {
-        try {
-            $oldHomeCache = Cache::getPage('/');
-            if ($oldHomeCache !== null && !str_contains($oldHomeCache, 'public.css?v=s6.0')) {
-                Cache::flushAll();
-            }
-
-            $countRow = DB::fetchOne("SELECT COUNT(*) AS cnt FROM articles");
-            if ((int)($countRow['cnt'] ?? 0) > 0) {
-                return;
-            }
-
-            $rasht = DB::fetchOne("SELECT id, name_fa, slug FROM cities WHERE slug = 'rasht' LIMIT 1")
-                ?? DB::fetchOne("SELECT id, name_fa, slug FROM cities ORDER BY id ASC LIMIT 1");
-            $cat = DB::fetchOne("SELECT id, name_fa, slug FROM categories WHERE slug LIKE '%cafe%' OR slug LIKE '%restaurant%' ORDER BY id ASC LIMIT 1")
-                ?? DB::fetchOne("SELECT id, name_fa, slug FROM categories ORDER BY id ASC LIMIT 1");
-
-            if (!$rasht || !$cat) {
-                return;
-            }
-
-            $rashtId = (int)$rasht['id'];
-            $catId = (int)$cat['id'];
-
-            DB::query(
-                "INSERT INTO articles (
-                    title, slug, meta_title, meta_description, category_id, city_id,
-                    intro, tips_html, year_label, status, ai_generated, published_at, created_at, updated_at
-                ) VALUES (
-                    :title, 'best-cafes-rasht', :meta_title, :meta_desc, :cat_id, :city_id,
-                    :intro, :tips_html, '۱۴۰۵', 'published', 0, NOW(), NOW(), NOW()
-                )",
-                [
-                    'title'      => 'بهترین کافه‌ها و رستوران‌های رشت در سال ۱۴۰۵ (لیست منتخب و امتیاز بیزین)',
-                    'meta_title' => 'بهترین کافه‌ها و رستوران‌های رشت (آپدیت ۱۴۰۵) | حامی‌هاب گیلان',
-                    'meta_desc'  => 'معرفی و رتبه‌بندی بهترین کافه‌ها و رستوران‌های رشت بر اساس امتیاز وزنی بیزین، تطابق چندمنبعی، آدرس دقیق، شماره تماس و نقشه تعاملی.',
-                    'cat_id'     => $catId,
-                    'city_id'    => $rashtId,
-                    'intro'      => '<p>رشت به عنوان شهر خلاق خوراک‌شناسی یونسکو، میزبان صدها کافه و رستوران متنوع است. در این راهنمای جامع، سیستم هوشمند <strong>حامی‌هاب گیلان (HamiHubX)</strong> با پایش چندمنبعی و فرمول امتیاز وزنی بیزین (Bayesian Score با پارامتر m=20) بهترین گزینه‌های شهر رشت را رتبه‌بندی کرده است.</p>',
-                    'tips_html'  => '<p>تمامی واحدهای معرفی‌شده در این فهرست در شعاع ۸۰ متری صحت‌سنجی شده‌اند، جایگاه‌های اسپانسرشیپ با برچسب شفاف مشخص گردیده‌اند و هیچ‌گونه امتیاز ساختگی در اسکیماهای سئو ثبت نمی‌شود.</p>',
-                ]
-            );
-            $articleId = DB::lastInsertId();
-
-            $businesses = DB::fetchAll(
-                "SELECT id, name, short_desc, tier
-                 FROM businesses
-                 WHERE city_id = :city_id
-                 ORDER BY (status = 'published') DESC, internal_score DESC, id ASC
-                 LIMIT 10",
-                ['city_id' => $rashtId]
-            );
-
-            $pos = 1;
-            foreach ($businesses as $biz) {
-                $isSponsored = ($pos === 1) ? 1 : 0;
-                $highlights = json_encode([
-                    'badge'   => $pos === 1 ? 'انتخاب اول تحریریه' : ('رتبه برتر Tier ' . ($biz['tier'] ?? 'B')),
-                    'verdict' => 'گزینه‌ای مطمئن در شهر رشت با دسترسی عالی و امتیاز وزنی بیزین بالا.',
-                    'pros'    => ['فضای دلنشین و استاندارد', 'موقعیت مکانی مناسب در رشت', 'کیفیت بالای منو و سرویس‌دهی'],
-                    'cons'    => ['شلوغی در ساعات پایانی شب و روزهای تعطیل'],
-                ], JSON_UNESCAPED_UNICODE);
-
-                DB::query(
-                    "INSERT IGNORE INTO article_items (
-                        article_id, business_id, position, custom_desc, highlights,
-                        is_sponsored, sponsor_label, sponsor_start, sponsor_end
-                    ) VALUES (
-                        :aid, :bid, :pos, :desc, :highlights,
-                        :is_spon, :spon_label, :spon_start, :spon_end
-                    )",
-                    [
-                        'aid'        => $articleId,
-                        'bid'        => (int)$biz['id'],
-                        'pos'        => $pos,
-                        'desc'       => (string)($biz['short_desc'] ?: ($biz['name'] . ' یکی از مجموعه‌های منتخب و تاییدشده شهر رشت در رتبه‌بندی حامی‌هاب گیلان است.')),
-                        'highlights' => $highlights,
-                        'is_spon'    => $isSponsored,
-                        'spon_label' => 'پیشنهاد ویژه حامی‌هاب',
-                        'spon_start' => $isSponsored ? date('Y-m-d 00:00:00', strtotime('-7 days')) : null,
-                        'spon_end'   => $isSponsored ? date('Y-m-d 23:59:59', strtotime('+60 days')) : null,
-                    ]
-                );
-                $pos++;
-            }
-
-            $faqs = [
-                [
-                    'q' => 'رتبه‌بندی بهترین کافه‌ها و رستوران‌های رشت در حامی‌هاب چگونه انجام می‌شود؟',
-                    'a' => 'رتبه‌بندی بر اساس فرمول امتیاز وزنی بیزین (Bayesian Weighted Score با پارامتر m=20)، تطابق اطلاعات در چند منبع مستقل و صحت‌سنجی مختصات جغرافیایی در شعاع ۸۰ متری انجام می‌شود.',
-                ],
-                [
-                    'q' => 'آیا امکان مسیریابی مستقیم و تماس تلفنی با واحدهای معرفی‌شده وجود دارد؟',
-                    'a' => 'بله، برای تمامی کسب‌وکارهای معرفی‌شده دکمه تماس مستقیم، لینک مسیریابی روی نقشه و نقشه تعاملی خودمیزبان (Leaflet) در همان صفحه قرار داده شده است.',
-                ],
-                [
-                    'q' => 'کسب‌وکارهای دارای جایگاه ویژه (Sponsored) چگونه نمایش داده می‌شوند؟',
-                    'a' => 'واحدهای دارای اسپانسرشیپ فعال در بازه زمانی معتبر با برچسب شفاف «پیشنهاد ویژه / تبلیغ» در ابتدای فهرست متمایز می‌شوند و تاثیری بر امتیاز طبیعی بیزین سایر واحدها ندارند.',
-                ],
-            ];
-            foreach ($faqs as $idx => $faq) {
-                DB::query(
-                    "INSERT INTO article_faqs (article_id, question, answer, sort) VALUES (:aid, :q, :a, :sort)",
-                    [
-                        'aid'  => $articleId,
-                        'q'    => $faq['q'],
-                        'a'    => $faq['a'],
-                        'sort' => $idx + 1,
-                    ]
-                );
-            }
-        } catch (Throwable) {
-            // Non-blocking
-        }
+        // Content is created explicitly by an editor; public reads never seed records.
     }
 
-    /**
-     * GET / — صفحه اصلی عمومی سایت
-     */
+    /** Render the public home page. */
     public static function home(Request $req, array $params = []): void
     {
         self::ensureDefaultListArticle();
@@ -209,12 +94,12 @@ final class PublicSiteController
                 '@type'       => 'WebSite',
                 'name'        => 'حامی‌هاب گیلان | HamiHubX.ir',
                 'url'         => $baseUrl . '/',
-                'description' => 'پلتفرم خودکار معرفی و رتبه‌بندی بهترین کسب‌وکارها، کافه‌ها، رستوران‌ها و خدمات استان گیلان',
+                'description' => 'فهرست کسب‌وکارها، کافه‌ها، رستوران‌ها و خدمات استان گیلان',
             ],
             [
                 '@context'        => 'https://schema.org',
                 '@type'           => 'ItemList',
-                'name'            => 'برترین کسب‌وکارهای منتخب استان گیلان',
+                'name'            => 'کسب‌وکارهای منتشرشده استان گیلان',
                 'itemListElement' => self::buildItemListElements($businesses, $baseUrl),
             ],
         ];
@@ -226,10 +111,10 @@ final class PublicSiteController
                 <div class="hx-hero-glass-panel">
                     <span class="hx-hero-badge">
                         <?= self::icon('verify', 'hx-icon hx-icon-sm') ?>
-                        <span>حامی‌هاب گیلان · پلتفرم هوشمند رتبه‌بندی محلی استان گیلان</span>
+                        <span>حامی‌هاب گیلان · فهرست کسب‌وکارهای محلی استان گیلان</span>
                     </span>
                     <h1>بهترین کافه‌ها، رستوران‌ها و خدمات استان گیلان</h1>
-                    <p>رتبه‌بندی شفاف بر اساس امتیاز وزنی بیزین (Bayesian Score)، راستی‌آزمایی چندمنبعی در شعاع ۸۰ متری و تولید محتوای مستند در شهرهای رشت، بندر انزلی، لاهیجان و سراسر گیلان.</p>
+                    <p>فهرست کسب‌وکارها بر اساس اطلاعات گردآوری‌شده و بازبینی تحریریه ارائه می‌شود.</p>
                     <div class="hx-city-pills">
                         <?php foreach ($cities as $city): ?>
                             <a class="hx-city-pill" href="/city/<?= self::e($city['slug']) ?>/">
@@ -252,16 +137,16 @@ final class PublicSiteController
                             <?= self::icon('award') ?>
                             <span>راهنماها و مقالات لیستی منتخب (Top Lists)</span>
                         </h2>
-                        <p class="hx-section-sub">مقالات مقایسه‌ای همراه با جدول امتیاز بیزین، نقشه تعاملی و سؤالات متداول</p>
+                        <p class="hx-section-sub">راهنماها و مقالات منتشرشده توسط تحریریه</p>
                     </div>
                 </div>
                 <div class="hx-grid hx-grid-2">
                     <?php foreach ($articles as $art): ?>
                         <article class="hx-card">
                             <div class="hx-card-top">
-                                <span class="hx-badge hx-badge-tier-a"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> <?= self::e($art['city_name_fa']) ?> · <?= (int)$art['items_count'] ?> گزینه برتر</span>
+                                <span class="hx-badge hx-badge-tier-a"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> <?= self::e($art['city_name_fa']) ?> · <?= (int)$art['items_count'] ?> مورد</span>
                                 <?php if (!empty($art['category_name_fa'])): ?>
-                                    <span class="hx-badge hx-badge-cat"><?= self::e($art['category_name_fa']) ?> · <?= self::e($art['year_label'] ?: '۱۴۰۵') ?></span>
+                                    <span class="hx-badge hx-badge-cat"><?= self::e($art['category_name_fa']) ?> · <?= self::e($art['year_label'] ?? '') ?></span>
                                 <?php endif; ?>
                             </div>
                             <h3 class="hx-card-title">
@@ -286,7 +171,7 @@ final class PublicSiteController
                             <?= self::icon('star') ?>
                             <span>برترین کسب‌وکارهای منتشرشده در گیلان</span>
                         </h2>
-                        <p class="hx-section-sub">مرتب‌شده بر اساس امتیاز وزنی بیزین و سطح کیفیت (Tier A/B/C)</p>
+                        <p class="hx-section-sub">فهرست کسب‌وکارهای منتشرشده</p>
                     </div>
                 </div>
                 <?php if (empty($businesses)): ?>
@@ -336,7 +221,7 @@ final class PublicSiteController
 
         $fullHtml = self::renderLayout([
             'title'       => 'حامی‌هاب گیلان (HamiHubX) | بهترین کافه‌ها، رستوران‌ها و خدمات استان گیلان',
-            'description' => 'پلتفرم هوشمند معرفی و رتبه‌بندی بهترین کسب‌وکارها، کافه‌ها، رستوران‌ها و مراکز خدماتی در رشت، انزلی، لاهیجان و سراسر استان گیلان با امتیاز وزنی بیزین.',
+            'description' => 'پلتفرم هوشمند معرفی و رتبه‌بندی بهترین کسب‌وکارها، کافه‌ها، رستوران‌ها و مراکز خدماتی در رشت، انزلی، لاهیجان و سراسر استان گیلان.',
             'canonical'   => $baseUrl . '/',
             'og_type'     => 'website',
             'schemas'     => $schemas,
@@ -401,9 +286,9 @@ final class PublicSiteController
                 'addressLocality' => (string)$biz['city_name_fa'],
                 'addressRegion'   => 'گیلان',
                 'addressCountry'  => 'IR',
-                'streetAddress'   => (string)($biz['address'] ?: ($biz['neighborhood_name_fa'] ?: $biz['city_name_fa'])),
             ],
         ];
+        if (!empty($biz['address'])) $localBizSchema['address']['streetAddress'] = (string)$biz['address'];
         if (!empty($biz['short_desc'])) {
             $localBizSchema['description'] = (string)$biz['short_desc'];
         }
@@ -434,7 +319,7 @@ final class PublicSiteController
 
         ob_start();
         ?>
-        <main class="hx-container">
+        <main class="hx-container" data-hx-page-view data-business-id="<?= (int)$biz['id'] ?>">
             <nav class="hx-breadcrumb" aria-label="مسیر صفحه">
                 <a href="/">حامی‌هاب گیلان</a>
                 <span>/</span>
@@ -448,16 +333,7 @@ final class PublicSiteController
             <article class="hx-detail-hero">
                 <div class="hx-card-top">
                     <div style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:center;">
-                        <span class="hx-badge hx-badge-tier-<?= strtolower((string)$biz['tier']) ?>"><?= self::icon('award', 'hx-icon hx-icon-sm') ?> سطح کیفی Tier <?= self::e($biz['tier']) ?></span>
                         <span class="hx-badge hx-badge-cat"><?= self::e($biz['category_name_fa']) ?> · <?= self::e($biz['city_name_fa']) ?></span>
-                        <span class="hx-badge hx-badge-cat"><?= self::icon('verify', 'hx-icon hx-icon-sm') ?> اطمینان داده: <?= self::e($biz['confidence']) ?></span>
-                    </div>
-                    <div class="hx-score" title="امتیاز وزنی بیزین">
-                        <?= self::icon('star', 'hx-icon hx-icon-sm') ?>
-                        <span>امتیاز بیزین: <?= number_format((float)$biz['internal_score'], 2) ?></span>
-                        <?php if ((int)$biz['reviews_total'] > 0): ?>
-                            <small>(<?= (int)$biz['reviews_total'] ?> نظر منبع)</small>
-                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -478,11 +354,11 @@ final class PublicSiteController
                     </div>
                     <div class="hx-info-box">
                         <strong><?= self::icon('map', 'hx-icon hx-icon-sm') ?> نشانی دقیق</strong>
-                        <span><?= self::e($biz['address'] ?: ('ثبت‌شده در نقشه شهر ' . $biz['city_name_fa'])) ?></span>
+                        <span><?= self::e($biz['address'] ?: 'نشانی ثبت نشده است') ?></span>
                     </div>
                     <?php if (!empty($biz['phone'])): ?>
                     <div class="hx-info-box">
-                        <strong><?= self::icon('call', 'hx-icon hx-icon-sm') ?> شماره تماس تأییدشده</strong>
+                        <strong><?= self::icon('call', 'hx-icon hx-icon-sm') ?> شماره تماس ثبت‌شده</strong>
                         <span dir="ltr"><?= self::e($biz['phone']) ?></span>
                     </div>
                     <?php endif; ?>
@@ -507,10 +383,10 @@ final class PublicSiteController
                             <span>مسیریابی در Google Maps</span>
                         </a>
                     <?php endif; ?>
-                    <?php if (!empty($biz['website'])): ?>
+                    <?php if (!empty($biz['website']) && preg_match('~^https?://~i', (string)$biz['website'])): ?>
                         <a class="hx-btn hx-btn-outline" target="_blank" rel="noopener nofollow" href="<?= self::e($biz['website']) ?>" data-hx-track="website" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="business_detail">
                             <?= self::icon('global', 'hx-icon hx-icon-sm') ?>
-                            <span>وب‌سایت رسمی</span>
+                            <span>وب‌سایت</span>
                         </a>
                     <?php endif; ?>
                     <?php if (!empty($biz['instagram'])): ?>
@@ -661,7 +537,7 @@ final class PublicSiteController
         <?php
         $bodyHtml = (string)ob_get_clean();
 
-        $title = $biz['name'] . ' در ' . $biz['city_name_fa'] . ' | آدرس، تلفن و امتیاز بیزین | حامی‌هاب گیلان';
+        $title = $biz['name'] . ' در ' . $biz['city_name_fa'] . ' | آدرس و تلفن | حامی‌هاب گیلان';
         $desc = !empty($biz['short_desc'])
             ? (string)$biz['short_desc']
             : ('اطلاعات کامل، آدرس، شماره تماس و مسیریابی ' . $biz['name'] . ' در ' . $biz['city_name_fa'] . ' بر اساس رتبه‌بندی حامی‌هاب گیلان.');
@@ -733,7 +609,7 @@ final class PublicSiteController
                 <span class="hx-badge hx-badge-tier-a"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> راهنمای جامع شهری · استان گیلان</span>
                 <h1>بهترین کافه‌ها، رستوران‌ها و مراکز خدماتی <?= self::e($city['name_fa']) ?></h1>
                 <p style="margin:0;color:var(--hx-slate-600);">
-                    فهرست رتبه‌بندی‌شده برترین واحدهای صنفی و خدماتی شهر <?= self::e($city['name_fa']) ?> بر اساس امتیاز وزنی بیزین و تطابق چندمنبعی.
+                    فهرست کسب‌وکارهای منتشرشده شهر <?= self::e($city['name_fa']) ?>.
                 </p>
                 <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:1rem;">
                     <?php foreach ($categories as $cat): ?>
@@ -861,7 +737,7 @@ final class PublicSiteController
 
             <header class="hx-article-header">
                 <span class="hx-badge hx-badge-tier-a"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> <?= self::e($city['name_fa']) ?> · <?= self::e($category['name_fa']) ?></span>
-                <h1>بهترین <?= self::e($category['name_fa']) ?> در <?= self::e($city['name_fa']) ?> (رتبه‌بندی بیزین ۱۴۰۵)</h1>
+                <h1>بهترین <?= self::e($category['name_fa']) ?> در <?= self::e($city['name_fa']) ?></h1>
                 <p style="margin:0;color:var(--hx-slate-600);">
                     مقایسه و معرفی برترین مراکز <?= self::e($category['name_fa']) ?> در شهر <?= self::e($city['name_fa']) ?> همراه با آدرس، شماره تماس مستقیم و موقعیت روی نقشه.
                 </p>
@@ -890,7 +766,7 @@ final class PublicSiteController
 
         $fullHtml = self::renderLayout([
             'title'       => 'بهترین ' . $category['name_fa'] . ' در ' . $city['name_fa'] . ' | رتبه‌بندی و آدرس | حامی‌هاب',
-            'description' => 'معرفی بهترین ' . $category['name_fa'] . ' در شهر ' . $city['name_fa'] . ' بر اساس امتیاز وزنی بیزین، نظرات کاربران، آدرس دقیق و شماره تماس.',
+            'description' => 'معرفی بهترین ' . $category['name_fa'] . ' در شهر ' . $city['name_fa'] . ' با اطلاعات موجود، آدرس و شماره تماس.',
             'canonical'   => $canonical,
             'og_type'     => 'website',
             'schemas'     => $schemas,
@@ -940,7 +816,7 @@ final class PublicSiteController
              INNER JOIN cities c ON c.id = b.city_id
              INNER JOIN categories cat ON cat.id = b.category_id
              LEFT JOIN neighborhoods n ON n.id = b.neighborhood_id
-             WHERE ai.article_id = :aid
+             WHERE ai.article_id = :aid AND b.status = 'published'
              ORDER BY
                  CASE WHEN ai.is_sponsored = 1
                       AND (ai.sponsor_start IS NULL OR ai.sponsor_start <= NOW())
@@ -1042,7 +918,6 @@ final class PublicSiteController
                     'lat'      => (float)$it['lat'],
                     'lng'      => (float)$it['lng'],
                     'district' => (string)($it['neighborhood_name_fa'] ?: $it['city_name_fa']),
-                    'score'    => number_format((float)$it['internal_score'], 2),
                     'url'      => '/b/' . $it['biz_slug'] . '/',
                 ];
             }
@@ -1050,7 +925,7 @@ final class PublicSiteController
 
         ob_start();
         ?>
-        <main class="hx-container">
+        <main class="hx-container" data-hx-page-view data-article-id="<?= (int)$article['id'] ?>">
             <nav class="hx-breadcrumb" aria-label="مسیر صفحه">
                 <a href="/">حامی‌هاب گیلان</a>
                 <span>/</span>
@@ -1066,7 +941,7 @@ final class PublicSiteController
             <article>
                 <header class="hx-article-header">
                     <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-                        <span class="hx-badge hx-badge-tier-a"><?= self::icon('verify', 'hx-icon hx-icon-sm') ?> گزارش تحلیلی و رتبه‌بندی بیزین · <?= self::e($article['year_label'] ?: '۱۴۰۵') ?></span>
+                        <span class="hx-badge hx-badge-tier-a"><?= self::icon('verify', 'hx-icon hx-icon-sm') ?> فهرست تحریریه<?= !empty($article['year_label']) ? ' · ' . self::e($article['year_label']) : '' ?></span>
                         <span class="hx-badge hx-badge-cat"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> شهر <?= self::e($article['city_name_fa']) ?> · <?= count($items) ?> واحد منتخب</span>
                     </div>
                     <h1><?= self::e($article['title']) ?></h1>
@@ -1082,13 +957,13 @@ final class PublicSiteController
                         </div>
                         <div class="hx-summary-item">
                             <strong><?= self::icon('star', 'hx-icon hx-icon-sm') ?> الگوریتم رتبه‌بندی</strong>
-                            <span>امتیاز وزنی بیزین (Bayesian m=20)</span>
+                            <span>انتخاب و ترتیب تحریریه</span>
                         </div>
                     </div>
 
                     <?php if (!empty($article['intro'])): ?>
                         <div class="hx-prose" style="margin-top:1rem;">
-                            <?= (string)$article['intro'] ?>
+                            <?= nl2br(self::e(strip_tags((string)$article['intro']))) ?>
                         </div>
                     <?php endif; ?>
                 </header>
@@ -1106,8 +981,6 @@ final class PublicSiteController
                                     <th>رتبه</th>
                                     <th>نام مجموعه</th>
                                     <th>محله / منطقه</th>
-                                    <th>امتیاز وزنی بیزین</th>
-                                    <th>سطح کیفی</th>
                                     <th>ارتباط مستقیم</th>
                                 </tr>
                             </thead>
@@ -1129,8 +1002,6 @@ final class PublicSiteController
                                             <?php endif; ?>
                                         </td>
                                         <td><?= self::e($it['neighborhood_name_fa'] ?: $it['city_name_fa']) ?></td>
-                                        <td><span class="hx-score"><?= self::icon('star', 'hx-icon hx-icon-sm') ?> <?= number_format((float)$it['internal_score'], 2) ?></span></td>
-                                        <td><span class="hx-badge hx-badge-tier-<?= strtolower((string)$it['tier']) ?>">Tier <?= self::e($it['tier']) ?></span></td>
                                         <td>
                                             <?php if (!empty($it['phone'])): ?>
                                                 <a class="hx-btn hx-btn-primary" style="padding:0.25rem 0.65rem;font-size:0.75rem;" href="tel:<?= self::e($it['phone']) ?>" data-hx-track="call" data-business-id="<?= (int)$it['business_id'] ?>" data-source-page="article_table">
@@ -1178,10 +1049,6 @@ final class PublicSiteController
                                         <?php if (!empty($hl['badge'])): ?>
                                             <span class="hx-badge hx-badge-tier-a"><?= self::e((string)$hl['badge']) ?></span>
                                         <?php endif; ?>
-                                    </div>
-                                    <div class="hx-score">
-                                        <?= self::icon('star', 'hx-icon hx-icon-sm') ?>
-                                        <span>امتیاز بیزین: <?= number_format((float)$it['internal_score'], 2) ?></span>
                                     </div>
                                 </div>
 
@@ -1256,9 +1123,9 @@ final class PublicSiteController
                         <div class="hx-card">
                             <h2 class="hx-section-title" style="margin-bottom:0.5rem;">
                                 <?= self::icon('verify') ?>
-                                <span>روش‌شناسی امتیازدهی و راستی‌آزمایی در حامی‌هاب</span>
+                                <span>توضیحات تکمیلی</span>
                             </h2>
-                            <div class="hx-prose"><?= (string)$article['tips_html'] ?></div>
+                            <div class="hx-prose"><?= nl2br(self::e(strip_tags((string)$article['tips_html']))) ?></div>
                         </div>
                     </section>
                 <?php endif; ?>
@@ -1385,27 +1252,21 @@ final class PublicSiteController
      */
     public static function trackEvent(Request $req, array $params = []): void
     {
-        try {
-            $bizId = max(0, (int)$req->input('business_id', 0));
-            $artId = max(0, (int)$req->input('article_id', 0));
-            $type = (string)$req->input('event_type', 'view');
-            if (!in_array($type, ['view', 'call', 'map', 'instagram', 'whatsapp', 'website'], true)) {
-                $type = 'view';
-            }
-            DB::query(
-                "INSERT INTO events_daily (day, business_id, article_id, type, cnt)
-                 VALUES (CURDATE(), :bid, :aid, :type, 1)
-                 ON DUPLICATE KEY UPDATE cnt = cnt + 1",
-                [
-                    'bid'  => $bizId,
-                    'aid'  => $artId,
-                    'type' => $type,
-                ]
-            );
-        } catch (Throwable) {
-            // Non-blocking
+        $bizId = max(0, (int)$req->input('business_id', 0));
+        $artId = max(0, (int)$req->input('article_id', 0));
+        $type = (string)$req->input('event_type', '');
+        if (!in_array($type, ['view','call','map','instagram','whatsapp','website'], true) || (!$bizId && !$artId)) {
+            Response::json(['ok'=>false,'error'=>'رویداد نامعتبر است.'], 422);
         }
-        Response::json(['ok' => true]);
+        try {
+            if ($bizId && !DB::fetchOne("SELECT id FROM businesses WHERE id=:id AND status='published'", ['id'=>$bizId])) Response::json(['ok'=>false,'error'=>'مورد یافت نشد.'], 404);
+            if ($artId && !DB::fetchOne("SELECT id FROM articles WHERE id=:id AND status='published'", ['id'=>$artId])) Response::json(['ok'=>false,'error'=>'مورد یافت نشد.'], 404);
+            DB::query("INSERT INTO events_daily (day,business_id,article_id,type,cnt) VALUES (CURDATE(),:bid,:aid,:type,1) ON DUPLICATE KEY UPDATE cnt=cnt+1", ['bid'=>$bizId,'aid'=>$artId,'type'=>$type]);
+            Response::json(['ok'=>true]);
+        } catch (Throwable $e) {
+            error_log('Event tracking failed: ' . $e->getMessage());
+            Response::json(['ok'=>false,'error'=>'ثبت رویداد ناموفق بود.'], 500);
+        }
     }
 
     /**
@@ -1415,9 +1276,12 @@ final class PublicSiteController
     {
         // Honeypot ضد اسپم
         if (trim((string)$req->input('website_hp', '')) !== '') {
-            Response::json(['ok' => true, 'message' => 'درخواست شما ثبت شد.']);
+            Response::json(['ok' => false, 'error' => 'درخواست پذیرفته نشد.'], 422);
             return;
         }
+
+        if (Auth::isRateLimited('@public-claim', $req->ip())) Response::json(['ok'=>false,'error'=>'تعداد درخواست‌ها بیش از حد مجاز است.'], 429);
+        Auth::recordAttempt('@public-claim', $req->ip(), false);
 
         $bizId = (int)$req->input('business_id', 0);
         $name = Normalizer::cleanPersianText((string)$req->input('name', ''));
@@ -1433,7 +1297,7 @@ final class PublicSiteController
             "SELECT b.id, b.name, b.address, b.internal_score, c.name_fa AS city_name
              FROM businesses b
              LEFT JOIN cities c ON c.id = b.city_id
-             WHERE b.id = :id LIMIT 1",
+             WHERE b.id = :id AND b.status = 'published' LIMIT 1",
             ['id' => $bizId]
         );
         if (!$biz) {
@@ -1441,8 +1305,13 @@ final class PublicSiteController
             return;
         }
 
-        $normalizedPhone = Normalizer::normalizePhone($rawPhone) ?? $rawPhone;
+        $normalizedPhone = Normalizer::normalizePhone($rawPhone);
+        if ($normalizedPhone === '') {
+            Response::json(['ok' => false, 'error' => 'شماره تماس معتبر نیست.'], 422);
+        }
 
+        $pdo = DB::connection();
+        $pdo->beginTransaction();
         DB::query(
             "INSERT INTO claims (business_id, name, phone, note, status, created_at)
              VALUES (:bid, :name, :phone, :note, 'pending', NOW())",
@@ -1467,13 +1336,15 @@ final class PublicSiteController
                     'business_name'  => (string)$biz['name'],
                     'city_name'      => (string)($biz['city_name'] ?? ''),
                     'address'        => (string)($biz['address'] ?? ''),
-                    'score'          => (float)($biz['internal_score'] ?? 4.0),
+                    'score'          => (float)($biz['internal_score'] ?? 0),
                     'claimant_name'  => $name,
                     'claimant_phone' => $normalizedPhone,
                     'note'           => $note,
                 ], JSON_UNESCAPED_UNICODE),
             ]
         );
+
+        $pdo->commit();
 
         Response::json([
             'ok'       => true,
@@ -1488,9 +1359,12 @@ final class PublicSiteController
     public static function submitReport(Request $req, array $params = []): void
     {
         if (trim((string)$req->input('website_hp', '')) !== '') {
-            Response::json(['ok' => true, 'message' => 'گزارش شما ثبت شد.']);
+            Response::json(['ok' => false, 'error' => 'درخواست پذیرفته نشد.'], 422);
             return;
         }
+
+        if (Auth::isRateLimited('@public-report', $req->ip())) Response::json(['ok'=>false,'error'=>'تعداد درخواست‌ها بیش از حد مجاز است.'], 429);
+        Auth::recordAttempt('@public-report', $req->ip(), false);
 
         $bizId = (int)$req->input('business_id', 0);
         $message = Normalizer::cleanPersianText((string)$req->input('message', ''));
@@ -1504,7 +1378,7 @@ final class PublicSiteController
             "SELECT b.id, b.name, b.address, b.internal_score, c.name_fa AS city_name
              FROM businesses b
              LEFT JOIN cities c ON c.id = b.city_id
-             WHERE b.id = :id LIMIT 1",
+             WHERE b.id = :id AND b.status = 'published' LIMIT 1",
             ['id' => $bizId]
         );
         if (!$biz) {
@@ -1512,6 +1386,8 @@ final class PublicSiteController
             return;
         }
 
+        $pdo = DB::connection();
+        $pdo->beginTransaction();
         DB::query(
             "INSERT INTO reports (business_id, message, status, created_at)
              VALUES (:bid, :msg, 'pending', NOW())",
@@ -1533,11 +1409,13 @@ final class PublicSiteController
                     'business_name'  => (string)$biz['name'],
                     'city_name'      => (string)($biz['city_name'] ?? ''),
                     'address'        => (string)($biz['address'] ?? ''),
-                    'score'          => (float)($biz['internal_score'] ?? 4.0),
+                    'score'          => (float)($biz['internal_score'] ?? 0),
                     'report_message' => $message,
                 ], JSON_UNESCAPED_UNICODE),
             ]
         );
+
+        $pdo->commit();
 
         Response::json([
             'ok'        => true,
@@ -1552,29 +1430,6 @@ final class PublicSiteController
     public static function analyticsSummary(Request $req, array $params = []): void
     {
         Auth::requireRole(['admin', 'editor']);
-
-        // در صورت خالی بودن جدول events_daily، داده‌های اولیه تعاملی برای کسب‌وکارهای منتشرشده مقداردهی شود
-        $totalEventsRow = DB::fetchOne("SELECT COALESCE(SUM(cnt), 0) AS total_cnt FROM events_daily");
-        if ((int)($totalEventsRow['total_cnt'] ?? 0) === 0) {
-            $pubBiz = DB::fetchAll("SELECT id FROM businesses WHERE status = 'published' ORDER BY internal_score DESC LIMIT 6");
-            foreach ($pubBiz as $idx => $pb) {
-                $bid = (int)$pb['id'];
-                $baseViews = max(12, 48 - ($idx * 6));
-                $baseCalls = max(3, 14 - ($idx * 2));
-                $baseMaps  = max(2, 11 - ($idx * 2));
-                DB::query(
-                    "INSERT IGNORE INTO events_daily (day, business_id, article_id, type, cnt) VALUES
-                     (CURDATE(), :b1, 0, 'view', :v1),
-                     (CURDATE(), :b2, 0, 'call', :c1),
-                     (CURDATE(), :b3, 0, 'map', :m1)",
-                    [
-                        'b1' => $bid, 'v1' => $baseViews,
-                        'b2' => $bid, 'c1' => $baseCalls,
-                        'b3' => $bid, 'm1' => $baseMaps,
-                    ]
-                );
-            }
-        }
 
         $byTypeRows = DB::fetchAll(
             "SELECT type, COALESCE(SUM(cnt), 0) AS total
@@ -1629,7 +1484,7 @@ final class PublicSiteController
 
         $claimsCount = (int)(DB::fetchOne("SELECT COUNT(*) AS c FROM claims WHERE status = 'pending'")['c'] ?? 0);
         $reportsCount = (int)(DB::fetchOne("SELECT COUNT(*) AS c FROM reports WHERE status = 'pending'")['c'] ?? 0);
-        $lastCronRow = DB::fetchOne("SELECT `value` FROM settings WHERE `key` = 'sponsor_last_check' LIMIT 1");
+        $lastCronRow = DB::fetchOne("SELECT v FROM settings WHERE k = 'sponsor_last_check' LIMIT 1");
 
         Response::json([
             'ok'                  => true,
@@ -1638,7 +1493,7 @@ final class PublicSiteController
             'sponsored_items'     => $sponsoredItems,
             'pending_claims'      => $claimsCount,
             'pending_reports'     => $reportsCount,
-            'sponsor_last_check'  => (string)($lastCronRow['value'] ?? 'اجرا نشده'),
+            'sponsor_last_check'  => (string)($lastCronRow['v'] ?? 'اجرا نشده'),
         ]);
     }
 
@@ -1650,70 +1505,13 @@ final class PublicSiteController
         Csrf::verifyOrFail($req);
         Auth::requireRole(['admin']);
 
-        $now = date('Y-m-d H:i:s');
-        $lastCheckRow = DB::fetchOne("SELECT `value` FROM settings WHERE `key` = 'sponsor_last_check' LIMIT 1");
-        $lastCheck = !empty($lastCheckRow['value']) ? (string)$lastCheckRow['value'] : '2000-01-01 00:00:00';
-
-        $crossedSponsors = DB::fetchAll(
-            "SELECT ai.id
-             FROM article_items ai
-             WHERE ai.is_sponsored = 1
-               AND (
-                   (ai.sponsor_start IS NOT NULL AND ai.sponsor_start > :lc1 AND ai.sponsor_start <= :now1)
-                   OR
-                   (ai.sponsor_end IS NOT NULL AND ai.sponsor_end > :lc2 AND ai.sponsor_end <= :now2)
-               )",
-            ['lc1' => $lastCheck, 'now1' => $now, 'lc2' => $lastCheck, 'now2' => $now]
-        );
-
-        $sponsorTransitions = count($crossedSponsors);
-        $flushedFiles = Cache::flushAll();
-
-        DB::query(
-            "INSERT INTO settings (`key`, `value`, updated_at)
-             VALUES ('sponsor_last_check', :val, NOW())
-             ON DUPLICATE KEY UPDATE `value` = VALUES(`value`), updated_at = NOW()",
-            ['val' => $now]
-        );
-
-        $stuckJobs = DB::query(
-            "UPDATE collector_jobs
-             SET status = 'queued', claimed_at = NULL, error = 'آزادسازی خودکار توسط کرون S6', updated_at = NOW()
-             WHERE status IN ('claimed', 'running')
-               AND claimed_at IS NOT NULL
-               AND claimed_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)"
-        )->rowCount();
-
-        $stuckAi = DB::query(
-            "UPDATE ai_tasks
-             SET status = 'queued', updated_at = NOW()
-             WHERE status = 'claimed'
-               AND updated_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)"
-        )->rowCount();
-
-        Logger::cron('Manual S6 cron maintenance triggered from Admin UI', [
-            'checked_at'          => $now,
-            'sponsor_transitions' => $sponsorTransitions,
-            'flushed_files'       => $flushedFiles,
-            'released_jobs'       => $stuckJobs,
-            'released_ai_tasks'   => $stuckAi,
-        ]);
-
-        Response::json([
-            'ok'                  => true,
-            'checked_at'          => $now,
-            'sponsor_transitions' => $sponsorTransitions,
-            'flushed_files'       => $flushedFiles,
-            'released_jobs'       => $stuckJobs,
-            'released_ai_tasks'   => $stuckAi,
-            'message'             => sprintf(
-                'چرخه نگهداری S6 اجرا شد: بررسی زمان‌بندی اسپانسرها (%d تغییر)، پاک‌سازی %d فایل کش، آزادسازی %d کار جمع‌آوری و %d تسک AI.',
-                $sponsorTransitions,
-                $flushedFiles,
-                $stuckJobs,
-                $stuckAi
-            ),
-        ]);
+        try {
+            $summary = \App\Services\MaintenanceService::run();
+            Response::json(array_merge(['ok' => true, 'message' => 'نگهداری سیستم انجام شد.'], $summary));
+        } catch (Throwable $e) {
+            error_log('Maintenance failed: ' . $e->getMessage());
+            Response::json(['ok' => false, 'error' => 'اجرای نگهداری ناموفق بود؛ گزارش سرور را بررسی کنید.'], 500);
+        }
     }
 
     private static function fetchPublishedBusinesses(string $whereClause, array $params, int $limit): array
@@ -1732,7 +1530,7 @@ final class PublicSiteController
             INNER JOIN categories cat ON cat.id = b.category_id
             LEFT JOIN neighborhoods n ON n.id = b.neighborhood_id
             WHERE {$whereClause}
-            ORDER BY b.internal_score DESC, b.id DESC
+            ORDER BY b.name ASC, b.id ASC
             LIMIT {$limit}
         ";
         return DB::fetchAll($sql, $params);
@@ -1744,20 +1542,6 @@ final class PublicSiteController
         ob_start();
         ?>
         <article class="hx-card">
-            <div class="hx-card-top">
-                <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
-                    <span class="hx-rank-num"><?= $rank ?></span>
-                    <span class="hx-badge hx-badge-tier-<?= strtolower((string)$biz['tier']) ?>">Tier <?= self::e($biz['tier']) ?></span>
-                </div>
-                <div class="hx-score" title="امتیاز وزنی بیزین">
-                    <?= self::icon('star', 'hx-icon hx-icon-sm') ?>
-                    <span><?= number_format((float)$biz['internal_score'], 2) ?></span>
-                    <?php if (!empty($biz['reviews_total'])): ?>
-                        <small>(<?= (int)$biz['reviews_total'] ?>)</small>
-                    <?php endif; ?>
-                </div>
-            </div>
-
             <h3 class="hx-card-title">
                 <a href="<?= self::e($slugUrl) ?>"><?= self::e($biz['name']) ?></a>
             </h3>
@@ -1806,7 +1590,7 @@ final class PublicSiteController
                     <span><?= self::e($title) ?> (<?= count($markers) ?> نقطه مکانی)</span>
                 </strong>
                 <p style="margin:0;font-size:0.84rem;color:var(--hx-slate-600);">
-                    برای حفظ سرعت بارگذاری صفحه، نقشه تعاملی Leaflet به صورت خودمیزبان (Self-Hosted) و تنها با کلیک شما بارگذاری می‌شود.
+                    برای حفظ سرعت بارگذاری صفحه، نقشه OpenStreetMap فقط با کلیک شما بارگذاری می‌شود؛ کنترل‌های بزرگ‌نمایی در دسترس‌اند.
                 </p>
                 <button type="button" class="hx-btn hx-btn-primary" data-hx-load-map="1">
                     <?= self::icon('location', 'hx-icon hx-icon-sm') ?>
@@ -1855,9 +1639,9 @@ final class PublicSiteController
     <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s6.0">
+    <link rel="stylesheet" href="/assets/css/public.css?v=s7.0">
     <?php foreach ($schemas as $schema):
-        $schemaJson = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $schemaJson = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT));
     ?>
     <script type="application/ld+json"><?= $schemaJson ?></script>
     <?php endforeach; ?>
@@ -1890,9 +1674,10 @@ final class PublicSiteController
             <div style="display:flex;align-items:center;gap:0.75rem;">
                 <img src="/assets/img/favicon.png" alt="HamiHubX" width="32" height="32" style="border-radius:8px;">
                 <div>
-                    <strong style="color:#fff;">حامی‌هاب گیلان (HamiHubX.ir)</strong> — پلتفرم خودکار معرفی و رتبه‌بندی بهترین کسب‌وکارهای استان گیلان بر اساس الگوریتم امتیاز وزنی بیزین.
+                    <strong style="color:#fff;">حامی‌هاب گیلان (HamiHubX.ir)</strong> — فهرست کسب‌وکارهای استان گیلان.
                 </div>
             </div>
+            <div>بخشی از داده‌ها از <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">مشارکت‌کنندگان OpenStreetMap</a> تحت مجوز ODbL است.</div>
             <div style="display:flex;gap:1.15rem;">
                 <a href="/sitemap.xml">نقشه سایت (Sitemap)</a>
                 <a href="/robots.txt">Robots.txt</a>
@@ -1900,7 +1685,7 @@ final class PublicSiteController
             </div>
         </div>
     </footer>
-    <script src="/assets/js/public.js?v=s6.0" defer></script>
+    <script src="/assets/js/public.js?v=s7.0" defer></script>
 </body>
 </html>
         <?php
@@ -1976,7 +1761,6 @@ final class PublicSiteController
                     'lat'      => (float)$b['lat'],
                     'lng'      => (float)$b['lng'],
                     'district' => (string)($b['neighborhood_name_fa'] ?: ($b['city_name_fa'] ?? '')),
-                    'score'    => number_format((float)$b['internal_score'], 2),
                     'url'      => '/b/' . $b['slug'] . '/',
                 ];
             }
@@ -1986,7 +1770,7 @@ final class PublicSiteController
 
     private static function baseUrl(): string
     {
-        $configured = rtrim((string)Config::get('APP_URL', ''), '/');
+        $configured = rtrim((string)Config::get('app.url', ''), '/');
         if ($configured !== '' && !str_contains($configured, 'localhost')) {
             return $configured;
         }

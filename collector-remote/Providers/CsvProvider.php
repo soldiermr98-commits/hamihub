@@ -30,10 +30,6 @@ final class CsvProvider implements ProviderInterface
         $csvFile = $importDir . '/' . $citySlug . '_places.csv';
 
         if (!is_file($csvFile)) {
-            $csvFile = $importDir . '/sample_rasht_cafes.csv';
-        }
-
-        if (!is_file($csvFile)) {
             throw new RuntimeException("فایل CSV در مسیر {$csvFile} یافت نشد.");
         }
 
@@ -79,7 +75,7 @@ final class CsvProvider implements ProviderInterface
                 'reviews_count' => (int) ($data['reviews_count'] ?? 0),
                 'photo_urls' => [],
                 'source' => 'csv',
-                'source_id' => $data['source_id'] ?? ('csv_' . md5($name . ($data['address'] ?? ''))),
+                'source_id' => !empty($data['source_id']) ? $data['source_id'] : ('csv_' . md5($citySlug . ':' . $name . ':' . ($data['address'] ?? ''))),
             ];
         }
 

@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+/config/config.local.php
+/public_html/cache/
+/public_html/uploads/
+/storage/installed.lock
+/storage/logs/

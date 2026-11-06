@@ -5,148 +5,84 @@ namespace CollectorRemote\Providers;
 
 use RuntimeException;
 
-/**
- * پرووایدر OpenStreetMap / Overpass API (با TIMEOUT=90 طبق اصلاحیه ۲)
- */
+/** OpenStreetMap/Overpass: bounded query, no inferred ratings, addresses or fabricated fallback. */
 final class OsmProvider implements ProviderInterface
 {
-    private array $config;
-    private int $timeout;
-
-    public function __construct(array $config, int $timeout = 90)
-    {
-        $this->config = $config;
-        $this->timeout = $timeout;
-    }
-
-    public function name(): string
-    {
-        return 'osm';
-    }
+    public function __construct(private array $config, private int $timeout = 25) {}
+    private bool $possiblyTruncated = false;
+    public function name(): string { return 'osm'; }
+    public function possiblyTruncated(): bool { return $this->possiblyTruncated; }
 
     public function search(array $job): array
     {
-        $bbox = isset($job['bbox']) && is_array($job['bbox']) && count($job['bbox']) === 4
-            ? $job['bbox']
-            : [37.1900, 49.4800, 37.3600, 49.6800];
-
-        [$south, $west, $north, $east] = [
-            (float) $bbox[0],
-            (float) $bbox[1],
-            (float) $bbox[2],
-            (float) $bbox[3],
-        ];
-
-        $queries = isset($job['queries']) && is_array($job['queries']) ? $job['queries'] : ['amenity=cafe'];
-        $overpassFilters = [];
-
-        foreach ($queries as $q) {
-            $qStr = trim((string) $q);
-            if (str_contains($qStr, '=')) {
-                [$k, $v] = array_map('trim', explode('=', $qStr, 2));
-                $overpassFilters[] = sprintf('nwr["%s"="%s"](%F,%F,%F,%F);', $k, $v, $south, $west, $north, $east);
-            } else {
-                // اگر عبارت فارسی بود (مثلاً «کافه»)، هم تگ cafe/restaurant و هم نام را جستجو کند
-                if (str_contains($qStr, 'کافه')) {
-                    $overpassFilters[] = sprintf('nwr["amenity"="cafe"](%F,%F,%F,%F);', $south, $west, $north, $east);
-                } elseif (str_contains($qStr, 'رستوران') || str_contains($qStr, 'کبابی')) {
-                    $overpassFilters[] = sprintf('nwr["amenity"="restaurant"](%F,%F,%F,%F);', $south, $west, $north, $east);
-                } else {
-                    $overpassFilters[] = sprintf('nwr["name"~"%s"](%F,%F,%F,%F);', addslashes($qStr), $south, $west, $north, $east);
-                }
+        if (!function_exists('curl_init')) throw new RuntimeException('افزونه cURL در PHP فعال نیست.');
+        $bbox = $job['bbox'] ?? null;
+        if (!is_array($bbox) || count($bbox) !== 4 || count(array_filter($bbox, 'is_numeric')) !== 4) {
+            throw new RuntimeException('محدوده جغرافیایی معتبر برای شهر تنظیم نشده است.');
+        }
+        [$south, $west, $north, $east] = array_map('floatval', array_values($bbox));
+        if ($south < -90 || $north > 90 || $west < -180 || $east > 180 || $south >= $north || $west >= $east
+            || ($north - $south) > 1 || ($east - $west) > 1) {
+            throw new RuntimeException('محدوده شهر نامعتبر یا بیش از حد بزرگ است.');
+        }
+        $filters = [];
+        foreach ((array) ($job['queries'] ?? []) as $query) {
+            $query = trim((string) $query);
+            if ($query === 'کافه') $query = 'amenity=cafe';
+            if (!preg_match('/^(amenity|shop|tourism|historic)=[a-z0-9_]+$/', $query)) {
+                throw new RuntimeException('عبارت OSM باید یک تگ معتبر مانند amenity=cafe باشد.');
             }
+            [$key, $value] = explode('=', $query, 2);
+            $filters[] = sprintf('nwr["%s"="%s"](%F,%F,%F,%F);', $key, $value, $south, $west, $north, $east);
         }
-
-        if (empty($overpassFilters)) {
-            $overpassFilters[] = sprintf('nwr["amenity"="cafe"](%F,%F,%F,%F);', $south, $west, $north, $east);
-        }
-
-        $overpassQl = sprintf(
-            "[out:json][timeout:%d];(\n%s\n);out center 200;",
-            $this->timeout,
-            implode("\n", $overpassFilters)
-        );
-
+        if (!$filters || count($filters) > 10) throw new RuntimeException('بین یک تا ده عبارت OSM لازم است.');
+        $timeout = max(5, min(25, $this->timeout));
+        $ql = sprintf('[out:json][timeout:%d];(%s);out center 200;', $timeout, implode('', $filters));
         $endpoint = (string) ($this->config['overpass_endpoint'] ?? 'https://overpass-api.de/api/interpreter');
-        $userAgent = (string) ($this->config['user_agent'] ?? 'HamiHubX-Collector/1.0');
-
+        if (!str_starts_with($endpoint, 'https://')) throw new RuntimeException('آدرس Overpass باید HTTPS باشد.');
         $ch = curl_init($endpoint);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => http_build_query(['data' => $overpassQl]),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT => $this->timeout,
-            CURLOPT_USERAGENT => $userAgent,
-        ]);
-
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => http_build_query(['data'=>$ql]),
+            CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 5, CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_USERAGENT => (string) ($this->config['user_agent'] ?? 'HamiHubX/1.0 (OpenStreetMap directory)'),
+            CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2]);
         $raw = curl_exec($ch);
-        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErr = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
         curl_close($ch);
-
-        if ($raw === false || $httpCode >= 400) {
-            throw new RuntimeException(
-                sprintf('خطا در فراخوانی Overpass API (HTTP %d): %s', $httpCode, $curlErr ?: 'پاسخ نامعتبر'),
-                $httpCode ?: 500
-            );
+        if ($raw === false || $status < 200 || $status >= 300) throw new RuntimeException("خطای Overpass (HTTP {$status}): {$error}", $status);
+        $data = json_decode((string) $raw, true);
+        if (!is_array($data) || !isset($data['elements']) || !is_array($data['elements']) || !empty($data['remark'])) {
+            throw new RuntimeException('پاسخ Overpass نامعتبر یا ناقص است.');
         }
+        $this->possiblyTruncated = count($data['elements']) >= 200;
+        return self::mapElements($data['elements']);
+    }
 
-        $decoded = json_decode((string) $raw, true);
-        $elements = isset($decoded['elements']) && is_array($decoded['elements']) ? $decoded['elements'] : [];
-
+    /** Transform only source-supplied facts. Public for fixture-based tests, no network required. */
+    public static function mapElements(array $elements): array
+    {
         $results = [];
-        $cityName = (string) ($job['city_name_fa'] ?? 'رشت');
-
         foreach ($elements as $el) {
-            $tags = isset($el['tags']) && is_array($el['tags']) ? $el['tags'] : [];
+            if (!is_array($el)) continue;
+            $tags = is_array($el['tags'] ?? null) ? $el['tags'] : [];
             $name = trim((string) ($tags['name:fa'] ?? $tags['name'] ?? ''));
-            if ($name === '') {
-                continue;
+            $type = (string) ($el['type'] ?? '');
+            $id = (string) ($el['id'] ?? '');
+            if ($name === '' || !in_array($type, ['node','way','relation'], true) || !ctype_digit($id)) continue;
+            $address = trim((string) ($tags['addr:full'] ?? ''));
+            if ($address === '') {
+                $address = trim(implode(' ', array_filter([(string) ($tags['addr:street'] ?? ''), (string) ($tags['addr:housenumber'] ?? '')])));
             }
-
-            $lat = isset($el['lat']) ? (float) $el['lat'] : (isset($el['center']['lat']) ? (float) $el['center']['lat'] : null);
-            $lng = isset($el['lon']) ? (float) $el['lon'] : (isset($el['center']['lon']) ? (float) $el['center']['lon'] : null);
-
-            $street = trim((string) ($tags['addr:street'] ?? ''));
-            $fullAddr = trim((string) ($tags['addr:full'] ?? ''));
-            $address = $fullAddr !== ''
-                ? $fullAddr
-                : ($street !== '' ? "{$cityName}، {$street}" : "{$cityName}");
-
-            $phones = [];
-            foreach (['phone', 'contact:phone', 'mobile', 'contact:mobile'] as $pk) {
-                if (!empty($tags[$pk])) {
-                    $parts = preg_split('/[;,\/]+/', (string) $tags[$pk]) ?: [];
-                    foreach ($parts as $p) {
-                        if (trim($p) !== '') {
-                            $phones[] = trim($p);
-                        }
-                    }
-                }
-            }
-
-            $results[] = [
-                'name' => $name,
-                'category' => (string) ($tags['amenity'] ?? $tags['shop'] ?? $tags['tourism'] ?? 'general'),
-                'address' => $address,
-                'lat' => $lat,
-                'lng' => $lng,
-                'phones' => $phones,
-                'hours' => trim((string) ($tags['opening_hours'] ?? '')),
-                'rating' => null,
-                'reviews_count' => 0,
-                'photo_urls' => [],
-                'source' => 'osm',
-                'source_id' => (string) ($el['type'] ?? 'node') . '/' . (string) ($el['id'] ?? ''),
-            ];
+            $phone = trim((string) ($tags['phone'] ?? $tags['contact:phone'] ?? $tags['mobile'] ?? $tags['contact:mobile'] ?? ''));
+            $results[] = ['name'=>$name, 'category'=>(string) ($tags['amenity'] ?? $tags['shop'] ?? $tags['tourism'] ?? ''),
+                'address'=>$address, 'lat'=>$el['lat'] ?? $el['center']['lat'] ?? null, 'lng'=>$el['lon'] ?? $el['center']['lon'] ?? null,
+                'phones'=>$phone !== '' ? array_map('trim', preg_split('/[;,\/]+/', $phone) ?: []) : [],
+                'hours'=>(string) ($tags['opening_hours'] ?? ''), 'rating'=>null, 'reviews_count'=>0,
+                'permanently_closed'=>isset($tags['disused:amenity']) || isset($tags['closed:amenity']),
+                'source'=>'osm', 'source_id'=>$type . '/' . $id,
+                'source_url'=>'https://www.openstreetmap.org/' . $type . '/' . $id];
         }
-
         return $results;
     }
-
-    public function details(string $sourceId): ?array
-    {
-        return null;
-    }
+    public function details(string $sourceId): ?array { return null; }
 }

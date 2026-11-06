@@ -34,9 +34,9 @@ export const S6AnalyticsPanel: React.FC<Props> = ({ csrfToken, onNavigateReview 
 
   const loadAnalytics = useCallback(async () => {
     setLoading(true);
-    const res = await fetchAnalyticsSummary();
-    setData(res);
-    setLoading(false);
+    try { setData(await fetchAnalyticsSummary()); }
+    catch (e) { setData(null); setFeedback({type:'err',text:e instanceof Error ? e.message : 'خطا در دریافت آمار'}); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -56,7 +56,7 @@ export const S6AnalyticsPanel: React.FC<Props> = ({ csrfToken, onNavigateReview 
   };
 
   if (!data) {
-    return null;
+    return <div role="alert" className="p-4 bg-amber-50 text-amber-900 rounded-lg text-sm">{loading ? 'در حال دریافت آمار…' : (feedback.text || 'آمار در دسترس نیست.')} <button onClick={loadAnalytics} className="underline mr-2">تلاش مجدد</button></div>;
   }
 
   return (
@@ -84,8 +84,8 @@ export const S6AnalyticsPanel: React.FC<Props> = ({ csrfToken, onNavigateReview 
           >
             <Clock className="w-4 h-4" />
             {cronRunning
-              ? 'در حال اجرای کرون ۵ دقیقه‌ای...'
-              : 'اجرای فوری کرون نگهداری و بررسی اسپانسرها (cron/worker.php)'}
+              ? 'در حال اجرای نگهداری...'
+              : 'اجرای فوری نگهداری'}
           </button>
           <button
             type="button"
@@ -178,7 +178,7 @@ export const S6AnalyticsPanel: React.FC<Props> = ({ csrfToken, onNavigateReview 
 
         <div className="bg-slate-50/90 border border-slate-200/90 rounded-xl p-3.5">
           <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>آخرین بررسی کرون S6</span>
+            <span>آخرین اجرای نگهداری (دستی یا کرون)</span>
             <Clock className="w-4 h-4 text-blue-600" />
           </div>
           <div className="text-xs font-mono text-slate-800 mt-2 truncate" dir="ltr">

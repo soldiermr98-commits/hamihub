@@ -34,12 +34,12 @@ if (is_file($lockFile)) {
 $expectedToken = (string) Config::get('app.install_token', '');
 $providedToken = trim((string) ($_POST['token'] ?? $_GET['token'] ?? ''));
 
-if ($expectedToken === '' || $providedToken === '' || !hash_equals($expectedToken, $providedToken)) {
+if (strlen($expectedToken) < 24 || $providedToken === '' || !hash_equals($expectedToken, $providedToken)) {
     Response::html(
         '<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>توکن نصب نامعتبر</title></head>' .
         '<body style="font-family:tahoma,sans-serif;padding:3rem;text-align:center;">' .
         '<h2>توکن نصب معتبر نیست.</h2>' .
-        '<p>لطفاً مقدار <code>app.install_token</code> از فایل <code>config/config.php</code> را در آدرس مرورگر وارد کنید:<br><code dir="ltr">/install.php?token=hhx-install-2026-secret-token</code></p>' .
+        '<p>لطفاً مقدار <code>app.install_token</code> از فایل <code>config/config.local.php</code> را در آدرس مرورگر وارد کنید:<br><code dir="ltr">/install.php?token=YOUR_RANDOM_TOKEN</code></p>' .
         '</body></html>',
         403
     );
@@ -88,18 +88,18 @@ try {
                 ]
             );
 
-            @file_put_contents($lockFile, date('c') . " - Installed by {$username}\n");
+            $lockWritten = @file_put_contents($lockFile, date('c') . " - Installed by {$username}\n") !== false;
 
             if (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json')) {
                 Response::json([
-                    'ok' => true,
-                    'message' => 'جداول دیتابیس و اولین مدیر با موفقیت ساخته شدند و نصب‌کننده قفل گردید.',
+                    'ok' => $lockWritten,
+                    'message' => $lockWritten ? 'جداول و مدیر ساخته شدند و نصب‌کننده قفل شد.' : 'مدیر ساخته شد اما ایجاد قفل ناموفق بود؛ install.php را فوراً حذف کنید.',
                     'username' => $username,
                     'migrations' => $migrationReport,
                 ]);
             }
 
-            $success = 'تمام ۲۴ جدول دیتابیس و اولین مدیر سیستم با موفقیت ساخته شدند و فایل قفل ایجاد گردید. اکنون می‌توانید وارد پنل مدیریت شوید.';
+            $success = $lockWritten ? 'مدیر سیستم ساخته شد و فایل قفل ایجاد گردید. اکنون می‌توانید وارد پنل مدیریت شوید.' : 'مدیر ساخته شد اما ایجاد فایل قفل ناموفق بود. برای امنیت، install.php را فوراً حذف کنید.';
         }
     }
 } catch (Throwable $e) {

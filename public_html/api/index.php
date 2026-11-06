@@ -27,7 +27,7 @@ Bootstrap::init(BASE_PATH);
 
 // پاک‌سازی خودکار کش قدیمی در صورت عدم تطابق با استایل جدید S6.0 (حامی‌هاب + گلس‌مورفیسم + فرم‌های S6)
 $homeCache = Cache::getPage('/');
-if ($homeCache !== null && !str_contains($homeCache, 'public.css?v=s6.0')) {
+if ($homeCache !== null && !str_contains($homeCache, 'public.css?v=s7.0')) {
     Cache::flushAll();
 }
 
@@ -59,11 +59,12 @@ $router->get('/api/v1/slug/suggest', [BusinessController::class, 'suggestSlug'])
 $router->get('/api/v1/collector/jobs', [CollectorController::class, 'index']);
 $router->post('/api/v1/collector/jobs', [CollectorController::class, 'createJob']);
 $router->post('/api/v1/collector/providers', [CollectorController::class, 'updateProvider']);
-$router->post('/api/v1/collector/token', [CollectorController::class, 'updateToken']);
+$router->post('/api/v1/collector/run-next', [CollectorController::class, 'runNext']);
+$router->post('/api/v1/collector/token', [CollectorController::class, 'remoteDisabled']);
 
-$router->get('/api/v1/collector/jobs/next', [CollectorController::class, 'pullNextJob']);
-$router->post('/api/v1/collector/ingest', [CollectorController::class, 'ingest']);
-$router->post('/api/v1/collector/photo', [CollectorController::class, 'uploadCollectorPhoto']);
+$router->get('/api/v1/collector/jobs/next', [CollectorController::class, 'remoteDisabled']);
+$router->post('/api/v1/collector/ingest', [CollectorController::class, 'remoteDisabled']);
+$router->post('/api/v1/collector/photo', [CollectorController::class, 'remoteDisabled']);
 
 // ۴. مسیرهای صندوق بازبینی، تاریخچه تغییرات و پایپ‌لاین ۱۰۰ رکورد نمونه (مرحله S3)
 $router->get('/api/v1/review-queue', [ReviewQueueController::class, 'index']);
@@ -78,10 +79,10 @@ $router->post('/api/v1/events/track', [PublicSiteController::class, 'trackEvent'
 
 // ۶. مسیرهای صف کارهای هوش مصنوعی بدون توهم و ورکر راه دور (مرحله S5)
 $router->get('/api/v1/ai/tasks', [AiWorkerController::class, 'index']);
-$router->post('/api/v1/ai/tasks/enqueue', [AiWorkerController::class, 'enqueue']);
-$router->post('/api/v1/ai/tasks/run-batch', [AiWorkerController::class, 'runBatch']);
-$router->get('/api/v1/ai/tasks/next', [AiWorkerController::class, 'pullNextTask']);
-$router->post('/api/v1/ai/tasks/complete', [AiWorkerController::class, 'completeTask']);
+$router->post('/api/v1/ai/tasks/enqueue', [AiWorkerController::class, 'disabled']);
+$router->post('/api/v1/ai/tasks/run-batch', [AiWorkerController::class, 'disabled']);
+$router->get('/api/v1/ai/tasks/next', [AiWorkerController::class, 'disabled']);
+$router->post('/api/v1/ai/tasks/complete', [AiWorkerController::class, 'disabled']);
 
 // ۷. مسیرهای مرحله S6 (ادعای مالکیت، گزارش خطا، آمار کلیک‌های روزانه و کرون ۵ دقیقه‌ای)
 $router->post('/api/v1/public/claim', [PublicSiteController::class, 'submitClaim']);

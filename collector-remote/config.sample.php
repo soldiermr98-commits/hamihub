@@ -11,7 +11,7 @@ return [
         // آدرس سایت شما روی هاست DirectAdmin
         'base_url' => 'https://hamihubx.ir',
         // توکن Bearer که در پنل مدیریت (شهرها و جمع‌آوری) نمایش داده می‌شود
-        'bearer_token' => 'hhx-collector-bearer-token-local-dev',
+        'bearer_token' => '',
         // تایم‌اوت ارتباط با سرور هاست (اصلاحیه ۲: CONNECTTIMEOUT=5 و TIMEOUT=12)
         'connect_timeout' => 5,
         'timeout' => 12,

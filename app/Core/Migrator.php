@@ -65,6 +65,8 @@ final class Migrator
             $applied[] = $fileName;
         }
 
+        if ($applied) Cache::flushAll();
+
         return [
             'ok' => true,
             'applied' => $applied,

@@ -11,7 +11,7 @@ return [
     'server_base_url' => 'https://hamihubx.ir',
 
     // توکن Bearer مشترک با پنل مدیریت (قابل مشاهده و چرخش در پنل ادمین)
-    'bearer_token'    => 'hhx-collector-bearer-token-local-dev',
+    'bearer_token'    => '',
 
     // تایم‌اوت‌های اتصال به سرور هاست اشتراکی
     'connect_timeout' => 5,
