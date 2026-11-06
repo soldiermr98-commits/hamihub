@@ -78,6 +78,7 @@ export interface BusinessItem {
   status: 'draft' | 'pending_review' | 'published' | 'hidden' | 'rejected';
   tier: 'A' | 'B' | 'C';
   internal_score: number;
+  promoted?: number;
   confidence: 'low' | 'medium' | 'high';
   city_name?: string;
   category_name?: string;
@@ -518,6 +519,23 @@ export async function runWebMigrations(csrfToken:string): Promise<any> { return 
 export async function fetchCitiesAndNeighborhoods(): Promise<{cities:CityItem[];neighborhoods:NeighborhoodItem[]}> { return request('/api/v1/cities'); }
 export async function fetchCategoriesAndPacks(): Promise<{categories:CategoryItem[];packs:CategoryPackItem[]}> { return request('/api/v1/categories'); }
 export async function fetchBusinessesList(): Promise<BusinessItem[]> { return (await request('/api/v1/businesses')).businesses; }
+export async function fetchBusinessesPage(page:number, cityId:number, query:string): Promise<{businesses:BusinessItem[];total:number;page:number;per_page:number}> {
+  return request('/api/v1/businesses?' + new URLSearchParams({page:String(page),city_id:String(cityId),q:query}));
+}
+export async function setBusinessPromotion(businessId:number, active:boolean, csrf:string): Promise<any> {
+  return action('/api/v1/businesses/promotion', {business_id:businessId,active}, csrf);
+}
+export interface ImportCandidate { id:number; name:string; address:string|null; status:string; distance:number|null; category_id:number; category_name:string|null; same_phone:boolean }
+export interface ImportRow { index:number; name:string; source_category:string; source:string; source_id:string; rating:number|null; reviews_count:number|null; status:'new'|'update'|'review'|'filtered'|'invalid'|'conflict'|'stale'; message:string; candidates:ImportCandidate[]; business_id?:number }
+export interface ImportOptions { city_id:number; category_id:number; source_categories:string[]; min_rating:number; min_reviews:number }
+export interface ImportEntry { index:number; item:unknown; decision:string; candidate_ids:number[] }
+export interface ImportResult { index:number; status:'created'|'updated'|'skipped'|'error'; business_id?:number; message:string }
+export async function previewJsonImport(items:unknown[], options:ImportOptions, csrf:string): Promise<{ok:boolean;rows?:ImportRow[];error?:string}> {
+  return action('/api/v1/import/json/preview',{items,options},csrf);
+}
+export async function applyJsonImport(entries:ImportEntry[], options:ImportOptions, csrf:string): Promise<{ok:boolean;results?:ImportResult[];error?:string}> {
+  return action('/api/v1/import/json/apply',{entries,options},csrf);
+}
 export async function saveCityItem(payload:Partial<CityItem>, csrf:string): Promise<any> { return action('/api/v1/cities',payload,csrf); }
 export async function saveCategoryItem(payload:Partial<CategoryItem>, csrf:string): Promise<any> { return action('/api/v1/categories',payload,csrf); }
 export async function saveCategoryPackItem(payload:Partial<CategoryPackItem>, csrf:string): Promise<any> { return action('/api/v1/category-packs',payload,csrf); }

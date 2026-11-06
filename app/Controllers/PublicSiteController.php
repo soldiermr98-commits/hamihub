@@ -334,6 +334,7 @@ final class PublicSiteController
                 <div class="hx-card-top">
                     <div style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:center;">
                         <span class="hx-badge hx-badge-cat"><?= self::e($biz['category_name_fa']) ?> · <?= self::e($biz['city_name_fa']) ?></span>
+                        <?php if (!empty($biz['promoted'])): ?><span class="hx-badge hx-badge-tier-a">جایگاه ویژه</span><?php endif; ?>
                     </div>
                 </div>
 
@@ -347,6 +348,7 @@ final class PublicSiteController
                     </p>
                 <?php endif; ?>
 
+                <p style="font-weight:700;color:var(--hx-slate-700);margin:0 0 1rem;"><?= self::e(self::ratingLabel($biz)) ?></p>
                 <div class="hx-detail-grid">
                     <div class="hx-info-box">
                         <strong><?= self::icon('location', 'hx-icon hx-icon-sm') ?> شهر و محله</strong>
@@ -696,17 +698,30 @@ final class PublicSiteController
             return;
         }
 
-        $businesses = self::fetchPublishedBusinesses(
-            "b.city_id = :city_id AND b.category_id = :cat_id AND b.status = 'published'",
-            [
-                'city_id' => (int)$city['id'],
-                'cat_id'  => (int)$category['id'],
-            ],
-            50
-        );
-
+        $page = max(1, min(100000, is_scalar($_GET['page'] ?? 1) ? (int)($_GET['page'] ?? 1) : 1));
+        $minRating = is_scalar($_GET['min_rating'] ?? 0) ? (string)($_GET['min_rating'] ?? '0') : '0';
+        $minReviews = is_scalar($_GET['min_reviews'] ?? 0) ? (string)($_GET['min_reviews'] ?? '0') : '0';
+        $search = is_string($_GET['q'] ?? null) ? mb_substr(trim($_GET['q']), 0, 100) : '';
+        if (!in_array($minRating, ['0','3','4','4.5'], true)) $minRating = '0';
+        if (!in_array($minReviews, ['0','10','50','100'], true)) $minReviews = '0';
+        $where = "b.city_id = :city_id AND b.category_id = :cat_id AND b.status = 'published'";
+        $query = ['city_id'=>(int)$city['id'], 'cat_id'=>(int)$category['id']];
+        if ($minRating !== '0') { $where .= ' AND rs.rating >= :min_rating'; $query['min_rating'] = $minRating; }
+        if ($minReviews !== '0') { $where .= ' AND rs.reviews_count >= :min_reviews'; $query['min_reviews'] = $minReviews; }
+        if ($search !== '') { $where .= ' AND (b.name LIKE :search1 OR b.address LIKE :search2)'; $query['search1']='%' . $search . '%'; $query['search2']='%' . $search . '%'; }
+        $businesses = self::fetchPublishedBusinesses($where, $query, 51, ($page - 1) * 50);
+        $hasNext = count($businesses) > 50;
+        if ($hasNext) array_pop($businesses);
         $baseUrl = self::baseUrl();
-        $canonical = $baseUrl . '/city/' . rawurlencode((string)$city['slug']) . '/' . rawurlencode((string)$category['slug']) . '/';
+        $path = '/city/' . rawurlencode((string)$city['slug']) . '/' . rawurlencode((string)$category['slug']) . '/';
+        $canonical = $baseUrl . $path . ($page > 1 ? '?page=' . $page : '');
+        $pageUrl = static function (int $number) use ($path, $minRating, $minReviews, $search): string {
+            $q = ['page'=>$number];
+            if ($minRating !== '0') $q['min_rating']=$minRating;
+            if ($minReviews !== '0') $q['min_reviews']=$minReviews;
+            if ($search !== '') $q['q']=$search;
+            return $path . '?' . http_build_query($q);
+        };
 
         $schemas = [
             self::buildBreadcrumbSchema([
@@ -743,6 +758,21 @@ final class PublicSiteController
                 </p>
             </header>
 
+            <form method="get" class="hx-card" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:end;margin-bottom:1rem;">
+                <label>جستجو<br><input name="q" maxlength="100" value="<?= self::e($search) ?>" placeholder="نام یا آدرس" style="padding:0.55rem;border:1px solid #bfd2ec;border-radius:8px;font:inherit;"></label>
+                <label>حداقل امتیاز<br><select name="min_rating" style="padding:0.55rem;border:1px solid #bfd2ec;border-radius:8px;font:inherit;">
+                    <?php foreach (['0'=>'همه','3'=>'۳ به بالا','4'=>'۴ به بالا','4.5'=>'۴٫۵ به بالا'] as $value=>$label): ?>
+                        <option value="<?= self::e((string)$value) ?>" <?= $minRating === (string)$value ? 'selected' : '' ?>><?= self::e($label) ?></option>
+                    <?php endforeach; ?>
+                </select></label>
+                <label>حداقل تعداد نظر<br><select name="min_reviews" style="padding:0.55rem;border:1px solid #bfd2ec;border-radius:8px;font:inherit;">
+                    <?php foreach (['0'=>'همه','10'=>'۱۰','50'=>'۵۰','100'=>'۱۰۰'] as $value=>$label): ?>
+                        <option value="<?= self::e((string)$value) ?>" <?= $minReviews === (string)$value ? 'selected' : '' ?>><?= self::e($label) ?></option>
+                    <?php endforeach; ?>
+                </select></label>
+                <button class="hx-btn hx-btn-primary" type="submit">اعمال فیلتر</button>
+            </form>
+            <p style="font-size:0.85rem;color:var(--hx-slate-600);">جایگاه‌های ویژه ابتدا با برچسب مشخص می‌شوند؛ سپس ترتیب بر اساس آخرین امتیاز معتبر یک منبع و تعداد نظر آن است. موارد بدون امتیاز در پایان‌اند.</p>
             <?php if (!empty($mapMarkers)): ?>
                 <?= self::renderLazyMapBox($mapMarkers, 'نقشه مراکز ' . $category['name_fa'] . ' در ' . $city['name_fa']) ?>
             <?php endif; ?>
@@ -750,14 +780,21 @@ final class PublicSiteController
             <section class="hx-section">
                 <?php if (empty($businesses)): ?>
                     <div class="hx-card">
-                        <p class="hx-card-desc">هنوز واحدی در دسته «<?= self::e($category['name_fa']) ?>» برای شهر <?= self::e($city['name_fa']) ?> منتشر نشده است.</p>
+                        <p class="hx-card-desc">در این صفحه مورد منتشرشده‌ای با فیلترهای انتخابی پیدا نشد.</p>
                     </div>
                 <?php else: ?>
                     <div class="hx-grid hx-grid-3">
                         <?php foreach ($businesses as $idx => $biz): ?>
-                            <?= self::renderBusinessCard($biz, $idx + 1, 'city_cat_' . $city['slug'] . '_' . $category['slug']) ?>
+                            <?= self::renderBusinessCard($biz, ($page - 1) * 50 + $idx + 1, 'city_cat_' . $city['slug'] . '_' . $category['slug']) ?>
                         <?php endforeach; ?>
                     </div>
+                <?php endif; ?>
+                <?php if ($page > 1 || $hasNext): ?>
+                    <nav aria-label="صفحات نتایج" style="display:flex;gap:1rem;margin-top:1.5rem;align-items:center;">
+                        <?php if ($page > 1): ?><a class="hx-btn hx-btn-outline" href="<?= self::e($pageUrl($page - 1)) ?>">صفحه قبل</a><?php endif; ?>
+                        <span>صفحه <?= $page ?></span>
+                        <?php if ($hasNext): ?><a class="hx-btn hx-btn-outline" href="<?= self::e($pageUrl($page + 1)) ?>">صفحه بعد</a><?php endif; ?>
+                    </nav>
                 <?php endif; ?>
             </section>
         </main>
@@ -773,7 +810,8 @@ final class PublicSiteController
             'body'        => $bodyHtml,
         ]);
 
-        Cache::putPage('/city/' . $city['slug'] . '/' . $category['slug'], $fullHtml);
+        // Query-string pages must never poison the unfiltered category cache.
+        if (empty($_GET)) Cache::putPage('/city/' . $city['slug'] . '/' . $category['slug'], $fullHtml);
         Response::html($fullHtml);
     }
 
@@ -1514,8 +1552,10 @@ final class PublicSiteController
         }
     }
 
-    private static function fetchPublishedBusinesses(string $whereClause, array $params, int $limit): array
+    private static function fetchPublishedBusinesses(string $whereClause, array $params, int $limit, int $offset = 0): array
     {
+        $limit = max(1, min(100, $limit));
+        $offset = max(0, $offset);
         $sql = "
             SELECT b.*,
                    c.name_fa AS city_name_fa, c.slug AS city_slug,
@@ -1524,16 +1564,37 @@ final class PublicSiteController
                    (SELECT bc.value FROM business_contacts bc WHERE bc.business_id = b.id AND bc.type IN ('phone','mobile') ORDER BY bc.is_primary DESC, bc.id ASC LIMIT 1) AS phone,
                    (SELECT bc.value FROM business_contacts bc WHERE bc.business_id = b.id AND bc.type = 'website' ORDER BY bc.is_primary DESC, bc.id ASC LIMIT 1) AS website,
                    (SELECT bc.value FROM business_contacts bc WHERE bc.business_id = b.id AND bc.type = 'instagram' ORDER BY bc.is_primary DESC, bc.id ASC LIMIT 1) AS instagram,
-                   (SELECT COALESCE(SUM(bs.reviews_count), 0) FROM business_sources bs WHERE bs.business_id = b.id) AS reviews_total
+                   rs.rating AS source_rating, rs.reviews_count AS source_reviews_count,
+                   rs.provider AS rating_provider, COALESCE(rd.observed_at,rs.fetched_at) AS rating_fetched_at,
+                   COALESCE(bp.active,0) AS promoted
             FROM businesses b
             INNER JOIN cities c ON c.id = b.city_id
             INNER JOIN categories cat ON cat.id = b.category_id
             LEFT JOIN neighborhoods n ON n.id = b.neighborhood_id
+            LEFT JOIN business_promotions bp ON bp.business_id = b.id
+            LEFT JOIN business_sources rs ON rs.id = (
+                SELECT s.id FROM business_sources s
+                LEFT JOIN business_source_rating_dates d ON d.business_source_id=s.id
+                WHERE s.business_id=b.id AND s.rating BETWEEN 1 AND 5 AND s.reviews_count > 0
+                ORDER BY COALESCE(d.observed_at,s.fetched_at) DESC, s.id DESC LIMIT 1
+            )
+            LEFT JOIN business_source_rating_dates rd ON rd.business_source_id=rs.id
             WHERE {$whereClause}
-            ORDER BY b.name ASC, b.id ASC
-            LIMIT {$limit}
+            ORDER BY COALESCE(bp.active,0) DESC, (rs.rating IS NULL) ASC,
+                     rs.rating DESC, rs.reviews_count DESC, b.name ASC, b.id ASC
+            LIMIT {$limit} OFFSET {$offset}
         ";
         return DB::fetchAll($sql, $params);
+    }
+
+    private static function ratingLabel(array $biz): string
+    {
+        if (($biz['source_rating'] ?? null) === null) return 'امتیاز ثبت نشده';
+        $rating = rtrim(rtrim(number_format((float)$biz['source_rating'], 2, '.', ''), '0'), '.');
+        $providers = ['google_maps'=>'Google Maps', 'osm'=>'OpenStreetMap', 'neshan'=>'نشان', 'balad'=>'بلد'];
+        $provider = (string)($biz['rating_provider'] ?? '');
+        $observed = !empty($biz['rating_fetched_at']) ? ' · دریافت ' . substr((string)$biz['rating_fetched_at'], 0, 10) : '';
+        return 'امتیاز ' . $rating . ' از ۵ · ' . (int)$biz['source_reviews_count'] . ' نظر · ' . ($providers[$provider] ?? $provider) . $observed;
     }
 
     private static function renderBusinessCard(array $biz, int $rank, string $sourcePage): string
@@ -1542,6 +1603,7 @@ final class PublicSiteController
         ob_start();
         ?>
         <article class="hx-card">
+            <?php if (!empty($biz['promoted'])): ?><span class="hx-badge hx-badge-tier-a">جایگاه ویژه</span><?php endif; ?>
             <h3 class="hx-card-title">
                 <a href="<?= self::e($slugUrl) ?>"><?= self::e($biz['name']) ?></a>
             </h3>
@@ -1554,6 +1616,7 @@ final class PublicSiteController
                 <?php endif; ?>
             </div>
 
+            <p class="hx-card-desc" style="font-weight:700;margin:0.45rem 0;"><?= self::e(self::ratingLabel($biz)) ?></p>
             <?php if (!empty($biz['short_desc'])): ?>
                 <p class="hx-card-desc"><?= self::e($biz['short_desc']) ?></p>
             <?php endif; ?>

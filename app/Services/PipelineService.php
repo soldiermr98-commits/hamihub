@@ -31,7 +31,7 @@ final class PipelineService
      */
     public static function processIncomingRecord(
         int $cityId, int $defaultCategoryId, string $provider, array $rawItem,
-        string $cityPublishMode = 'manual', float $minScoreThreshold = 0.0
+        string $cityPublishMode = 'manual', float $minScoreThreshold = 0.0, array $options = []
     ): array {
         $name = mb_substr(SlugService::normalizePersianText((string) ($rawItem['name'] ?? '')), 0, 200);
         $key = self::canonicalNameKey($name);
@@ -53,8 +53,14 @@ final class PipelineService
         $closed = !empty($rawItem['permanently_closed']) || str_contains($hours, 'دائماً بسته');
         $rating = isset($rawItem['rating']) && is_numeric($rawItem['rating']) ? (float) $rawItem['rating'] : null;
         if ($rating !== null && ($rating < 1 || $rating > 5)) $rating = null;
-        $reviews = max(0, (int) ($rawItem['reviews_count'] ?? 0));
-        $score = $rating !== null && $reviews > 0 ? $rating : 0.0;
+        $reviews = isset($rawItem['reviews_count']) && is_numeric($rawItem['reviews_count'])
+            ? max(0, (int) $rawItem['reviews_count']) : null;
+        $hasRatingPair = $rating !== null && $reviews !== null;
+        $score = $rating !== null && $reviews !== null && $reviews > 0 ? $rating : 0.0;
+        $manualImport = !empty($options['manual_import']);
+        $targetId = (int) ($options['target_business_id'] ?? 0);
+        $sourceTime = $manualImport ? (string) ($options['source_time'] ?? '') : null;
+        if ($manualImport && $sourceTime === '') throw new InvalidArgumentException('تاریخ دریافت منبع معتبر نیست.');
         $raw = json_encode($rawItem, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
         if ($raw === false) throw new InvalidArgumentException('داده منبع قابل ذخیره نیست.');
 
@@ -62,15 +68,39 @@ final class PipelineService
         $ownsTransaction = !$pdo->inTransaction();
         if ($ownsTransaction) $pdo->beginTransaction();
         try {
-            $existing = DB::fetchOne(
-                "SELECT b.* FROM business_sources s INNER JOIN businesses b ON b.id = s.business_id
-                 WHERE s.provider = :p AND s.source_id = :sid LIMIT 1 FOR UPDATE",
+            $source = DB::fetchOne(
+                "SELECT s.* FROM business_sources s WHERE s.provider = :p AND s.source_id = :sid LIMIT 1 FOR UPDATE",
                 ['p' => $provider, 'sid' => $sourceId]
             );
+            $existing = $source ? DB::fetchOne('SELECT * FROM businesses WHERE id=:id FOR UPDATE', ['id'=>(int)$source['business_id']]) : null;
+            if ($source && !$existing) throw new InvalidArgumentException('رکورد منبع به کسب‌وکاری ناموجود متصل است.');
             if ($existing !== null && (int) $existing['city_id'] !== $cityId) {
                 throw new InvalidArgumentException('این شناسه منبع قبلاً برای شهر دیگری ثبت شده است.');
             }
-            if ($existing === null) {
+            if ($manualImport && $source) {
+                if ($targetId > 0 && $targetId !== (int)$existing['id']) throw new InvalidArgumentException('شناسه منبع به کسب‌وکار دیگری متصل است.');
+                if ($sourceTime <= (string)$source['fetched_at']) throw new InvalidArgumentException('این داده از نسخه ثبت‌شده جدیدتر نیست.');
+            }
+            if ($source) {
+                // Never combine one half of an aggregate with a missing half from a later observation.
+                if (!$hasRatingPair) {
+                    $rating = $source['rating'] !== null ? (float)$source['rating'] : null;
+                    $reviews = $source['reviews_count'] !== null ? (int)$source['reviews_count'] : null;
+                }
+                if ($source['rating'] !== null && (int)($source['reviews_count'] ?? 0) > 0) {
+                    DB::query('INSERT IGNORE INTO business_source_rating_dates (business_source_id,observed_at) VALUES (:id,:observed)',
+                        ['id'=>(int)$source['id'],'observed'=>$source['fetched_at']]);
+                }
+                // Preserve prior raw observations, including any previously collected review text.
+                DB::query('INSERT INTO business_source_history (business_source_id,raw,rating,reviews_count,fetched_at,archived_at) VALUES (:id,:raw,:rating,:reviews,:fetched,NOW())',
+                    ['id'=>(int)$source['id'],'raw'=>$source['raw'],'rating'=>$source['rating'],'reviews'=>$source['reviews_count'],'fetched'=>$source['fetched_at']]);
+            }
+            if ($manualImport && !$existing && $targetId > 0) {
+                $existing = DB::fetchOne('SELECT * FROM businesses WHERE id=:id AND city_id=:city LIMIT 1 FOR UPDATE',
+                    ['id'=>$targetId,'city'=>$cityId]);
+                if (!$existing) throw new InvalidArgumentException('کسب‌وکار انتخاب‌شده در این شهر یافت نشد.');
+            }
+            if (!$manualImport && $existing === null) {
                 $candidates = DB::fetchAll(
                     "SELECT * FROM businesses WHERE city_id = :city AND category_id = :cat AND normalized_name = :name ORDER BY id ASC",
                     ['city' => $cityId, 'cat' => $defaultCategoryId, 'name' => $key]
@@ -88,10 +118,15 @@ final class PipelineService
             }
             if ($existing !== null) {
                 $id = (int) $existing['id'];
-                DB::query("INSERT INTO business_sources (business_id, provider, source_id, raw, rating, reviews_count, fetched_at)
-                    VALUES (:id,:provider,:sid,:raw,:rating,:reviews,NOW())
-                    ON DUPLICATE KEY UPDATE raw=VALUES(raw), rating=VALUES(rating), reviews_count=VALUES(reviews_count), fetched_at=NOW()",
-                    ['id'=>$id,'provider'=>$provider,'sid'=>$sourceId,'raw'=>$raw,'rating'=>$rating,'reviews'=>$reviews]);
+                if ($source) {
+                    DB::query("UPDATE business_sources SET raw=:raw,rating=COALESCE(:rating,rating),reviews_count=COALESCE(:reviews,reviews_count),fetched_at=COALESCE(:fetched,NOW()) WHERE id=:source_id AND business_id=:id",
+                        ['id'=>$id,'source_id'=>(int)$source['id'],'raw'=>$raw,'rating'=>$rating,'reviews'=>$reviews,'fetched'=>$sourceTime]);
+                } else {
+                    // A concurrent import of the same source must fail, not attach its data to another business.
+                    DB::query("INSERT INTO business_sources (business_id,provider,source_id,raw,rating,reviews_count,fetched_at) VALUES (:id,:p,:sid,:raw,:rating,:reviews,COALESCE(:fetched,NOW()))",
+                        ['id'=>$id,'p'=>$provider,'sid'=>$sourceId,'raw'=>$raw,'rating'=>$rating,'reviews'=>$reviews,'fetched'=>$sourceTime]);
+                }
+                if ($hasRatingPair && $reviews > 0) self::recordRatingDate($provider, $sourceId, $sourceTime);
                 DB::query("UPDATE businesses SET last_collected_at = NOW() WHERE id = :id", ['id' => $id]);
                 foreach (['name' => $name, 'address' => $address, 'hours' => $hours] as $field => $value) {
                     if ($value !== '' && $value !== (string) ($existing[$field] ?? '')) {
@@ -128,8 +163,9 @@ final class PipelineService
                  'addr'=>$address !== '' ? $address : null,'lat'=>$lat,'lng'=>$lng,'hours'=>$hours !== '' ? $hours : null,
                  'score'=>$score,'reason'=>$reason]);
             $id = DB::lastInsertId();
-            DB::query("INSERT INTO business_sources (business_id,provider,source_id,raw,rating,reviews_count,fetched_at) VALUES (:id,:p,:sid,:raw,:rating,:reviews,NOW())",
-                ['id'=>$id,'p'=>$provider,'sid'=>$sourceId,'raw'=>$raw,'rating'=>$rating,'reviews'=>$reviews]);
+            DB::query("INSERT INTO business_sources (business_id,provider,source_id,raw,rating,reviews_count,fetched_at) VALUES (:id,:p,:sid,:raw,:rating,:reviews,COALESCE(:fetched,NOW()))",
+                ['id'=>$id,'p'=>$provider,'sid'=>$sourceId,'raw'=>$raw,'rating'=>$rating,'reviews'=>$reviews,'fetched'=>$sourceTime]);
+            if ($hasRatingPair && $reviews > 0) self::recordRatingDate($provider, $sourceId, $sourceTime);
             foreach ($phones as $index => $phone) {
                 DB::query("INSERT INTO business_contacts (business_id,type,value,is_primary,source,confidence,last_verified_at) VALUES (:id,:type,:value,:primary,:source,'low',NULL)",
                     ['id'=>$id,'type'=>str_starts_with($phone, '+989') ? 'mobile' : 'phone','value'=>$phone,'primary'=>$index === 0 ? 1 : 0,'source'=>$provider]);
@@ -145,6 +181,13 @@ final class PipelineService
             if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
             throw $e;
         }
+    }
+
+    private static function recordRatingDate(string $provider, string $sourceId, ?string $sourceTime): void
+    {
+        DB::query("INSERT INTO business_source_rating_dates (business_source_id,observed_at)
+            SELECT id,COALESCE(:observed,NOW()) FROM business_sources WHERE provider=:p AND source_id=:sid
+            ON DUPLICATE KEY UPDATE observed_at=VALUES(observed_at)", ['observed'=>$sourceTime,'p'=>$provider,'sid'=>$sourceId]);
     }
 
     private static function enqueueChange(int $id, string $field, string $old, string $new, string $provider): void
