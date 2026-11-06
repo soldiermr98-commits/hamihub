@@ -11,7 +11,14 @@ try {
     if (class_exists(\App\Services\CollectorRunner::class)) {
         $summary['collector'] = \App\Services\CollectorRunner::runNext();
     }
-    $ok = ($summary['collector']['status'] ?? '') !== 'failed';
+    try {
+        $summary['apify'] = \App\Services\ApifyAutomationService::configured()->tick();
+    } catch (Throwable $e) {
+        error_log('Apify cron failed: ' . get_class($e));
+        $summary['apify'] = ['status'=>'error'];
+    }
+    $ok = ($summary['collector']['status'] ?? '') !== 'failed'
+        && !in_array($summary['apify']['status'] ?? '', ['error','fetch_error','preflight_error','start_unknown'], true);
     echo json_encode(['ok' => $ok, 'summary' => $summary], JSON_UNESCAPED_UNICODE) . PHP_EOL;
     if (!$ok) exit(1);
 } catch (Throwable $e) {

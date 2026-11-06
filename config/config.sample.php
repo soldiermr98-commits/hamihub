@@ -25,6 +25,8 @@ return [
         'osm' => ['overpass_endpoint' => 'https://overpass-api.de/api/interpreter', 'user_agent' => 'HamiHubX/1.0 (https://hamihubx.ir)'],
         // Use only after verifying API terms, quota, permissions, and live connectivity.
         'neshan' => ['api_key' => '', 'search_url' => 'https://api.neshan.org/v1/search'],
+        // Private token belongs only in config.local.php on the host. Never paste it in chat.
+        'apify' => ['api_token' => ''],
     ],
     'reserved_slugs' => ['admin','api','assets','uploads','cache','city','b','sitemap','robots','install','check','storage'],
 ];

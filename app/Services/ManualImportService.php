@@ -45,21 +45,52 @@ final class ManualImportService
             throw new InvalidArgumentException('فایل باید یک آرایه JSON شامل ۱ تا ۵۰۰ رکورد باشد.');
         }
         $seen = [];
-        foreach ($items as $item) {
-            if (is_array($item) && is_string($item['source'] ?? null) && is_string($item['source_id'] ?? null)) {
-                $key = trim($item['source']) . "\0" . trim($item['source_id']);
-                $seen[$key] = ($seen[$key] ?? 0) + 1;
-            }
-        }
+        foreach ($items as $item) foreach (self::identityKeys($item) as $key) $seen[$key] = ($seen[$key] ?? 0) + 1;
         $rows = [];
         foreach ($items as $index=>$item) {
-            $key = is_array($item) && is_string($item['source'] ?? null) && is_string($item['source_id'] ?? null)
-                ? trim($item['source']) . "\0" . trim($item['source_id']) : '';
-            $rows[] = $key !== '' && ($seen[$key] ?? 0) > 1
-                ? self::row($index, is_array($item) ? $item : [], 'invalid', 'شناسه منبع در همین فایل تکرار شده است.')
+            $duplicate = false;
+            foreach (self::identityKeys($item) as $key) if (($seen[$key] ?? 0) > 1) $duplicate = true;
+            $rows[] = $duplicate
+                ? self::row($index, is_array($item) ? $item : [], 'invalid', 'شناسه یا Place ID در همین فایل تکرار شده است.')
                 : self::inspect($index, $item, $options);
         }
         return $rows;
+    }
+
+    private static function identityKeys(mixed $item): array
+    {
+        if (!is_array($item) || !is_string($item['source'] ?? null) || !is_string($item['source_id'] ?? null)) return [];
+        $provider = trim($item['source']); $id = trim($item['source_id']);
+        $keys = $id !== '' ? [$provider . "\0id\0" . $id] : [];
+        if ($provider === 'google_maps') foreach (ApifyImportService::placeIds($item) as $pid) $keys[] = $provider . "\0place\0" . $pid;
+        return $keys;
+    }
+
+    /** Resolve an exact Place ID against legacy FID-based sources. Ambiguous aliases never merge. */
+    private static function sourceForIdentity(array $item, string $provider, string $sourceId): array
+    {
+        $ids = $provider === 'google_maps' ? ApifyImportService::placeIds($item) : [];
+        if (count($ids) > 1) return ['conflict'=>true];
+        if (!$ids) {
+            $one = DB::fetchOne('SELECT s.business_id,s.source_id,s.fetched_at,b.name,b.city_id,b.category_id FROM business_sources s LEFT JOIN businesses b ON b.id=s.business_id WHERE s.provider=:p AND BINARY s.source_id=BINARY :sid LIMIT 1', ['p'=>$provider,'sid'=>$sourceId]);
+            return ['source'=>$one];
+        }
+        $pid = $ids[0];
+        // LOCATE is literal and case-sensitive; LIKE would treat underscores in Place IDs as wildcards.
+        $found = DB::fetchAll('SELECT s.business_id,s.source_id,s.fetched_at,s.raw,b.name,b.city_id,b.category_id FROM business_sources s LEFT JOIN businesses b ON b.id=s.business_id WHERE s.provider=:p AND (BINARY s.source_id=BINARY :sid OR BINARY s.source_id=BINARY :pid OR LOCATE(BINARY :needle, BINARY s.raw)>0) ORDER BY s.id LIMIT 102',
+            ['p'=>$provider,'sid'=>$sourceId,'pid'=>$pid,'needle'=>$pid]);
+        if (count($found) > 100) return ['conflict'=>true];
+        $matches = [];
+        foreach ($found as $source) {
+            $raw = json_decode((string)($source['raw'] ?? ''), true);
+            $rawIds = is_array($raw) ? ApifyImportService::placeIds($raw) : [];
+            if ((string)$source['source_id'] === $sourceId || (string)$source['source_id'] === $pid || in_array($pid, $rawIds, true)) {
+                if (count($rawIds) > 1 || ((string)$source['source_id'] === $sourceId && $rawIds && !in_array($pid, $rawIds, true))) return ['conflict'=>true];
+                $matches[(string)$source['source_id']] = $source;
+            }
+        }
+        if (count($matches) > 1) return ['conflict'=>true];
+        return ['source'=>$matches ? reset($matches) : null];
     }
 
     private static function row(int $index, array $item, string $status, string $message, array $extra = []): array
@@ -89,7 +120,7 @@ final class ManualImportService
             || !preg_match('/^[a-z0-9_-]{1,50}$/', $provider) || $sourceId === '' || strlen($sourceId) > 190) {
             return self::row($index, $item, 'invalid', 'نام، منبع یا شناسه منبع معتبر نیست.');
         }
-        foreach (['address','hours','source_url'] as $field) {
+        foreach (['address','hours','source_url','website'] as $field) {
             if (isset($item[$field]) && !is_string($item[$field])) return self::row($index, $item, 'invalid', "فیلد {$field} معتبر نیست.");
         }
         if (isset($item['phones']) && (!is_array($item['phones']) || count($item['phones']) > 30
@@ -118,8 +149,16 @@ final class ManualImportService
         } catch (Throwable $e) {
             return self::row($index, $item, 'invalid', 'fetched_at باید تاریخ ISO 8601 با منطقه زمانی باشد و در آینده نباشد.');
         }
-        $source = DB::fetchOne('SELECT s.business_id,s.fetched_at,b.name,b.city_id,b.category_id FROM business_sources s LEFT JOIN businesses b ON b.id=s.business_id WHERE s.provider=:p AND s.source_id=:sid LIMIT 1', ['p'=>$provider,'sid'=>$sourceId]);
+        if ($provider === 'google_maps' && str_starts_with($sourceId, 'gpid_')) {
+            $pids = ApifyImportService::placeIds($item);
+            if (count($pids) !== 1 || $sourceId !== 'gpid_' . hash('sha256', $pids[0])) return self::row($index, $item, 'conflict', 'شناسه هش‌شده و Place ID رکورد با هم سازگار نیستند.');
+        }
+        $identity = self::sourceForIdentity($item, $provider, $sourceId);
+        if (!empty($identity['conflict'])) return self::row($index, $item, 'conflict', 'شناسه‌های Google با چند منبع یا با هم تعارض دارند؛ ابتدا دستی بررسی کنید.');
+        $source = $identity['source'] ?? null;
         if ($source) {
+            // Keep the existing FID or ID; never change the source key merely because a Place ID was supplied.
+            $item['source_id'] = (string)$source['source_id'];
             if (!$source['name'] || (int)$source['city_id'] !== $options['city_id']) {
                 return self::row($index, $item, 'conflict', 'این شناسه در شهر دیگری ثبت شده است.');
             }
@@ -171,6 +210,16 @@ final class ManualImportService
             if (!is_array($entry)) { $result[] = ['index'=>-1,'status'=>'skipped','message'=>'رکورد ارسالی معتبر نیست.']; continue; }
             $index = (int)($entry['index'] ?? -1);
             $item = $entry['item'] ?? null;
+            $lockName = '';
+            if (is_array($item) && ($item['source'] ?? null) === 'google_maps') {
+                $pids = ApifyImportService::placeIds($item);
+                if (count($pids) === 1) {
+                    $lockName = 'hhx_google_' . substr(hash('sha256', $pids[0]), 0, 48);
+                    $locked = DB::fetchOne('SELECT GET_LOCK(:name, 2) AS acquired', ['name'=>$lockName]);
+                    if ((int)($locked['acquired'] ?? 0) !== 1) { $result[] = ['index'=>$index,'status'=>'skipped','message'=>'این شناسه هم‌اکنون در حال پردازش است؛ دوباره پیش‌نمایش بگیرید.']; continue; }
+                }
+            }
+            try {
             $row = self::inspect($index, $item, $options);
             $key = $row['source'] . "\0" . $row['source_id'];
             if (isset($seen[$key])) { $result[] = ['index'=>$index,'status'=>'skipped','message'=>'شناسه تکراری در همین نوبت.']; continue; }
@@ -188,6 +237,8 @@ final class ManualImportService
                 $result[] = ['index'=>$index,'status'=>'skipped','message'=>$row['message'] ?: 'این مورد نیاز به بررسی دوباره دارد.']; continue;
             }
             try {
+                // inspect may have resolved a Place ID to an existing legacy FID.
+                $item['source_id'] = $row['source_id'];
                 $saved = PipelineService::processIncomingRecord($options['city_id'], $options['category_id'], trim($item['source']), $item, 'manual', 0.0,
                     ['manual_import'=>true,'target_business_id'=>$target,'source_time'=>$row['source_time']]);
                 $changed = true;
@@ -198,6 +249,9 @@ final class ManualImportService
             } catch (Throwable $e) {
                 error_log('Manual import failed: ' . $e->getMessage());
                 $result[] = ['index'=>$index,'status'=>'error','message'=>'خطای ذخیره؛ این رکورد ذخیره نشد. دوباره پیش‌نمایش بگیرید.'];
+            }
+            } finally {
+                if ($lockName !== '') DB::fetchOne('SELECT RELEASE_LOCK(:name) AS released', ['name'=>$lockName]);
             }
         }
         if ($changed) Cache::flushAll();
