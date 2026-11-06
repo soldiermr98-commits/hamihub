@@ -47,15 +47,17 @@ export const JsonImportView:React.FC<Props>=({cities,categories,csrfToken,onRefr
       loadItems(parsed,file.name);
     }catch(e){setError(e instanceof SyntaxError?'فایل JSON معتبر نیست.':e instanceof Error?e.message:'خواندن فایل ناموفق بود.');}
   };
-  const openRun=(run:ApifyRunData)=>{
-    loadItems(run.items,`Apify · ${run.remote_run_id || run.id}`,run.started_at_iso || '');
-    if(run.city_id)setCity(Number(run.city_id));if(run.category_id)setCategory(Number(run.category_id));
+  const openRun=(run:ApifyRunData):boolean=>{
+    if(items.length && !window.confirm('باز کردن نتیجه جدید، داده‌ای را که اکنون برای پیش‌نمایش انتخاب کرده‌اید جایگزین می‌کند. ادامه می‌دهید؟'))return false;
+    loadItems(run.items,'نتیجه دریافت‌شده از Apify',run.started_at_iso || '');
+    setCity(run.city_id?Number(run.city_id):0);setCategory(run.category_id?Number(run.category_id):0);
     if(run.source_categories?.length){const available=new Set(run.items.map(getCategory));setSourceCategories(run.source_categories.filter(c=>available.has(c)));}
     setMinRating(Number(run.min_rating||0));setMinReviews(Number(run.min_reviews||0));
+    return true;
   };
   const doPreview=async()=>{
     if(!items.length||!city||!category||!sourceCategories.length){setError('فایل یا اجرای Apify، شهر، دسته مقصد و حداقل یک دسته از خروجی را انتخاب کنید.');return;}
-    if(items.some(needsRunTime)&&!runStartedAt.trim()){setError('خروجی فاقد زمان است؛ زمان واقعی شروع اجرای Apify را وارد کنید یا اجرا را با Run ID دریافت کنید.');return;}
+    if(items.some(needsRunTime)&&!runStartedAt.trim()){setError('خروجی فاقد زمان است؛ زمان واقعی شروع جمع‌آوری را وارد کنید یا از دریافت نتیجه موجود استفاده کنید.');return;}
     if(runStartedAt.trim()&&!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(runStartedAt.trim())){setError('زمان شروع باید ISO 8601 با منطقه زمانی باشد؛ مانند 2026-11-06T10:00:00Z.');return;}
     setBusy(true);setError('');setResults([]);setProgress('در حال تبدیل و بررسی…');setRows(null);
     const converted=await prepareJsonImport(items,runStartedAt.trim(),csrfToken);
@@ -90,14 +92,14 @@ export const JsonImportView:React.FC<Props>=({cities,categories,csrfToken,onRefr
     setProgress('');setBusy(false);await onRefreshData();
   };
   return <div className="space-y-5">
-    <fieldset disabled={busy} className="w-full"><ApifyAutomationPanel cities={cities} categories={categories} csrfToken={csrfToken} onOpen={openRun} onBusyChange={setBusy} selectedSourceCategories={sourceCategories}/></fieldset>
+    <fieldset disabled={busy} className="w-full"><ApifyAutomationPanel cities={cities} categories={categories} csrfToken={csrfToken} onOpen={openRun} onBusyChange={setBusy} paused={busy}/></fieldset>
     <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
       <div><h1 className="font-bold text-lg flex items-center gap-2"><FileJson className="w-5 h-5 text-blue-700"/> ورود، فیلتر و پیش‌نمایش JSON</h1>
         <p className="text-sm text-slate-600 mt-2">خروجی خام سازگار Apify یا فایل استاندارد حامی‌هاب را انتخاب کنید. تبدیل در پنل انجام می‌شود و پیش‌نمایش چیزی ذخیره نمی‌کند.</p></div>
       <div className="p-3 rounded bg-amber-50 text-amber-900 text-xs leading-6 flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-1"/><span>شناسه منبع و Place ID دقیق برای تطبیق به کار می‌رود؛ شباهت نام یا تلفن به‌تنهایی ادغام نمی‌کند. موارد مشکوک و مشخصات جدید نیاز به تصمیم شما دارند. متن نظر و وب‌سایت در داده خام حفظ می‌شود، اما نمایش مستقل نظر و انتقال خودکار وب‌سایت به تماس هنوز وجود ندارد. مجوز استفاده از داده‌ها را بررسی کنید.</span></div>
       <label className="block text-sm font-semibold">فایل JSON (تا ۵۰۰ رکورد، حداکثر ۴ مگابایت)<input disabled={busy} type="file" accept=".json,application/json" onChange={readFile} className="block mt-2 text-sm font-normal"/></label>
       {filename&&<p className="text-xs text-blue-700">{filename} · {items.length} رکورد خوانده شد</p>}
-      {items.some(needsRunTime)&&<label className="block text-xs font-semibold">زمان واقعی شروع اجرای Apify (با منطقه زمانی)<input dir="ltr" className={`${control} mt-1 max-w-lg`} value={runStartedAt} disabled={busy} onChange={e=>{invalidate();setRunStartedAt(e.target.value);}} placeholder="2026-11-06T10:00:00Z"/><span className="block text-slate-500 font-normal leading-5 mt-1">این خروجی زمان هر رکورد ندارد؛ زمان شروع واقعی را از جزئیات Run کپی کنید. هنگام دریافت Run از API، این مقدار خودکار خوانده می‌شود. زمان آپلود به‌عنوان زمان جمع‌آوری حدس زده نمی‌شود.</span></label>}
+      {items.some(needsRunTime)&&<label className="block text-xs font-semibold">زمان واقعی شروع اجرای Apify (با منطقه زمانی)<input dir="ltr" className={`${control} mt-1 max-w-lg`} value={runStartedAt} disabled={busy} onChange={e=>{invalidate();setRunStartedAt(e.target.value);}} placeholder="2026-11-06T10:00:00Z"/><span className="block text-slate-500 font-normal leading-5 mt-1">این خروجی زمان هر رکورد ندارد؛ زمان شروع واقعی را از جزئیات جمع‌آوری در Apify کپی کنید. هنگام دریافت از API، این مقدار خودکار خوانده می‌شود. زمان آپلود به‌عنوان زمان جمع‌آوری حدس زده نمی‌شود.</span></label>}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <label className="text-xs font-semibold">شهر مقصد<select disabled={busy} className={`${control} mt-1`} value={city} onChange={e=>{invalidate();setCity(Number(e.target.value));}}><option value="0">انتخاب شهر</option>{cities.filter(c=>Number(c.is_active)===1).map(c=><option key={c.id} value={c.id}>{c.name_fa}</option>)}</select></label>
         <label className="text-xs font-semibold">دسته مقصد در حامی‌هاب<select disabled={busy} className={`${control} mt-1`} value={category} onChange={e=>{invalidate();setCategory(Number(e.target.value));}}><option value="0">انتخاب دسته</option>{categories.filter(c=>Number(c.is_active)===1).map(c=><option key={c.id} value={c.id}>{c.name_fa}</option>)}</select></label>

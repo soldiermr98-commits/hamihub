@@ -1,0 +1,104 @@
+// Browser-like DOM test with a fully synthetic API. No real Apify account or network is used.
+import assert from 'node:assert/strict';
+import React, { act } from 'react';
+import { JSDOM } from 'jsdom';
+
+const dom=new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',{url:'http://example.test/admin/',pretendToBeVisual:true});
+Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
+Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true});
+const {createRoot}=await import('react-dom/client');
+const {JsonImportView}=await import('../src/components/JsonImportView');
+let timerId=0;const timers=new Map<number,()=>Promise<void>>();
+dom.window.setInterval=((callback:()=>Promise<void>)=>{const id=++timerId;timers.set(id,callback);return id;}) as typeof dom.window.setInterval;
+dom.window.clearInterval=((id:number)=>timers.delete(id)) as typeof dom.window.clearInterval;
+let confirmAnswer=true;const dialogs:string[]=[];
+dom.window.confirm=(message?:string)=>{dialogs.push(message||'');return confirmAnswer;};
+
+const calls:Array<{url:string;method:string;body:any}>=[];
+const schedule:any={enabled:0,mode:'legacy',task_id:'',city_id:null,category_id:null,max_charge_usd:null,source_categories:[],min_rating:0,min_reviews:0,next_run_at:null,last_error:null};
+let runs:any[]=[];let latestWithoutDestination=false;
+const item={title:'دندانپزشک آزمایشی',city:'لاهیجان',categoryName:'دندانپزشک',placeId:'ChIJTestFixture0001'};
+const readyRun={id:42,task_id:'__hami_direct__',remote_run_id:'SyntheticRun42',status:'ready',city_id:2,category_id:3,source_categories:[],min_rating:0,min_reviews:0,started_at_iso:'2026-01-01T10:00:00Z',finished_at_iso:'2026-01-01T10:01:00Z',item_count:1,items:[item]};
+globalThis.fetch=async(input:RequestInfo|URL,options:RequestInit={})=>{
+  const url=String(input),method=options.method||'GET',body=options.body?JSON.parse(String(options.body)):null;
+  calls.push({url,method,body});
+  const result=(data:any)=>new Response(JSON.stringify(data),{status:200,headers:{'content-type':'application/json'}});
+  if(url.endsWith('/status'))return result({ok:true,token_configured:true,schedule:{...schedule},runs:runs.map(r=>({...r})),search_terms:{'3':'دندانپزشکی'}});
+  if(url.endsWith('/start')){
+    runs=[{...readyRun,status:'running',item_count:null,error:null,created_at:'2026-01-01 10:00:00',updated_at:'2026-01-01 10:00:00'}];
+    return result({ok:true,status:'started',run_id:42});
+  }
+  if(url.endsWith('/refresh')){runs=[{...runs[0],status:'ready',item_count:1}];return result({ok:true});}
+  if(url.endsWith('/runs/42'))return result({ok:true,run:latestWithoutDestination?{...readyRun,city_id:null,category_id:null}:readyRun});
+  if(url.endsWith('/latest'))return result({ok:true,id:42});
+  if(url.endsWith('/schedule')){Object.assign(schedule,{...body,mode:'direct',next_run_at:'2026-01-15 10:00:00'});return result({ok:true});}
+  throw new Error('Unexpected synthetic request: '+url);
+};
+const city:any={id:2,name_fa:'لاهیجان',slug:'lahijan',is_active:1};
+const category:any={id:3,name_fa:'کلینیک و دندانپزشکی',slug:'clinic',is_active:1};
+const root=createRoot(document.getElementById('root')!);
+const pause=()=>new Promise(resolve=>setTimeout(resolve,0));
+function button(label:string):HTMLButtonElement {
+  const found=Array.from(document.querySelectorAll('button')).find(b=>b.textContent?.trim()===label);
+  assert.ok(found,'Missing button: '+label);return found;
+}
+async function click(label:string){await act(async()=>{button(label).click();await pause();});}
+async function changeSelect(element:HTMLSelectElement,value:string){await act(async()=>{element.value=value;element.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});}
+async function changeInput(element:HTMLInputElement,value:string){await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value')!.set!.call(element,value);element.dispatchEvent(new dom.window.Event('input',{bubbles:true}));});}
+function pass(label:string){console.log('PASS:',label);}
+
+try {
+  await act(async()=>{root.render(<JsonImportView cities={[city]} categories={[category]} csrfToken="synthetic-csrf" onRefreshData={async()=>{}}/>);await pause();});
+  assert.ok(document.body.textContent?.includes('جمع‌آوری از Google Maps'));
+  assert.ok(!document.body.textContent?.includes('Task ID')&&!document.body.textContent?.includes('Run ID'));
+  pass('simple collection panel has no Task or Run ID field');
+  await click('جمع‌آوری');assert.equal(calls.filter(c=>c.url.endsWith('/start')).length,0);
+  assert.ok(document.querySelector('[role=alert]')?.textContent?.includes('شهر'));
+  pass('missing city and category cannot start collection');
+  const selects=Array.from(document.querySelectorAll('select'));
+  await changeSelect(selects[0],'2');await changeSelect(selects[1],'3');
+  assert.ok(document.body.textContent?.includes('عبارت جست‌وجو: دندانپزشکی'));
+  const inputs=Array.from(document.querySelectorAll('input'));
+  const cap=inputs.find(i=>i.type==='number'&&i.max==='100');assert.ok(cap);await changeInput(cap,'0.29');
+  confirmAnswer=false;await click('جمع‌آوری');
+  assert.equal(calls.filter(c=>c.url.endsWith('/start')).length,0);
+  assert.ok(dialogs.at(-1)?.includes('0.29')&&dialogs.at(-1)?.includes('دندانپزشکی'));
+  pass('cancelling the specific cost and search-term confirmation makes no start request');
+  confirmAnswer=true;await click('جمع‌آوری');
+  const start=calls.filter(c=>c.url.endsWith('/start'));assert.equal(start.length,1);
+  assert.deepEqual(start[0].body,{city_id:2,category_id:3,max_places:20,max_charge_usd:0.29,confirmed:true,expected_search_term:'دندانپزشکی'});
+  assert.ok(document.body.textContent?.includes('جمع‌آوری شروع شد'));
+  assert.equal(timers.size,1);
+  pass('one confirmed click sends the selected city, category, count, cap, and displayed term');
+  Object.defineProperty(document,'hidden',{value:true,configurable:true});
+  await act(async()=>{await [...timers.values()][0]();await pause();});
+  assert.equal(calls.filter(c=>c.url.endsWith('/refresh')).length,0);
+  Object.defineProperty(document,'hidden',{value:false,configurable:true});
+  await act(async()=>{await [...timers.values()][0]();await pause();});
+  assert.equal(calls.filter(c=>c.url.endsWith('/start')).length,1);
+  assert.equal(calls.filter(c=>c.url.endsWith('/refresh')).length,1);
+  assert.ok(document.body.textContent?.includes('نتیجه دریافت‌شده از Apify'));
+  assert.ok(document.body.textContent?.includes('۱')||document.body.textContent?.includes('1 رکورد'));
+  const allSelects=Array.from(document.querySelectorAll('select'));
+  assert.equal(allSelects[2].value,'2');assert.equal(allSelects[3].value,'3');
+  assert.equal(button('تبدیل و پیش‌نمایش بدون ذخیره').disabled,false);
+  pass('polling checks the same run and automatically loads result into preview');
+  confirmAnswer=false;await click('دریافت آخرین نتیجه موجود');
+  assert.ok(dialogs.at(-1)?.includes('جایگزین'));
+  assert.ok(document.body.textContent?.includes('نتیجه دریافت‌شده از Apify'));
+  assert.equal(calls.filter(c=>c.url.endsWith('/start')).length,1);
+  pass('existing preview is protected from replacement and latest does not start another run');
+  confirmAnswer=true;latestWithoutDestination=true;await click('دریافت آخرین نتیجه موجود');
+  const destinationSelects=Array.from(document.querySelectorAll('select'));
+  assert.equal(destinationSelects[2].value,'0');assert.equal(destinationSelects[3].value,'0');
+  pass('an old result without a saved destination requires the administrator to choose one');
+  await click('فعال‌سازی / تغییر تکرار');
+  const saved=calls.filter(c=>c.url.endsWith('/schedule'));
+  assert.equal(saved.length,1);assert.equal(saved[0].body.direct,true);assert.equal(saved[0].body.confirmed,true);assert.equal(saved[0].body.max_charge_usd,0.29);
+  assert.ok(dialogs.at(-1)?.includes('۱۴ روز')&&dialogs.at(-1)?.includes('۵۰۰'));
+  assert.equal(calls.filter(c=>c.url.endsWith('/start')).length,1);
+  pass('optional schedule requires confirmation and does not immediately start another run');
+  console.log('All panel smoke checks passed with a synthetic API and jsdom (not a real browser).');
+} finally {
+  await act(async()=>{root.unmount();});dom.window.close();
+}
