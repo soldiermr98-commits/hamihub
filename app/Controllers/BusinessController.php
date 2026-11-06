@@ -30,23 +30,44 @@ final class BusinessController
     {
         Auth::requireRole(['admin', 'editor']);
 
+        // The older consumers still receive up to 300 rows. The manager uses
+        // explicit server-side pagination so older businesses remain searchable.
+        $paged = isset($_GET['page']);
+        $page = max(1, min(100000, (int)($_GET['page'] ?? 1)));
+        $limit = $paged ? 50 : 300;
+        $offset = $paged ? ($page - 1) * $limit : 0;
+        $where = ['1=1']; $params = [];
+        $city = (int)($_GET['city_id'] ?? 0);
+        if ($city > 0) { $where[] = 'b.city_id=:city'; $params['city']=$city; }
+        $search = trim((string)($_GET['q'] ?? ''));
+        if ($search !== '') {
+            $search = mb_substr($search, 0, 120);
+            $where[] = '(b.name LIKE :q1 OR b.slug LIKE :q2 OR b.address LIKE :q3)';
+            $params += ['q1'=>'%' . $search . '%','q2'=>'%' . $search . '%','q3'=>'%' . $search . '%'];
+        }
+        $whereSql = implode(' AND ', $where);
+        $total = (int)(DB::fetchOne("SELECT COUNT(*) AS cnt FROM businesses b WHERE {$whereSql}", $params)['cnt'] ?? 0);
         $rows = DB::fetchAll(
             "SELECT b.*,
                     c.name_fa AS city_name,
                     cat.name_fa AS category_name,
                     n.name_fa AS neighborhood_name,
                     m.file_path_480 AS cover_thumb_url,
-                    m.file_path_800 AS cover_medium_url
+                    m.file_path_800 AS cover_medium_url,
+                    COALESCE(bp.active,0) AS promoted
              FROM businesses b
              LEFT JOIN cities c ON c.id = b.city_id
              LEFT JOIN categories cat ON cat.id = b.category_id
              LEFT JOIN neighborhoods n ON n.id = b.neighborhood_id
              LEFT JOIN media m ON m.id = b.cover_media_id
+             LEFT JOIN business_promotions bp ON bp.business_id = b.id
+             WHERE {$whereSql}
              ORDER BY b.updated_at DESC, b.id DESC
-             LIMIT 300"
+             LIMIT {$limit} OFFSET {$offset}", $params
         );
 
-        $contactsRows = DB::fetchAll("SELECT * FROM business_contacts ORDER BY is_primary DESC, id ASC");
+        $ids = array_map(static fn(array $r): int => (int)$r['id'], $rows);
+        $contactsRows = $ids ? DB::fetchAll('SELECT * FROM business_contacts WHERE business_id IN (' . implode(',', $ids) . ') ORDER BY is_primary DESC, id ASC') : [];
         $contactsByBiz = [];
         foreach ($contactsRows as $contact) {
             $bizId = (int) $contact['business_id'];
@@ -64,7 +85,23 @@ final class BusinessController
         Response::json([
             'ok' => true,
             'businesses' => $rows,
+            'total' => $total,
+            'page' => $page,
+            'per_page' => $limit,
         ]);
+    }
+
+    public static function setPromotion(Request $request): void
+    {
+        Auth::requireRole(['admin']);
+        Csrf::verifyOrFail($request);
+        $id = (int)$request->input('business_id', 0);
+        $active = $request->input('active');
+        if ($id <= 0 || !in_array($active, [0, 1, false, true], true)) Response::json(['ok'=>false,'error'=>'درخواست معتبر نیست.'], 422);
+        if (!DB::fetchOne('SELECT id FROM businesses WHERE id=:id', ['id'=>$id])) Response::json(['ok'=>false,'error'=>'کسب‌وکار یافت نشد.'], 404);
+        DB::query('INSERT INTO business_promotions (business_id,active,updated_at) VALUES (:id,:active,NOW()) ON DUPLICATE KEY UPDATE active=VALUES(active),updated_at=NOW()', ['id'=>$id,'active'=>$active ? 1 : 0]);
+        Cache::flushAll();
+        Response::json(['ok'=>true,'message'=>$active ? 'جایگاه ویژه فعال شد.' : 'جایگاه ویژه غیرفعال شد.']);
     }
 
     /**

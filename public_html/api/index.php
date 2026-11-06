@@ -6,7 +6,7 @@ declare(strict_types=1);
  * شامل مسیرهای مراحل S0، S1، S2، S3 و S4 (مقالات لیستی، اسکیما و رهگیری رویدادها)
  */
 
-define('BASE_PATH', dirname(__DIR__, 2));
+if (!defined('BASE_PATH')) define('BASE_PATH', dirname(__DIR__, 2));
 require_once BASE_PATH . '/app/Core/Bootstrap.php';
 
 use App\Controllers\AiWorkerController;
@@ -16,6 +16,7 @@ use App\Controllers\BusinessController;
 use App\Controllers\CategoryController;
 use App\Controllers\CityController;
 use App\Controllers\CollectorController;
+use App\Controllers\ManualImportController;
 use App\Controllers\PublicSiteController;
 use App\Controllers\ReviewQueueController;
 use App\Core\Bootstrap;
@@ -52,6 +53,9 @@ $router->post('/api/v1/category-packs', [CategoryController::class, 'storeOrUpda
 
 $router->get('/api/v1/businesses', [BusinessController::class, 'index']);
 $router->post('/api/v1/businesses', [BusinessController::class, 'storeOrUpdate']);
+$router->post('/api/v1/businesses/promotion', [BusinessController::class, 'setPromotion']);
+$router->post('/api/v1/import/json/preview', [ManualImportController::class, 'preview']);
+$router->post('/api/v1/import/json/apply', [ManualImportController::class, 'apply']);
 $router->post('/api/v1/media/upload', [BusinessController::class, 'uploadMedia']);
 $router->get('/api/v1/slug/suggest', [BusinessController::class, 'suggestSlug']);
 

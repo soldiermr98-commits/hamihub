@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Store,
   Plus,
@@ -16,32 +16,59 @@ import {
   CityItem,
   NeighborhoodItem,
   computeBusinessWarnings,
+  fetchBusinessesPage,
   normalizeIranPhone,
   saveBusinessItem,
+  setBusinessPromotion,
   suggestLatinSlug,
   uploadMediaWebp,
 } from '../services/adminApi';
 
 interface BusinessesManagerViewProps {
-  businesses: BusinessItem[];
   cities: CityItem[];
   neighborhoods: NeighborhoodItem[];
   categories: CategoryItem[];
   csrfToken: string;
   onRefreshData: () => Promise<void>;
+  isAdmin: boolean;
 }
 
 export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
-  businesses,
   cities,
   neighborhoods,
   categories,
   csrfToken,
   onRefreshData,
+  isAdmin,
 }) => {
   const [mode, setMode] = useState<'list' | 'form'>('list');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [cityFilter, setCityFilter] = useState<number>(0);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [pageBusinesses, setPageBusinesses] = useState<BusinessItem[]>([]);
+  const [listError, setListError] = useState('');
+  const [refreshList, setRefreshList] = useState(0);
+  const [promotionBusy, setPromotionBusy] = useState(0);
+  useEffect(() => {
+    if (mode !== 'list') return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const data = await fetchBusinessesPage(page, cityFilter, searchQuery);
+        if (!cancelled) { setPageBusinesses(data.businesses); setTotal(data.total); setListError(''); }
+      } catch (e) { if (!cancelled) { setPageBusinesses([]); setListError(e instanceof Error ? e.message : 'خطا در دریافت فهرست'); } }
+    }, 200);
+    return () => {cancelled=true;window.clearTimeout(timer);};
+  }, [mode, page, cityFilter, searchQuery, refreshList]);
+
+  const togglePromotion = async (biz:BusinessItem) => {
+    setPromotionBusy(biz.id);setListError('');
+    const result = await setBusinessPromotion(biz.id, !Number(biz.promoted), csrfToken);
+    setPromotionBusy(0);
+    if (!result.ok) {setListError(result.error || 'تغییر جایگاه ویژه ناموفق بود.');return;}
+    setSaveSuccess(result.message);setRefreshList(v=>v+1);
+  };
 
   // فیلدهای فرم یک‌صفحه‌ای کسب‌وکار (بخش ۷ قوانین UX)
   const [bizId, setBizId] = useState<number>(0);
@@ -209,18 +236,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
     setMode('list');
   };
 
-  const filteredBusinesses = businesses.filter((b) => {
-    if (cityFilter > 0 && b.city_id !== cityFilter) return false;
-    if (searchQuery.trim() !== '') {
-      const q = searchQuery.trim().toLowerCase();
-      return (
-        b.name.toLowerCase().includes(q) ||
-        b.slug.toLowerCase().includes(q) ||
-        (b.address || '').toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  const filteredBusinesses = pageBusinesses;
 
   const cityNeighborhoods = neighborhoods.filter((n) => n.city_id === Number(cityId));
 
@@ -248,10 +264,10 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
             <div>
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Store className="w-4 h-4 text-emerald-700" />
-                فهرست کسب‌وکارها ({filteredBusinesses.length} مورد)
+                فهرست کسب‌وکارها ({total} مورد)
               </h2>
               <p className="text-xs text-slate-500 mt-1">
-                ثبت کسب‌وکار جدید در کمتر از ۳۰ ثانیه همراه با چک‌لیست غیرمسدودکننده کیفیت داده
+                جستجو در همه رکوردها؛ جایگاه ویژه فقط برای موارد منتشرشده در سایت نمایش داده می‌شود.
               </p>
             </div>
 
@@ -271,7 +287,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {setPage(1);setSearchQuery(e.target.value);}}
                 placeholder="جستجو بر اساس نام فارسی، اسلاگ یا آدرس..."
                 className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:border-emerald-700"
               />
@@ -279,7 +295,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
             <div>
               <select
                 value={cityFilter}
-                onChange={(e) => setCityFilter(Number(e.target.value))}
+                onChange={(e) => {setPage(1);setCityFilter(Number(e.target.value));}}
                 className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-lg"
               >
                 <option value={0}>همه شهرهای گیلان</option>
@@ -292,6 +308,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
             </div>
           </div>
 
+          {listError && <p role="alert" className="text-sm text-rose-800 bg-rose-50 p-3 mb-4 rounded">{listError}</p>}
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
@@ -358,11 +375,20 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                         <Edit3 className="w-3.5 h-3.5" />
                         ویرایش
                       </button>
+                      {isAdmin && <button type="button" disabled={promotionBusy===biz.id} onClick={()=>togglePromotion(biz)} className="block mt-2 text-xs font-semibold text-blue-700 hover:underline disabled:opacity-50">
+                        {Number(biz.promoted) ? 'حذف از جایگاه ویژه' : 'قرار دادن در جایگاه ویژه'}
+                      </button>}
+                      {!!Number(biz.promoted) && <span className="block mt-1 text-xs text-amber-700">جایگاه ویژه فعال است</span>}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="flex gap-3 items-center mt-4 text-sm">
+            <button type="button" disabled={page<=1} onClick={()=>setPage(p=>p-1)} className="px-3 py-1 rounded border disabled:opacity-40">قبلی</button>
+            <span>صفحه {page} از {Math.max(1,Math.ceil(total/50))}</span>
+            <button type="button" disabled={page*50>=total} onClick={()=>setPage(p=>p+1)} className="px-3 py-1 rounded border disabled:opacity-40">بعدی</button>
           </div>
         </section>
       ) : (
