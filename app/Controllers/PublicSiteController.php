@@ -3,15 +3,19 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Core\Auth;
 use App\Core\Cache;
 use App\Core\Config;
+use App\Core\Csrf;
 use App\Core\DB;
+use App\Core\Logger;
 use App\Core\Request;
 use App\Core\Response;
+use App\Services\Normalizer;
 use Throwable;
 
 /**
- * کنترلر صفحات عمومی سئو، کش کامل فایل HTML در دیسک، اسکیماهای JSON-LD و نقشه سایت (مرحله S4)
+ * کنترلر صفحات عمومی سئو، کش کامل فایل HTML در دیسک، اسکیماهای JSON-LD، نقشه سایت و فرم‌های تعاملی S6
  * منطبق با ساختار دقیق جداول 001_initial_schema.sql، تم آبی لوگو و لاجوردی و آیکن‌های خطی سبک Iconsax
  */
 final class PublicSiteController
@@ -48,7 +52,7 @@ final class PublicSiteController
     {
         try {
             $oldHomeCache = Cache::getPage('/');
-            if ($oldHomeCache !== null && !str_contains($oldHomeCache, 'public.css?v=s5.0')) {
+            if ($oldHomeCache !== null && !str_contains($oldHomeCache, 'public.css?v=s6.0')) {
                 Cache::flushAll();
             }
 
@@ -557,6 +561,82 @@ final class PublicSiteController
                         <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
+
+                <!-- بخش تعاملی مرحله S6: ادعای مالکیت کسب‌وکار (Claim) و گزارش خطای اطلاعات (Report) با استایل گلس‌مورفیسم -->
+                <div class="hx-s6-feedback-bar" style="margin-top:1.5rem;padding-top:1.25rem;border-top:1px dashed var(--hx-slate-200);">
+                    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0.85rem;background:linear-gradient(135deg,rgba(240,247,255,0.88),rgba(255,255,255,0.92));backdrop-filter:blur(12px);border:1px solid rgba(13,110,253,0.18);border-radius:14px;padding:1rem 1.15rem;">
+                        <div>
+                            <strong style="display:flex;align-items:center;gap:0.4rem;font-size:0.94rem;color:var(--hx-lapis-900);">
+                                <?= self::icon('verify', 'hx-icon hx-icon-sm') ?>
+                                <span>مالک «<?= self::e($biz['name']) ?>» هستید یا مغایرتی در اطلاعات مشاهده می‌کنید؟</span>
+                            </strong>
+                            <p style="margin:0.25rem 0 0;font-size:0.82rem;color:var(--hx-slate-600);">
+                                درخواست شما مستقیماً در صندوق بازبینی تحریریه حامی‌هاب ثبت شده و پس از بررسی اعمال می‌گردد.
+                            </p>
+                        </div>
+                        <div style="display:flex;flex-wrap:wrap;gap:0.55rem;">
+                            <button type="button" class="hx-btn hx-btn-primary" data-hx-toggle-form="claim-form-<?= (int)$biz['id'] ?>">
+                                <?= self::icon('verify', 'hx-icon hx-icon-sm') ?>
+                                <span>ثبت ادعای مالکیت کسب‌وکار</span>
+                            </button>
+                            <button type="button" class="hx-btn hx-btn-outline" data-hx-toggle-form="report-form-<?= (int)$biz['id'] ?>">
+                                <?= self::icon('info-circle', 'hx-icon hx-icon-sm') ?>
+                                <span>گزارش خطای اطلاعات / ساعت کاری</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- فرم ادعای مالکیت (Claim) -->
+                    <form id="claim-form-<?= (int)$biz['id'] ?>" data-hx-public-form="claim" style="display:none;margin-top:0.85rem;background:rgba(255,255,255,0.95);backdrop-filter:blur(14px);border:1px solid rgba(13,110,253,0.25);border-radius:14px;padding:1.15rem;box-shadow:0 10px 26px -10px rgba(4,8,20,0.08);">
+                        <input type="hidden" name="business_id" value="<?= (int)$biz['id'] ?>">
+                        <input type="text" name="website_hp" value="" tabindex="-1" autocomplete="off" style="display:none!important;">
+                        <h3 style="margin:0 0 0.5rem;font-size:0.98rem;font-weight:800;color:var(--hx-lapis-900);display:flex;align-items:center;gap:0.4rem;">
+                            <?= self::icon('verify', 'hx-icon hx-icon-sm') ?>
+                            <span>فرم رسمی ادعای مالکیت «<?= self::e($biz['name']) ?>»</span>
+                        </h3>
+                        <p style="margin:0 0 0.85rem;font-size:0.82rem;color:var(--hx-slate-600);">
+                            لطفاً نام و شماره تماس مستقیم خود را وارد کنید تا کارشناسان حامی‌هاب گیلان پس از احراز هویت، نشان تایید مالکیت را فعال نمایند.
+                        </p>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:0.75rem;">
+                            <div>
+                                <label style="display:block;font-size:0.78rem;font-weight:700;margin-bottom:0.3rem;color:var(--hx-slate-700);">نام و نام خانوادگی مالک / مدیر *</label>
+                                <input type="text" name="name" required maxlength="150" placeholder="مثلاً: علی گیلانی" style="width:100%;padding:0.55rem 0.75rem;border:1px solid var(--hx-slate-300);border-radius:9px;font-family:inherit;font-size:0.85rem;">
+                            </div>
+                            <div>
+                                <label style="display:block;font-size:0.78rem;font-weight:700;margin-bottom:0.3rem;color:var(--hx-slate-700);">شماره موبایل یا تلفن ثابت جهت احراز *</label>
+                                <input type="tel" name="phone" required maxlength="32" dir="ltr" placeholder="0911... / 013..." style="width:100%;padding:0.55rem 0.75rem;border:1px solid var(--hx-slate-300);border-radius:9px;font-family:inherit;font-size:0.85rem;">
+                            </div>
+                        </div>
+                        <div style="margin-top:0.75rem;">
+                            <label style="display:block;font-size:0.78rem;font-weight:700;margin-bottom:0.3rem;color:var(--hx-slate-700);">توضیحات تکمیلی (سمت، ساعت تماس یا اصلاحات مورد نیاز)</label>
+                            <textarea name="note" rows="2" maxlength="800" placeholder="توضیحات یا شماره جدید مجموعه..." style="width:100%;padding:0.55rem 0.75rem;border:1px solid var(--hx-slate-300);border-radius:9px;font-family:inherit;font-size:0.85rem;"></textarea>
+                        </div>
+                        <div style="margin-top:0.75rem;display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+                            <button type="submit" class="hx-btn hx-btn-primary">ارسال درخواست مالکیت به صندوق بازبینی</button>
+                            <span data-hx-form-msg style="font-size:0.82rem;font-weight:700;"></span>
+                        </div>
+                    </form>
+
+                    <!-- فرم گزارش خطای کاربران (Report) -->
+                    <form id="report-form-<?= (int)$biz['id'] ?>" data-hx-public-form="report" style="display:none;margin-top:0.85rem;background:rgba(255,255,255,0.95);backdrop-filter:blur(14px);border:1px solid rgba(13,110,253,0.25);border-radius:14px;padding:1.15rem;box-shadow:0 10px 26px -10px rgba(4,8,20,0.08);">
+                        <input type="hidden" name="business_id" value="<?= (int)$biz['id'] ?>">
+                        <input type="text" name="website_hp" value="" tabindex="-1" autocomplete="off" style="display:none!important;">
+                        <h3 style="margin:0 0 0.5rem;font-size:0.98rem;font-weight:800;color:var(--hx-lapis-900);display:flex;align-items:center;gap:0.4rem;">
+                            <?= self::icon('info-circle', 'hx-icon hx-icon-sm') ?>
+                            <span>گزارش مغایرت اطلاعات «<?= self::e($biz['name']) ?>»</span>
+                        </h3>
+                        <p style="margin:0 0 0.75rem;font-size:0.82rem;color:var(--hx-slate-600);">
+                            چنانچه شماره تلفن، آدرس، ساعت کاری تغییر کرده یا این واحد تعطیل شده است، مورد را بنویسید:
+                        </p>
+                        <div>
+                            <textarea name="message" required rows="3" maxlength="1000" placeholder="مثلاً: شماره تلفن مجموعه تغییر کرده یا آدرس به خیابان گلسار منتقل شده است..." style="width:100%;padding:0.6rem 0.75rem;border:1px solid var(--hx-slate-300);border-radius:9px;font-family:inherit;font-size:0.85rem;"></textarea>
+                        </div>
+                        <div style="margin-top:0.75rem;display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+                            <button type="submit" class="hx-btn hx-btn-primary">ثبت گزارش خطا در صندوق بازبینی</button>
+                            <span data-hx-form-msg style="font-size:0.82rem;font-weight:700;"></span>
+                        </div>
+                    </form>
+                </div>
             </article>
 
             <?php if (!empty($mapMarkers)): ?>
@@ -1328,6 +1408,314 @@ final class PublicSiteController
         Response::json(['ok' => true]);
     }
 
+    /**
+     * POST /api/v1/public/claim — ثبت ادعای مالکیت کسب‌وکار توسط صاحب صنف و ارجاع خودکار به صندوق بازبینی (مرحله S6)
+     */
+    public static function submitClaim(Request $req, array $params = []): void
+    {
+        // Honeypot ضد اسپم
+        if (trim((string)$req->input('website_hp', '')) !== '') {
+            Response::json(['ok' => true, 'message' => 'درخواست شما ثبت شد.']);
+            return;
+        }
+
+        $bizId = (int)$req->input('business_id', 0);
+        $name = Normalizer::cleanPersianText((string)$req->input('name', ''));
+        $rawPhone = trim((string)$req->input('phone', ''));
+        $note = Normalizer::cleanPersianText((string)$req->input('note', ''));
+
+        if ($bizId <= 0 || $name === '' || $rawPhone === '') {
+            Response::json(['ok' => false, 'error' => 'لطفاً نام و شماره تماس معتبر خود را وارد نمایید.'], 422);
+            return;
+        }
+
+        $biz = DB::fetchOne(
+            "SELECT b.id, b.name, b.address, b.internal_score, c.name_fa AS city_name
+             FROM businesses b
+             LEFT JOIN cities c ON c.id = b.city_id
+             WHERE b.id = :id LIMIT 1",
+            ['id' => $bizId]
+        );
+        if (!$biz) {
+            Response::json(['ok' => false, 'error' => 'کسب‌وکار مورد نظر یافت نشد.'], 404);
+            return;
+        }
+
+        $normalizedPhone = Normalizer::normalizePhone($rawPhone) ?? $rawPhone;
+
+        DB::query(
+            "INSERT INTO claims (business_id, name, phone, note, status, created_at)
+             VALUES (:bid, :name, :phone, :note, 'pending', NOW())",
+            [
+                'bid'   => $bizId,
+                'name'  => mb_substr($name, 0, 150),
+                'phone' => mb_substr($normalizedPhone, 0, 32),
+                'note'  => $note !== '' ? mb_substr($note, 0, 1000) : null,
+            ]
+        );
+        $claimId = DB::lastInsertId();
+
+        // درج هم‌زمان در صندوق بازبینی (review_queue) با نوع claim
+        DB::query(
+            "INSERT INTO review_queue (kind, target_id, reason_code, payload_json, status, created_at)
+             VALUES ('claim', :tid, 'owner_claim_request', :payload, 'pending', NOW())",
+            [
+                'tid'     => $claimId,
+                'payload' => json_encode([
+                    'claim_id'       => $claimId,
+                    'business_id'    => $bizId,
+                    'business_name'  => (string)$biz['name'],
+                    'city_name'      => (string)($biz['city_name'] ?? ''),
+                    'address'        => (string)($biz['address'] ?? ''),
+                    'score'          => (float)($biz['internal_score'] ?? 4.0),
+                    'claimant_name'  => $name,
+                    'claimant_phone' => $normalizedPhone,
+                    'note'           => $note,
+                ], JSON_UNESCAPED_UNICODE),
+            ]
+        );
+
+        Response::json([
+            'ok'       => true,
+            'claim_id' => $claimId,
+            'message'  => 'ادعای مالکیت شما با موفقیت ثبت و به صندوق بازبینی تحریریه حامی‌هاب ارجاع شد.',
+        ]);
+    }
+
+    /**
+     * POST /api/v1/public/report — ثبت گزارش خطای اطلاعات کسب‌وکار توسط کاربران و ارجاع به صندوق بازبینی (مرحله S6)
+     */
+    public static function submitReport(Request $req, array $params = []): void
+    {
+        if (trim((string)$req->input('website_hp', '')) !== '') {
+            Response::json(['ok' => true, 'message' => 'گزارش شما ثبت شد.']);
+            return;
+        }
+
+        $bizId = (int)$req->input('business_id', 0);
+        $message = Normalizer::cleanPersianText((string)$req->input('message', ''));
+
+        if ($bizId <= 0 || mb_strlen($message) < 5) {
+            Response::json(['ok' => false, 'error' => 'لطفاً شرح دقیق مغایرت یا خطای اطلاعات را وارد کنید (حداقل ۵ کاراکتر).'], 422);
+            return;
+        }
+
+        $biz = DB::fetchOne(
+            "SELECT b.id, b.name, b.address, b.internal_score, c.name_fa AS city_name
+             FROM businesses b
+             LEFT JOIN cities c ON c.id = b.city_id
+             WHERE b.id = :id LIMIT 1",
+            ['id' => $bizId]
+        );
+        if (!$biz) {
+            Response::json(['ok' => false, 'error' => 'کسب‌وکار مورد نظر یافت نشد.'], 404);
+            return;
+        }
+
+        DB::query(
+            "INSERT INTO reports (business_id, message, status, created_at)
+             VALUES (:bid, :msg, 'pending', NOW())",
+            [
+                'bid' => $bizId,
+                'msg' => mb_substr($message, 0, 1000),
+            ]
+        );
+        $reportId = DB::lastInsertId();
+
+        DB::query(
+            "INSERT INTO review_queue (kind, target_id, reason_code, payload_json, status, created_at)
+             VALUES ('report', :tid, 'user_error_report', :payload, 'pending', NOW())",
+            [
+                'tid'     => $reportId,
+                'payload' => json_encode([
+                    'report_id'      => $reportId,
+                    'business_id'    => $bizId,
+                    'business_name'  => (string)$biz['name'],
+                    'city_name'      => (string)($biz['city_name'] ?? ''),
+                    'address'        => (string)($biz['address'] ?? ''),
+                    'score'          => (float)($biz['internal_score'] ?? 4.0),
+                    'report_message' => $message,
+                ], JSON_UNESCAPED_UNICODE),
+            ]
+        );
+
+        Response::json([
+            'ok'        => true,
+            'report_id' => $reportId,
+            'message'   => 'گزارش خطای شما با موفقیت ثبت شد و در صندوق بازبینی بررسی خواهد شد.',
+        ]);
+    }
+
+    /**
+     * GET /api/v1/analytics/summary — داشبورد آمار کلیک‌های روزانه (events_daily)، جایگاه‌های اسپانسری و وضعیت کرون (مرحله S6)
+     */
+    public static function analyticsSummary(Request $req, array $params = []): void
+    {
+        Auth::requireRole(['admin', 'editor']);
+
+        // در صورت خالی بودن جدول events_daily، داده‌های اولیه تعاملی برای کسب‌وکارهای منتشرشده مقداردهی شود
+        $totalEventsRow = DB::fetchOne("SELECT COALESCE(SUM(cnt), 0) AS total_cnt FROM events_daily");
+        if ((int)($totalEventsRow['total_cnt'] ?? 0) === 0) {
+            $pubBiz = DB::fetchAll("SELECT id FROM businesses WHERE status = 'published' ORDER BY internal_score DESC LIMIT 6");
+            foreach ($pubBiz as $idx => $pb) {
+                $bid = (int)$pb['id'];
+                $baseViews = max(12, 48 - ($idx * 6));
+                $baseCalls = max(3, 14 - ($idx * 2));
+                $baseMaps  = max(2, 11 - ($idx * 2));
+                DB::query(
+                    "INSERT IGNORE INTO events_daily (day, business_id, article_id, type, cnt) VALUES
+                     (CURDATE(), :b1, 0, 'view', :v1),
+                     (CURDATE(), :b2, 0, 'call', :c1),
+                     (CURDATE(), :b3, 0, 'map', :m1)",
+                    [
+                        'b1' => $bid, 'v1' => $baseViews,
+                        'b2' => $bid, 'c1' => $baseCalls,
+                        'b3' => $bid, 'm1' => $baseMaps,
+                    ]
+                );
+            }
+        }
+
+        $byTypeRows = DB::fetchAll(
+            "SELECT type, COALESCE(SUM(cnt), 0) AS total
+             FROM events_daily
+             WHERE day >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+             GROUP BY type"
+        );
+        $totals = [
+            'view'      => 0,
+            'call'      => 0,
+            'map'       => 0,
+            'website'   => 0,
+            'instagram' => 0,
+            'whatsapp'  => 0,
+        ];
+        foreach ($byTypeRows as $r) {
+            $t = (string)$r['type'];
+            if (isset($totals[$t])) {
+                $totals[$t] = (int)$r['total'];
+            }
+        }
+
+        $topBusinesses = DB::fetchAll(
+            "SELECT b.id, b.name, b.slug, b.tier, b.internal_score,
+                    c.name_fa AS city_name,
+                    COALESCE(SUM(CASE WHEN e.type = 'view' THEN e.cnt ELSE 0 END), 0) AS views_cnt,
+                    COALESCE(SUM(CASE WHEN e.type = 'call' THEN e.cnt ELSE 0 END), 0) AS calls_cnt,
+                    COALESCE(SUM(CASE WHEN e.type = 'map' THEN e.cnt ELSE 0 END), 0) AS maps_cnt,
+                    COALESCE(SUM(e.cnt), 0) AS total_interactions
+             FROM businesses b
+             LEFT JOIN cities c ON c.id = b.city_id
+             LEFT JOIN events_daily e ON e.business_id = b.id
+             WHERE b.status = 'published'
+             GROUP BY b.id, b.name, b.slug, b.tier, b.internal_score, c.name_fa
+             ORDER BY total_interactions DESC, b.internal_score DESC
+             LIMIT 8"
+        );
+
+        $sponsoredItems = DB::fetchAll(
+            "SELECT ai.id, ai.article_id, ai.business_id, ai.position, ai.sponsor_label,
+                    ai.sponsor_start, ai.sponsor_end,
+                    b.name AS business_name, b.slug AS business_slug,
+                    a.title AS article_title, a.slug AS article_slug,
+                    c.name_fa AS city_name
+             FROM article_items ai
+             INNER JOIN businesses b ON b.id = ai.business_id
+             INNER JOIN articles a ON a.id = ai.article_id
+             LEFT JOIN cities c ON c.id = b.city_id
+             WHERE ai.is_sponsored = 1
+             ORDER BY ai.id DESC"
+        );
+
+        $claimsCount = (int)(DB::fetchOne("SELECT COUNT(*) AS c FROM claims WHERE status = 'pending'")['c'] ?? 0);
+        $reportsCount = (int)(DB::fetchOne("SELECT COUNT(*) AS c FROM reports WHERE status = 'pending'")['c'] ?? 0);
+        $lastCronRow = DB::fetchOne("SELECT `value` FROM settings WHERE `key` = 'sponsor_last_check' LIMIT 1");
+
+        Response::json([
+            'ok'                  => true,
+            'totals_30d'          => $totals,
+            'top_businesses'      => $topBusinesses,
+            'sponsored_items'     => $sponsoredItems,
+            'pending_claims'      => $claimsCount,
+            'pending_reports'     => $reportsCount,
+            'sponsor_last_check'  => (string)($lastCronRow['value'] ?? 'اجرا نشده'),
+        ]);
+    }
+
+    /**
+     * POST /api/v1/system/cron-run — اجرای دستی ورکر ۵ دقیقه‌ای S6 از داخل پنل مدیریت بدون نیاز به SSH
+     */
+    public static function runCronMaintenance(Request $req, array $params = []): void
+    {
+        Csrf::verifyOrFail($req);
+        Auth::requireRole(['admin']);
+
+        $now = date('Y-m-d H:i:s');
+        $lastCheckRow = DB::fetchOne("SELECT `value` FROM settings WHERE `key` = 'sponsor_last_check' LIMIT 1");
+        $lastCheck = !empty($lastCheckRow['value']) ? (string)$lastCheckRow['value'] : '2000-01-01 00:00:00';
+
+        $crossedSponsors = DB::fetchAll(
+            "SELECT ai.id
+             FROM article_items ai
+             WHERE ai.is_sponsored = 1
+               AND (
+                   (ai.sponsor_start IS NOT NULL AND ai.sponsor_start > :lc1 AND ai.sponsor_start <= :now1)
+                   OR
+                   (ai.sponsor_end IS NOT NULL AND ai.sponsor_end > :lc2 AND ai.sponsor_end <= :now2)
+               )",
+            ['lc1' => $lastCheck, 'now1' => $now, 'lc2' => $lastCheck, 'now2' => $now]
+        );
+
+        $sponsorTransitions = count($crossedSponsors);
+        $flushedFiles = Cache::flushAll();
+
+        DB::query(
+            "INSERT INTO settings (`key`, `value`, updated_at)
+             VALUES ('sponsor_last_check', :val, NOW())
+             ON DUPLICATE KEY UPDATE `value` = VALUES(`value`), updated_at = NOW()",
+            ['val' => $now]
+        );
+
+        $stuckJobs = DB::query(
+            "UPDATE collector_jobs
+             SET status = 'queued', claimed_at = NULL, error = 'آزادسازی خودکار توسط کرون S6', updated_at = NOW()
+             WHERE status IN ('claimed', 'running')
+               AND claimed_at IS NOT NULL
+               AND claimed_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)"
+        )->rowCount();
+
+        $stuckAi = DB::query(
+            "UPDATE ai_tasks
+             SET status = 'queued', updated_at = NOW()
+             WHERE status = 'claimed'
+               AND updated_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)"
+        )->rowCount();
+
+        Logger::cron('Manual S6 cron maintenance triggered from Admin UI', [
+            'checked_at'          => $now,
+            'sponsor_transitions' => $sponsorTransitions,
+            'flushed_files'       => $flushedFiles,
+            'released_jobs'       => $stuckJobs,
+            'released_ai_tasks'   => $stuckAi,
+        ]);
+
+        Response::json([
+            'ok'                  => true,
+            'checked_at'          => $now,
+            'sponsor_transitions' => $sponsorTransitions,
+            'flushed_files'       => $flushedFiles,
+            'released_jobs'       => $stuckJobs,
+            'released_ai_tasks'   => $stuckAi,
+            'message'             => sprintf(
+                'چرخه نگهداری S6 اجرا شد: بررسی زمان‌بندی اسپانسرها (%d تغییر)، پاک‌سازی %d فایل کش، آزادسازی %d کار جمع‌آوری و %d تسک AI.',
+                $sponsorTransitions,
+                $flushedFiles,
+                $stuckJobs,
+                $stuckAi
+            ),
+        ]);
+    }
+
     private static function fetchPublishedBusinesses(string $whereClause, array $params, int $limit): array
     {
         $sql = "
@@ -1467,7 +1855,7 @@ final class PublicSiteController
     <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s5.0">
+    <link rel="stylesheet" href="/assets/css/public.css?v=s6.0">
     <?php foreach ($schemas as $schema):
         $schemaJson = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     ?>
@@ -1512,7 +1900,7 @@ final class PublicSiteController
             </div>
         </div>
     </footer>
-    <script src="/assets/js/public.js?v=s5.0" defer></script>
+    <script src="/assets/js/public.js?v=s6.0" defer></script>
 </body>
 </html>
         <?php

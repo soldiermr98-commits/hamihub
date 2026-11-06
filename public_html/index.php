@@ -45,11 +45,11 @@ if ($path === '/admin' || str_starts_with($path, '/admin/')) {
     }
 }
 
-// ۴. سرو از کش دیسک (public_html/cache/pages) در صورت معتبر بودن نسخه استایل S5.0
+// ۴. سرو از کش دیسک (public_html/cache/pages) در صورت معتبر بودن نسخه استایل S6.0
 if ($request->method() === 'GET' && empty($_GET)) {
     $cachedHtml = Cache::getPage($path);
     if ($cachedHtml !== null) {
-        if (!str_contains($cachedHtml, 'public.css?v=s5.0')) {
+        if (!str_contains($cachedHtml, 'public.css?v=s6.0')) {
             Cache::flushAll();
         } else {
             Response::html($cachedHtml);

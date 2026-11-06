@@ -42,6 +42,7 @@ import { BusinessesManagerView } from './components/BusinessesManagerView';
 import { ReviewQueueView } from './components/ReviewQueueView';
 import { ArticlesManagerView } from './components/ArticlesManagerView';
 import { AiWorkerPanel } from './components/AiWorkerPanel';
+import { S6AnalyticsPanel } from './components/S6AnalyticsPanel';
 
 type AdminRoute =
   | '/admin/dashboard'
@@ -727,9 +728,9 @@ export default function App() {
                     <div className="space-y-6">
                       <div className="flex items-center justify-between bg-white/80 backdrop-blur-md border border-blue-200/70 rounded-2xl p-5 shadow-sm">
                         <div>
-                          <h1 className="text-xl font-bold text-slate-900">داشبورد مدیریت حامی‌هاب گیلان</h1>
+                          <h1 className="text-xl font-bold text-slate-900">داشبورد مدیریت حامی‌هاب گیلان (مراحل S0 تا S6)</h1>
                           <p className="text-xs text-slate-500 mt-1">
-                            خلاصه وضعیت داده‌های شهرها، دسته‌ها، کسب‌وکارها و صف هوش مصنوعی بدون توهم (مراحل S0 تا S5)
+                            خلاصه وضعیت داده‌های شهرها، دسته‌ها، کسب‌وکارها، آمار کلیک‌های روزانه (S6) و صف هوش مصنوعی بدون توهم (S5)
                           </p>
                         </div>
                         <div className="flex items-center gap-3">
@@ -766,11 +767,16 @@ export default function App() {
                           <div className="text-xs text-slate-600 mt-1">با امتیاز وزنی بیزین</div>
                         </div>
                         <div className="bg-white/85 backdrop-blur-md border border-blue-200/70 rounded-xl p-5 shadow-sm">
-                          <div className="text-xs text-slate-500">موتور AI بدون توهم (S5)</div>
-                          <div className="text-lg font-bold text-blue-700 mt-1">گاردریل + used_fields</div>
-                          <div className="text-xs text-slate-600 mt-1">فونت لوکال + کش دیسک</div>
+                          <div className="text-xs text-slate-500">چرخه کامل S0 تا S6</div>
+                          <div className="text-lg font-bold text-blue-700 mt-1">آمار + اسپانسر + مالکیت</div>
+                          <div className="text-xs text-slate-600 mt-1">کرون ۵ دقیقه‌ای + کش دیسک</div>
                         </div>
                       </div>
+
+                      <S6AnalyticsPanel
+                        csrfToken={csrfToken}
+                        onNavigateReview={() => navigateAdmin('/admin/review')}
+                      />
 
                       <AiWorkerPanel csrfToken={csrfToken} onRefreshParent={loadS1Entities} />
                     </div>
@@ -820,6 +826,11 @@ export default function App() {
                           </button>
                         </div>
                       </div>
+
+                      <S6AnalyticsPanel
+                        csrfToken={csrfToken}
+                        onNavigateReview={() => navigateAdmin('/admin/review')}
+                      />
 
                       <AiWorkerPanel csrfToken={csrfToken} onRefreshParent={loadS1Entities} />
                     </div>

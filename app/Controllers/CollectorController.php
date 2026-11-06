@@ -828,8 +828,10 @@ final class CollectorController
             ];
         }
 
-        $status = ($hasValidPhone && $hasCoords && $hasAddress && $score >= $minScoreThreshold) ? 'published' : 'pending_review';
-        $reasonCode = !$hasValidPhone ? 'missing_valid_phone' : ($score < $minScoreThreshold ? 'low_bayesian_score' : 'bayes_score_above_threshold');
+        $status = 'pending_review';
+        $reasonCode = !$hasValidPhone
+            ? 'missing_valid_phone'
+            : ($score < $minScoreThreshold ? 'low_bayesian_score' : 'single_source_ready');
         $tier = $score >= 4.35 ? 'A' : ($score >= 4.00 ? 'B' : 'C');
         $uniqueSlug = SlugService::ensureUniqueSlug('businesses', SlugService::suggestSlug($name, 'biz'));
 

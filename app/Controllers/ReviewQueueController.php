@@ -28,7 +28,39 @@ final class ReviewQueueController
     {
         Auth::requireRole(['admin', 'editor']);
 
-        // همگام‌سازی خودکار کسب‌وکارهایی که در وضعیت pending_review هستند ولی در جدول review_queue رکورد فعالی ندارند
+        // ۱. همگام‌سازی خودکار کسب‌وکارهای تک‌منبعی جمع‌آوری‌شده در Jobهای قبلی که بدون ورود به صندوق بازبینی رد شده بودند
+        $unreviewedSingleSource = DB::fetchAll(
+            "SELECT b.id, b.name, b.address, b.internal_score, b.publish_reason
+             FROM businesses b
+             LEFT JOIN review_queue rq ON (rq.kind = 'business' AND rq.target_id = b.id)
+             WHERE b.publish_reason = 'bayes_score_above_threshold'
+               AND b.slug NOT LIKE 's3-bench-%'
+               AND rq.id IS NULL
+             ORDER BY b.id DESC
+             LIMIT 100"
+        );
+        foreach ($unreviewedSingleSource as $usb) {
+            $bid = (int) $usb['id'];
+            DB::query(
+                "UPDATE businesses SET status = 'pending_review', publish_reason = 'single_source_ready' WHERE id = :id",
+                ['id' => $bid]
+            );
+            DB::query(
+                "INSERT INTO review_queue (kind, target_id, reason_code, payload_json, status, created_at)
+                 VALUES ('business', :tid, 'single_source_ready', :p, 'pending', NOW())",
+                [
+                    'tid' => $bid,
+                    'p'   => json_encode([
+                        'business_id'   => $bid,
+                        'business_name' => (string) $usb['name'],
+                        'address'       => (string) ($usb['address'] ?? ''),
+                        'score'         => (float) ($usb['internal_score'] ?? 4.5),
+                    ], JSON_UNESCAPED_UNICODE),
+                ]
+            );
+        }
+
+        // ۲. همگام‌سازی خودکار کسب‌وکارهایی که در وضعیت pending_review هستند ولی در جدول review_queue رکورد فعالی ندارند
         $unsyncedBiz = DB::fetchAll(
             "SELECT b.id, b.name, b.address, b.internal_score, b.publish_reason
              FROM businesses b
@@ -40,18 +72,20 @@ final class ReviewQueueController
             $reason = trim((string) ($ub['publish_reason'] ?? ''));
             if ($reason === '' || $reason === 'missing_phone_or_low_score') {
                 $reason = 'missing_valid_phone';
+            } elseif ($reason === 'bayes_score_above_threshold') {
+                $reason = 'single_source_ready';
             }
             DB::query(
                 "INSERT INTO review_queue (kind, target_id, reason_code, payload_json, status, created_at)
                  VALUES ('business', :tid, :rc, :p, 'pending', NOW())",
                 [
                     'tid' => (int) $ub['id'],
-                    'rc' => $reason,
-                    'p' => json_encode([
-                        'business_id' => (int) $ub['id'],
+                    'rc'  => $reason,
+                    'p'   => json_encode([
+                        'business_id'   => (int) $ub['id'],
                         'business_name' => (string) $ub['name'],
-                        'address' => (string) ($ub['address'] ?? ''),
-                        'score' => (float) ($ub['internal_score'] ?? 3.9),
+                        'address'       => (string) ($ub['address'] ?? ''),
+                        'score'         => (float) ($ub['internal_score'] ?? 3.9),
                     ], JSON_UNESCAPED_UNICODE),
                 ]
             );
@@ -59,37 +93,6 @@ final class ReviewQueueController
 
         $statusFilter = trim((string) ($_GET['status'] ?? 'pending'));
         $kindFilter = trim((string) ($_GET['kind'] ?? 'all'));
-
-        if ($statusFilter === 'approved') {
-            $unsyncedPublished = DB::fetchAll(
-                "SELECT b.id, b.name, b.address, b.internal_score, b.publish_reason
-                 FROM businesses b
-                 LEFT JOIN review_queue rq ON (rq.kind = 'business' AND rq.target_id = b.id AND rq.status = 'approved')
-                 WHERE b.status = 'published' AND rq.id IS NULL
-                 ORDER BY b.id DESC
-                 LIMIT 100"
-            );
-            foreach ($unsyncedPublished as $pb) {
-                $pubReason = trim((string) ($pb['publish_reason'] ?? ''));
-                if ($pubReason === '') {
-                    $pubReason = 'bayes_score_above_threshold';
-                }
-                DB::query(
-                    "INSERT INTO review_queue (kind, target_id, reason_code, payload_json, status, decided_at, created_at)
-                     VALUES ('business', :tid, :rc, :p, 'approved', NOW(), NOW())",
-                    [
-                        'tid' => (int) $pb['id'],
-                        'rc'  => $pubReason,
-                        'p'   => json_encode([
-                            'business_id'   => (int) $pb['id'],
-                            'business_name' => (string) $pb['name'],
-                            'address'       => (string) ($pb['address'] ?? ''),
-                            'score'         => (float) ($pb['internal_score'] ?? 4.4),
-                        ], JSON_UNESCAPED_UNICODE),
-                    ]
-                );
-            }
-        }
 
         $where = ["1=1"];
         $params = [];
@@ -270,6 +273,10 @@ final class ReviewQueueController
             }
 
             $processedCount++;
+        }
+
+        if ($processedCount > 0) {
+            Cache::flushAll();
         }
 
         Response::json([

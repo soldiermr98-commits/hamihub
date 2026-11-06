@@ -25,9 +25,9 @@ use App\Core\Router;
 
 Bootstrap::init(BASE_PATH);
 
-// پاک‌سازی خودکار کش قدیمی در صورت عدم تطابق با استایل جدید S5.0 (حامی‌هاب + گلس‌مورفیسم)
+// پاک‌سازی خودکار کش قدیمی در صورت عدم تطابق با استایل جدید S6.0 (حامی‌هاب + گلس‌مورفیسم + فرم‌های S6)
 $homeCache = Cache::getPage('/');
-if ($homeCache !== null && !str_contains($homeCache, 'public.css?v=s5.0')) {
+if ($homeCache !== null && !str_contains($homeCache, 'public.css?v=s6.0')) {
     Cache::flushAll();
 }
 
@@ -82,5 +82,11 @@ $router->post('/api/v1/ai/tasks/enqueue', [AiWorkerController::class, 'enqueue']
 $router->post('/api/v1/ai/tasks/run-batch', [AiWorkerController::class, 'runBatch']);
 $router->get('/api/v1/ai/tasks/next', [AiWorkerController::class, 'pullNextTask']);
 $router->post('/api/v1/ai/tasks/complete', [AiWorkerController::class, 'completeTask']);
+
+// ۷. مسیرهای مرحله S6 (ادعای مالکیت، گزارش خطا، آمار کلیک‌های روزانه و کرون ۵ دقیقه‌ای)
+$router->post('/api/v1/public/claim', [PublicSiteController::class, 'submitClaim']);
+$router->post('/api/v1/public/report', [PublicSiteController::class, 'submitReport']);
+$router->get('/api/v1/analytics/summary', [PublicSiteController::class, 'analyticsSummary']);
+$router->post('/api/v1/system/cron-run', [PublicSiteController::class, 'runCronMaintenance']);
 
 $router->dispatch($request);

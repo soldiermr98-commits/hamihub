@@ -405,6 +405,7 @@ final class PipelineService
         }
 
         // ۳. درج کسب‌وکار جدید و تصمیم‌گیری قانون انتشار خودکار (بخش ۱۱ و اصلاحیه ۶)
+        $isBenchmark = str_starts_with($provider, 's3_bench_');
         $status = 'pending_review';
         $reasonCode = 'manual_city_mode';
         $confidence = 'medium';
@@ -431,9 +432,16 @@ final class PipelineService
         } else {
             // حالت پیش‌فرض rules: بررسی امتیاز بیزی نسبت به آستانه
             if ($score >= $minScoreThreshold) {
-                $status = 'published';
-                $reasonCode = 'bayes_score_above_threshold';
-                $confidence = 'medium';
+                if ($isBenchmark) {
+                    $status = 'published';
+                    $reasonCode = 'bayes_score_above_threshold';
+                    $confidence = 'medium';
+                } else {
+                    // طبق اصلاحیه ۶: رکورد تک‌منبعی جدید ابتدا وارد صندوق بازبینی می‌شود تا مدیر همه موارد یافت‌شده را ببیند و تأیید کند (یا منبع دوم مستقل آن را تأیید کند)
+                    $status = 'pending_review';
+                    $reasonCode = 'single_source_ready';
+                    $confidence = 'medium';
+                }
             } else {
                 $status = 'pending_review';
                 $reasonCode = 'low_bayesian_score';

@@ -1,7 +1,8 @@
 /**
- * HamiHubX.ir - اسکریپت پایه فوق‌سبک سایت عمومی (< 2.5KB)
+ * HamiHubX.ir - اسکریپت پایه فوق‌سبک سایت عمومی (< 3.5KB)
  * ۱. بارگذاری تنبل (Lazy-Load) نقشه Leaflet سلف‌هاست فقط در صورت کلیک کاربر روی دکمه نمایش نقشه
  * ۲. ثبت کلیک‌های تماس، نقشه، اینستاگرام، واتساپ و وب‌سایت با navigator.sendBeacon در جدول events_daily
+ * ۳. ارسال بدون رفرش فرم‌های ادعای مالکیت (Claim) و گزارش خطا (Report) در مرحله S6 به صندوق بازبینی
  */
 (function () {
   'use strict';
@@ -21,11 +22,11 @@
 
     var link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = '/assets/vendor/leaflet/leaflet.css?v=s4';
+    link.href = '/assets/vendor/leaflet/leaflet.css?v=s6';
     document.head.appendChild(link);
 
     var script = document.createElement('script');
-    script.src = '/assets/vendor/leaflet/leaflet.js?v=s4';
+    script.src = '/assets/vendor/leaflet/leaflet.js?v=s6';
     script.async = true;
     script.onload = function () {
       leafletLoaded = true;
@@ -68,6 +69,17 @@
     var target = ev.target;
     if (!target || !target.closest) return;
 
+    var toggleBtn = target.closest('[data-hx-toggle-form]');
+    if (toggleBtn) {
+      ev.preventDefault();
+      var formId = toggleBtn.getAttribute('data-hx-toggle-form');
+      var formEl = formId ? document.getElementById(formId) : null;
+      if (formEl) {
+        formEl.style.display = formEl.style.display === 'none' ? 'block' : 'none';
+      }
+      return;
+    }
+
     var mapBtn = target.closest('[data-hx-load-map], .hhx-map-trigger');
     if (mapBtn) {
       ev.preventDefault();
@@ -92,5 +104,51 @@
         navigator.sendBeacon('/api/v1/events/track', payload);
       } catch (e) {}
     }
+  });
+
+  document.addEventListener('submit', function (ev) {
+    var form = ev.target;
+    if (!form || !form.getAttribute) return;
+    var formType = form.getAttribute('data-hx-public-form');
+    if (!formType) return;
+
+    ev.preventDefault();
+    var msgEl = form.querySelector('[data-hx-form-msg]');
+    var endpoint =
+      formType === 'claim' ? '/api/v1/public/claim' : '/api/v1/public/report';
+    var fd = new FormData(form);
+    var body = {};
+    fd.forEach(function (val, key) {
+      body[key] = val;
+    });
+
+    if (msgEl) {
+      msgEl.style.color = '#0369a1';
+      msgEl.textContent = 'در حال ارسال به صندوق بازبینی...';
+    }
+
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (res) {
+        if (msgEl) {
+          msgEl.style.color = res.ok ? '#15803d' : '#b91c1c';
+          msgEl.textContent = res.message || res.error || 'ثبت انجام شد.';
+        }
+        if (res.ok) {
+          form.reset();
+        }
+      })
+      .catch(function () {
+        if (msgEl) {
+          msgEl.style.color = '#b91c1c';
+          msgEl.textContent = 'خطا در ارتباط با سرور.';
+        }
+      });
   });
 })();

@@ -18,6 +18,8 @@ import {
   decideReviewQueueItems,
   fetchReviewQueueState,
   runPipelineBenchmark100,
+  submitPublicClaimS6,
+  submitPublicReportS6,
 } from '../services/adminApi';
 
 interface Props {
@@ -68,6 +70,10 @@ const REASON_LABELS: Record<string, { label: string; badgeClass: string }> = {
     label: 'شهر در حالت انتشار دستی (manual)',
     badgeClass: 'bg-slate-100 text-slate-700 border-slate-300',
   },
+  single_source_ready: {
+    label: 'تک‌منبعی معتبر — آماده تأیید و انتشار (امتیاز بیزی ≥ ۳.۸۵)',
+    badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  },
   bayes_score_above_threshold: {
     label: 'انتشار خودکار (امتیاز بیزی ≥ ۳.۸۵ + تلفن و لوکیشن معتبر)',
     badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
@@ -75,6 +81,14 @@ const REASON_LABELS: Record<string, { label: string; badgeClass: string }> = {
   multi_source_verified: {
     label: 'انتشار خودکار چندمنبعی (تأیید حداقل ۲ منبع مستقل)',
     badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  },
+  owner_claim_request: {
+    label: 'درخواست ادعای مالکیت کسب‌وکار (مرحله S6)',
+    badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
+  },
+  user_error_report: {
+    label: 'گزارش خطای اطلاعات توسط کاربر (مرحله S6)',
+    badgeClass: 'bg-purple-50 text-purple-800 border-purple-200',
   },
 };
 
@@ -216,6 +230,36 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
               {benchRunning
                 ? 'در حال پردازش ۱۰۰ رکورد در پایپ‌لاین...'
                 : 'اجرای تست معیار S3 (۱۰۰ رکورد نمونه با نتیجه قابل‌پیش‌بینی)'}
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const res = await submitPublicClaimS6({
+                  business_id: 1,
+                  name: 'علی گیلانی (مدیر مجموعه)',
+                  phone: '09111314455',
+                  note: 'درخواست ثبت نشان تایید مالکیت رسمی و بروزرسانی ساعت کاری',
+                });
+                setFeedback({ type: res.ok ? 'ok' : 'err', text: res.message || res.error || '' });
+                await loadQueue();
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-xs font-semibold rounded-lg"
+            >
+              + تست ادعای مالکیت (S6)
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const res = await submitPublicReportS6({
+                  business_id: 1,
+                  message: 'ساعت کاری مجموعه در روزهای جمعه از ۱۰ صبح تا ۱۲ شب تغییر یافته است.',
+                });
+                setFeedback({ type: res.ok ? 'ok' : 'err', text: res.message || res.error || '' });
+                await loadQueue();
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 text-xs font-semibold rounded-lg"
+            >
+              + تست گزارش خطا (S6)
             </button>
             <button
               type="button"
@@ -530,11 +574,35 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
                                 </div>
                               </div>
                             )}
-                            {item.reason_code !== 'source_conflict' && item.kind !== 'change' && (
-                              <div>
-                                {item.business_address || payload.address || 'بدون آدرس ثبت‌شده'}
+                            {item.kind === 'claim' && (
+                              <div className="space-y-1">
+                                <div className="font-semibold text-blue-900">
+                                  متقاضی مالکیت: {payload.claimant_name || '—'}
+                                </div>
+                                <div className="font-mono text-emerald-700" dir="ltr">
+                                  تلفن احراز: {payload.claimant_phone || '—'}
+                                </div>
+                                {payload.note && (
+                                  <div className="text-slate-600">توضیح: {payload.note}</div>
+                                )}
                               </div>
                             )}
+                            {item.kind === 'report' && (
+                              <div className="space-y-1">
+                                <div className="font-semibold text-purple-900">پیام گزارش کاربر:</div>
+                                <div className="text-slate-700 bg-purple-50/60 border border-purple-100 rounded p-1.5">
+                                  {payload.report_message || '—'}
+                                </div>
+                              </div>
+                            )}
+                            {item.reason_code !== 'source_conflict' &&
+                              item.kind !== 'change' &&
+                              item.kind !== 'claim' &&
+                              item.kind !== 'report' && (
+                                <div>
+                                  {item.business_address || payload.address || 'بدون آدرس ثبت‌شده'}
+                                </div>
+                              )}
                           </td>
                           <td className="py-3 px-3 font-mono tabular-nums">
                             {item.business_score || payload.score ? (
