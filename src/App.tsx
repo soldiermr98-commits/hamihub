@@ -47,7 +47,7 @@ export default function App() {
       {route==='review'&&<ReviewQueueView csrfToken={csrf} onRefreshParent={refresh}/>}
       {route==='cities'&&<CitiesAndCategoriesView cities={cities} categories={categories} packs={packs} csrfToken={csrf} onRefreshData={refresh}/>}
       {route==='businesses'&&<BusinessesManagerView cities={cities} neighborhoods={neighborhoods} categories={categories} csrfToken={csrf} onRefreshData={refresh} isAdmin={user.role==='admin'}/>}
-      {route==='import'&&user.role==='admin'&&<JsonImportView cities={cities} categories={categories} csrfToken={csrf} onRefreshData={refresh}/>}
+      {route==='import'&&user.role==='admin'&&<JsonImportView cities={cities} categories={categories} csrfToken={csrf} onRefreshData={refresh} onGoReview={()=>setRoute('review')}/>}
       {route==='articles'&&<ArticlesManagerView cities={cities} categories={categories} businesses={businesses} csrfToken={csrf}/>}
       {route==='settings'&&<div className="space-y-4"><section className="bg-white border rounded-xl p-6"><h1 className="font-bold">نگهداری پایگاه داده</h1><button className="bg-blue-700 text-white rounded p-2 mt-3 text-sm" onClick={async()=>{const r=await runWebMigrations(csrf);setNotice(r.message);if(r.ok) await refresh();}}>اجرای مایگریشن‌ها</button></section><AiWorkerPanel csrfToken={csrf}/></div>}
     </main></div>}</div>;
