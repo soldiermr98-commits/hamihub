@@ -530,6 +530,20 @@ export interface ImportRow { index:number; name:string; source_category:string; 
 export interface ImportOptions { city_id:number; category_id:number; source_categories:string[]; min_rating:number; min_reviews:number }
 export interface ImportEntry { index:number; item:unknown; decision:string; candidate_ids:number[] }
 export interface ImportResult { index:number; status:'created'|'updated'|'skipped'|'error'; business_id?:number; message:string }
+export interface PreparedJson { ok:boolean; items?:unknown[]; stats?:{apify:number;already_standard:number;missing_time:number;missing_identity:number;missing_coordinates:number}; error?:string }
+export async function prepareJsonImport(items:unknown[], runStartedAt:string, csrf:string):Promise<PreparedJson> {
+  return action('/api/v1/import/json/prepare',{items,run_started_at:runStartedAt},csrf);
+}
+export interface ApifySchedule { enabled:number|string;task_id:string;city_id:number|string|null;category_id:number|string|null;max_charge_usd:number|string|null;source_categories:string[];min_rating:number|string;min_reviews:number|string;next_run_at:string|null;last_error:string|null }
+export interface ApifyRunSummary { id:number|string;task_id:string;remote_run_id:string|null;dataset_id:string|null;status:string;city_id:number|string|null;category_id:number|string|null;started_at_iso:string|null;finished_at_iso:string|null;item_count:number|string|null;error:string|null;created_at:string;updated_at:string }
+export interface ApifyRunData { id:number|string;task_id:string;remote_run_id:string|null;status:string;city_id:number|string|null;category_id:number|string|null;source_categories:string[];min_rating:number|string;min_reviews:number|string;started_at_iso:string|null;finished_at_iso:string|null;item_count:number|string|null;items:unknown[] }
+export async function fetchApifyStatus():Promise<{ok:boolean;token_configured:boolean;schedule:ApifySchedule;runs:ApifyRunSummary[]}> { return request('/api/v1/import/apify/status',{cache:'no-store'}); }
+export async function fetchApifyRun(id:number):Promise<{ok:boolean;run:ApifyRunData}> { return request(`/api/v1/import/apify/runs/${id}`,{cache:'no-store'}); }
+export async function saveApifySchedule(payload:{enabled:boolean;task_id?:string;city_id?:number;category_id?:number;max_charge_usd?:number;source_categories?:string[];min_rating?:number;min_reviews?:number},csrf:string):Promise<{ok:boolean;error?:string}> { return action('/api/v1/import/apify/schedule',payload,csrf); }
+export async function importApifyRun(run_id:string,csrf:string):Promise<{ok:boolean;id?:number;error?:string}> { return action('/api/v1/import/apify/run',{run_id},csrf); }
+export async function refreshApifyRun(id:number,csrf:string):Promise<{ok:boolean;error?:string}> { return action('/api/v1/import/apify/refresh',{id},csrf); }
+export async function deleteApifyRun(id:number,csrf:string):Promise<{ok:boolean;error?:string}> { return action('/api/v1/import/apify/delete',{id},csrf); }
+export async function resolveApifyRun(id:number,csrf:string):Promise<{ok:boolean;error?:string}> { return action('/api/v1/import/apify/resolve',{id,confirmed:true},csrf); }
 export async function previewJsonImport(items:unknown[], options:ImportOptions, csrf:string): Promise<{ok:boolean;rows?:ImportRow[];error?:string}> {
   return action('/api/v1/import/json/preview',{items,options},csrf);
 }

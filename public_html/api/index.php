@@ -10,6 +10,7 @@ if (!defined('BASE_PATH')) define('BASE_PATH', dirname(__DIR__, 2));
 require_once BASE_PATH . '/app/Core/Bootstrap.php';
 
 use App\Controllers\AiWorkerController;
+use App\Controllers\ApifyController;
 use App\Controllers\ArticleController;
 use App\Controllers\AuthController;
 use App\Controllers\BusinessController;
@@ -54,8 +55,16 @@ $router->post('/api/v1/category-packs', [CategoryController::class, 'storeOrUpda
 $router->get('/api/v1/businesses', [BusinessController::class, 'index']);
 $router->post('/api/v1/businesses', [BusinessController::class, 'storeOrUpdate']);
 $router->post('/api/v1/businesses/promotion', [BusinessController::class, 'setPromotion']);
+$router->post('/api/v1/import/json/prepare', [ManualImportController::class, 'prepare']);
 $router->post('/api/v1/import/json/preview', [ManualImportController::class, 'preview']);
 $router->post('/api/v1/import/json/apply', [ManualImportController::class, 'apply']);
+$router->get('/api/v1/import/apify/status', [ApifyController::class, 'status']);
+$router->post('/api/v1/import/apify/schedule', [ApifyController::class, 'saveSchedule']);
+$router->post('/api/v1/import/apify/run', [ApifyController::class, 'importRun']);
+$router->get('/api/v1/import/apify/runs/{id}', [ApifyController::class, 'run']);
+$router->post('/api/v1/import/apify/refresh', [ApifyController::class, 'refreshRun']);
+$router->post('/api/v1/import/apify/delete', [ApifyController::class, 'deleteRun']);
+$router->post('/api/v1/import/apify/resolve', [ApifyController::class, 'resolve']);
 $router->post('/api/v1/media/upload', [BusinessController::class, 'uploadMedia']);
 $router->get('/api/v1/slug/suggest', [BusinessController::class, 'suggestSlug']);
 
