@@ -741,56 +741,55 @@ final class PublicSiteController
 
         ob_start();
         ?>
-        <main class="hx-container">
+        <main class="hx-container hx-catalog">
             <nav class="hx-breadcrumb" aria-label="مسیر صفحه">
-                <a href="/">حامی‌هاب گیلان</a>
-                <span>/</span>
-                <a href="/city/<?= self::e($city['slug']) ?>/"><?= self::e($city['name_fa']) ?></a>
-                <span>/</span>
-                <strong><?= self::e($category['name_fa']) ?> در <?= self::e($city['name_fa']) ?></strong>
+                <a href="/">حامی‌هاب گیلان</a><span>/</span>
+                <a href="/city/<?= self::e($city['slug']) ?>/"><?= self::e($city['name_fa']) ?></a><span>/</span>
+                <strong><?= self::e($category['name_fa']) ?></strong>
             </nav>
 
-            <header class="hx-article-header">
-                <span class="hx-badge hx-badge-tier-a"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> <?= self::e($city['name_fa']) ?> · <?= self::e($category['name_fa']) ?></span>
-                <h1>بهترین <?= self::e($category['name_fa']) ?> در <?= self::e($city['name_fa']) ?></h1>
-                <p style="margin:0;color:var(--hx-slate-600);">
-                    مقایسه و معرفی برترین مراکز <?= self::e($category['name_fa']) ?> در شهر <?= self::e($city['name_fa']) ?> همراه با آدرس، شماره تماس مستقیم و موقعیت روی نقشه.
-                </p>
+            <header class="hx-catalog-hero">
+                <div>
+                    <div class="hx-catalog-eyebrow"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> راهنمای <?= self::e($city['name_fa']) ?></div>
+                    <h1><?= self::e($category['name_fa']) ?> در <?= self::e($city['name_fa']) ?></h1>
+                    <p>گزینه‌ها را ببینید، امتیاز و نشانی را مقایسه کنید و با هر مجموعه مستقیم تماس بگیرید.</p>
+                </div>
+                <span class="hx-catalog-count"><?= count($businesses) ?> مورد در این صفحه</span>
             </header>
 
-            <form method="get" class="hx-card" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:end;margin-bottom:1rem;">
-                <label>جستجو<br><input name="q" maxlength="100" value="<?= self::e($search) ?>" placeholder="نام یا آدرس" style="padding:0.55rem;border:1px solid #bfd2ec;border-radius:8px;font:inherit;"></label>
-                <label>حداقل امتیاز<br><select name="min_rating" style="padding:0.55rem;border:1px solid #bfd2ec;border-radius:8px;font:inherit;">
-                    <?php foreach (['0'=>'همه','3'=>'۳ به بالا','4'=>'۴ به بالا','4.5'=>'۴٫۵ به بالا'] as $value=>$label): ?>
+            <form method="get" action="<?= self::e($path) ?>" class="hx-catalog-filters" aria-label="جستجو و فیلتر نتایج">
+                <label class="hx-filter-search"><span>جستجو</span><input name="q" maxlength="100" value="<?= self::e($search) ?>" placeholder="نام یا نشانی مجموعه"></label>
+                <label><span>حداقل امتیاز</span><select name="min_rating">
+                    <?php foreach (['0'=>'همه امتیازها','3'=>'۳ به بالا','4'=>'۴ به بالا','4.5'=>'۴٫۵ به بالا'] as $value=>$label): ?>
                         <option value="<?= self::e((string)$value) ?>" <?= $minRating === (string)$value ? 'selected' : '' ?>><?= self::e($label) ?></option>
                     <?php endforeach; ?>
                 </select></label>
-                <label>حداقل تعداد نظر<br><select name="min_reviews" style="padding:0.55rem;border:1px solid #bfd2ec;border-radius:8px;font:inherit;">
-                    <?php foreach (['0'=>'همه','10'=>'۱۰','50'=>'۵۰','100'=>'۱۰۰'] as $value=>$label): ?>
+                <label><span>حداقل تعداد نظر</span><select name="min_reviews">
+                    <?php foreach (['0'=>'همه','10'=>'۱۰ نظر','50'=>'۵۰ نظر','100'=>'۱۰۰ نظر'] as $value=>$label): ?>
                         <option value="<?= self::e((string)$value) ?>" <?= $minReviews === (string)$value ? 'selected' : '' ?>><?= self::e($label) ?></option>
                     <?php endforeach; ?>
                 </select></label>
-                <button class="hx-btn hx-btn-primary" type="submit">اعمال فیلتر</button>
+                <button class="hx-btn hx-btn-primary" type="submit">جستجو و فیلتر</button>
+                <?php if ($search !== '' || $minRating !== '0' || $minReviews !== '0'): ?><a class="hx-clear-filters" href="<?= self::e($path) ?>">پاک کردن فیلترها</a><?php endif; ?>
             </form>
-            <p style="font-size:0.85rem;color:var(--hx-slate-600);">جایگاه‌های ویژه ابتدا با برچسب مشخص می‌شوند؛ سپس ترتیب بر اساس آخرین امتیاز معتبر یک منبع و تعداد نظر آن است. موارد بدون امتیاز در پایان‌اند.</p>
+
+            <div class="hx-catalog-results-heading"><div><h2>گزینه‌های <?= self::e($category['name_fa']) ?></h2><p>جایگاه ویژه مشخص است؛ بقیه بر اساس آخرین امتیاز معتبر و تعداد نظر مرتب شده‌اند.</p></div></div>
             <?php if (!empty($mapMarkers)): ?>
-                <?= self::renderLazyMapBox($mapMarkers, 'نقشه مراکز ' . $category['name_fa'] . ' در ' . $city['name_fa']) ?>
+                <?= self::renderLazyMapBox($mapMarkers, 'موقعیت گزینه‌های این صفحه', true) ?>
             <?php endif; ?>
 
-            <section class="hx-section">
+            <section class="hx-catalog-results" aria-label="نتایج <?= self::e($category['name_fa']) ?>">
                 <?php if (empty($businesses)): ?>
-                    <div class="hx-card">
-                        <p class="hx-card-desc">در این صفحه مورد منتشرشده‌ای با فیلترهای انتخابی پیدا نشد.</p>
-                    </div>
+                    <div class="hx-catalog-empty"><strong>نتیجه‌ای پیدا نشد</strong><p>فیلترها را تغییر دهید یا دوباره جستجو کنید.</p><?php if ($search !== '' || $minRating !== '0' || $minReviews !== '0'): ?><a class="hx-btn hx-btn-outline" href="<?= self::e($path) ?>">نمایش همه نتایج</a><?php endif; ?></div>
                 <?php else: ?>
-                    <div class="hx-grid hx-grid-3">
+                    <div class="hx-grid hx-catalog-grid">
                         <?php foreach ($businesses as $idx => $biz): ?>
                             <?= self::renderBusinessCard($biz, ($page - 1) * 50 + $idx + 1, 'city_cat_' . $city['slug'] . '_' . $category['slug']) ?>
                         <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
                 <?php if ($page > 1 || $hasNext): ?>
-                    <nav aria-label="صفحات نتایج" style="display:flex;gap:1rem;margin-top:1.5rem;align-items:center;">
+                    <nav aria-label="صفحات نتایج" class="hx-pagination">
                         <?php if ($page > 1): ?><a class="hx-btn hx-btn-outline" href="<?= self::e($pageUrl($page - 1)) ?>">صفحه قبل</a><?php endif; ?>
                         <span>صفحه <?= $page ?></span>
                         <?php if ($hasNext): ?><a class="hx-btn hx-btn-outline" href="<?= self::e($pageUrl($page + 1)) ?>">صفحه بعد</a><?php endif; ?>
@@ -1561,6 +1560,7 @@ final class PublicSiteController
                    c.name_fa AS city_name_fa, c.slug AS city_slug,
                    cat.name_fa AS category_name_fa, cat.slug AS category_slug,
                    n.name_fa AS neighborhood_name_fa,
+                   cover.file_path_480 AS cover_thumb_url, cover.alt_text AS cover_alt_text,
                    (SELECT bc.value FROM business_contacts bc WHERE bc.business_id = b.id AND bc.type IN ('phone','mobile') ORDER BY bc.is_primary DESC, bc.id ASC LIMIT 1) AS phone,
                    (SELECT bc.value FROM business_contacts bc WHERE bc.business_id = b.id AND bc.type = 'website' ORDER BY bc.is_primary DESC, bc.id ASC LIMIT 1) AS website,
                    (SELECT bc.value FROM business_contacts bc WHERE bc.business_id = b.id AND bc.type = 'instagram' ORDER BY bc.is_primary DESC, bc.id ASC LIMIT 1) AS instagram,
@@ -1571,6 +1571,11 @@ final class PublicSiteController
             INNER JOIN cities c ON c.id = b.city_id
             INNER JOIN categories cat ON cat.id = b.category_id
             LEFT JOIN neighborhoods n ON n.id = b.neighborhood_id
+            LEFT JOIN media cover ON cover.id = COALESCE(b.cover_media_id, (
+                SELECT photo.media_id FROM business_photos photo
+                WHERE photo.business_id=b.id AND photo.status='approved'
+                ORDER BY photo.sort ASC, photo.id ASC LIMIT 1
+            ))
             LEFT JOIN business_promotions bp ON bp.business_id = b.id
             LEFT JOIN business_sources rs ON rs.id = (
                 SELECT s.id FROM business_sources s
@@ -1600,64 +1605,69 @@ final class PublicSiteController
     private static function renderBusinessCard(array $biz, int $rank, string $sourcePage): string
     {
         $slugUrl = '/b/' . rawurlencode((string)$biz['slug']) . '/';
+        $coverPath = (string)($biz['cover_thumb_url'] ?? '');
+        // Never substitute a stock photo or load arbitrary external URLs as a place's photo.
+        $hasCover = (bool)preg_match('~^/uploads/[a-zA-Z0-9_/-]+\.(?:webp|jpg|jpeg|png)$~iD', $coverPath);
+        $providers = ['google_maps'=>'Google Maps', 'osm'=>'OpenStreetMap', 'neshan'=>'نشان', 'balad'=>'بلد'];
+        $provider = (string)($biz['rating_provider'] ?? '');
+        $rating = $biz['source_rating'] ?? null;
         ob_start();
         ?>
-        <article class="hx-card">
-            <?php if (!empty($biz['promoted'])): ?><span class="hx-badge hx-badge-tier-a">جایگاه ویژه</span><?php endif; ?>
-            <h3 class="hx-card-title">
-                <a href="<?= self::e($slugUrl) ?>"><?= self::e($biz['name']) ?></a>
-            </h3>
-
-            <div class="hx-card-meta">
-                <?= self::icon('location', 'hx-icon hx-icon-sm') ?>
-                <span><?= self::e($biz['city_name_fa'] ?? '') ?><?= !empty($biz['neighborhood_name_fa']) ? '، ' . self::e($biz['neighborhood_name_fa']) : '' ?></span>
-                <?php if (!empty($biz['category_name_fa'])): ?>
-                    <span>· <?= self::e($biz['category_name_fa']) ?></span>
+        <article class="hx-card hx-business-card">
+            <a class="hx-place-media" href="<?= self::e($slugUrl) ?>" tabindex="-1" aria-hidden="true">
+                <?php if ($hasCover): ?>
+                    <img src="<?= self::e($coverPath) ?>" alt="" loading="lazy" decoding="async" width="480" height="300">
+                <?php else: ?>
+                    <span class="hx-place-no-image"><?= self::icon('location', 'hx-icon hx-icon-lg') ?><span>تصویر ثبت نشده</span></span>
                 <?php endif; ?>
-            </div>
-
-            <p class="hx-card-desc" style="font-weight:700;margin:0.45rem 0;"><?= self::e(self::ratingLabel($biz)) ?></p>
-            <?php if (!empty($biz['short_desc'])): ?>
-                <p class="hx-card-desc"><?= self::e($biz['short_desc']) ?></p>
-            <?php endif; ?>
-
-            <div class="hx-card-actions">
-                <a class="hx-btn hx-btn-outline" href="<?= self::e($slugUrl) ?>">مشاهده جزئیات</a>
-                <?php if (!empty($biz['phone'])): ?>
-                    <a class="hx-btn hx-btn-primary" href="tel:<?= self::e($biz['phone']) ?>" data-hx-track="call" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="<?= self::e($sourcePage) ?>">
-                        <?= self::icon('call', 'hx-icon hx-icon-sm') ?>
-                        <span>تماس</span>
-                    </a>
+                <?php if (!empty($biz['promoted'])): ?><span class="hx-place-sponsored">جایگاه ویژه</span><?php endif; ?>
+            </a>
+            <div class="hx-place-body">
+                <?php if (!empty($biz['promoted'])): ?><span class="hx-visually-hidden">جایگاه ویژه</span><?php endif; ?>
+                <div class="hx-place-context"><?= self::e((string)($biz['city_name_fa'] ?? '')) ?><?= !empty($biz['neighborhood_name_fa']) ? '، ' . self::e((string)$biz['neighborhood_name_fa']) : '' ?><?php if (!empty($biz['category_name_fa'])): ?> <span>·</span> <?= self::e((string)$biz['category_name_fa']) ?><?php endif; ?></div>
+                <h3 class="hx-place-title"><a href="<?= self::e($slugUrl) ?>"><?= self::e((string)$biz['name']) ?></a></h3>
+                <?php if ($rating !== null): ?>
+                    <div class="hx-place-rating">
+                        <?= self::icon('star', 'hx-icon hx-icon-sm') ?>
+                        <strong dir="ltr"><?= self::e(rtrim(rtrim(number_format((float)$rating, 2, '.', ''), '0'), '.')) ?></strong><span>از ۵</span>
+                        <span class="hx-place-divider">·</span><span><?= (int)$biz['source_reviews_count'] ?> نظر</span>
+                    </div>
+                    <div class="hx-place-source"><?= self::e($providers[$provider] ?? $provider) ?><?php if (!empty($biz['rating_fetched_at'])): ?> <span>· دریافت </span><time dir="ltr" datetime="<?= self::e(substr((string)$biz['rating_fetched_at'], 0, 10)) ?>"><?= self::e(substr((string)$biz['rating_fetched_at'], 0, 10)) ?></time><?php endif; ?></div>
+                <?php else: ?>
+                    <div class="hx-place-rating hx-place-rating-empty"><?= self::icon('star', 'hx-icon hx-icon-sm') ?> امتیاز ثبت نشده</div>
                 <?php endif; ?>
-                <?php if (!empty($biz['lat']) && !empty($biz['lng'])): ?>
-                    <a class="hx-btn hx-btn-secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=<?= (float)$biz['lat'] ?>,<?= (float)$biz['lng'] ?>" data-hx-track="map" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="<?= self::e($sourcePage) ?>">
-                        <?= self::icon('routing', 'hx-icon hx-icon-sm') ?>
-                        <span>نقشه</span>
-                    </a>
-                <?php endif; ?>
+                <p class="hx-place-address"><?= self::icon('location', 'hx-icon hx-icon-sm') ?><span><?= self::e(!empty($biz['address']) ? (string)$biz['address'] : 'نشانی دقیق ثبت نشده') ?></span></p>
+                <?php if (!empty($biz['short_desc'])): ?><p class="hx-place-description"><?= self::e((string)$biz['short_desc']) ?></p><?php endif; ?>
+                <div class="hx-place-actions">
+                    <a class="hx-btn hx-btn-primary hx-place-details" href="<?= self::e($slugUrl) ?>">مشاهده جزئیات</a>
+                    <?php if (!empty($biz['phone'])): ?>
+                        <a class="hx-btn hx-btn-outline" href="tel:<?= self::e((string)$biz['phone']) ?>" data-hx-track="call" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="<?= self::e($sourcePage) ?>"><?= self::icon('call', 'hx-icon hx-icon-sm') ?> تماس</a>
+                    <?php endif; ?>
+                    <?php if (!empty($biz['lat']) && !empty($biz['lng'])): ?>
+                        <a class="hx-btn hx-btn-outline" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&amp;destination=<?= (float)$biz['lat'] ?>,<?= (float)$biz['lng'] ?>" data-hx-track="map" data-business-id="<?= (int)$biz['id'] ?>" data-source-page="<?= self::e($sourcePage) ?>"><?= self::icon('routing', 'hx-icon hx-icon-sm') ?> مسیریابی</a>
+                    <?php endif; ?>
+                </div>
             </div>
         </article>
         <?php
         return (string)ob_get_clean();
     }
 
-    private static function renderLazyMapBox(array $markers, string $title): string
+    private static function renderLazyMapBox(array $markers, string $title, bool $compact = false): string
     {
         $jsonMarkers = htmlspecialchars((string)json_encode($markers, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
         ob_start();
         ?>
-        <section class="hx-map-box">
+        <section class="hx-map-box<?= $compact ? ' hx-map-compact' : '' ?>">
             <div class="hx-map-placeholder" data-hx-map="1" data-markers="<?= $jsonMarkers ?>">
                 <strong style="display:flex;align-items:center;gap:0.45rem;">
                     <?= self::icon('map') ?>
-                    <span><?= self::e($title) ?> (<?= count($markers) ?> نقطه مکانی)</span>
+                    <span><?= self::e($title) ?> (<?= count($markers) ?> نقطه)</span>
                 </strong>
-                <p style="margin:0;font-size:0.84rem;color:var(--hx-slate-600);">
-                    برای حفظ سرعت بارگذاری صفحه، نقشه OpenStreetMap فقط با کلیک شما بارگذاری می‌شود؛ کنترل‌های بزرگ‌نمایی در دسترس‌اند.
-                </p>
-                <button type="button" class="hx-btn hx-btn-primary" data-hx-load-map="1">
+                <?php if (!$compact): ?><p style="margin:0;font-size:0.84rem;color:var(--hx-slate-600);">نقشه OpenStreetMap فقط با کلیک شما بارگذاری می‌شود.</p><?php endif; ?>
+                <button type="button" class="hx-btn hx-btn-outline" data-hx-load-map="1">
                     <?= self::icon('location', 'hx-icon hx-icon-sm') ?>
-                    <span>نمایش نقشه تعاملی و پین‌های شماره‌گذاری‌شده</span>
+                    <span>نمایش نقشه</span>
                 </button>
             </div>
         </section>
@@ -1702,7 +1712,7 @@ final class PublicSiteController
     <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s7.0">
+    <link rel="stylesheet" href="/assets/css/public.css?v=s8.0">
     <?php foreach ($schemas as $schema):
         $schemaJson = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT));
     ?>

@@ -61,7 +61,7 @@ final class Cache
 
         $content = file_get_contents($filePath);
         // Ignore legacy pages built before the current public template and policy.
-        if (!is_string($content) || !str_contains($content, 'public.css?v=s7.0')) return null;
+        if (!is_string($content) || !str_contains($content, 'public.css?v=s8.0')) return null;
         return $content;
     }
 
