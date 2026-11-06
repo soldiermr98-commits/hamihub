@@ -60,6 +60,8 @@ $router->post('/api/v1/import/json/preview', [ManualImportController::class, 'pr
 $router->post('/api/v1/import/json/apply', [ManualImportController::class, 'apply']);
 $router->get('/api/v1/import/apify/status', [ApifyController::class, 'status']);
 $router->post('/api/v1/import/apify/schedule', [ApifyController::class, 'saveSchedule']);
+$router->post('/api/v1/import/apify/start', [ApifyController::class, 'startDirect']);
+$router->post('/api/v1/import/apify/latest', [ApifyController::class, 'importLatest']);
 $router->post('/api/v1/import/apify/run', [ApifyController::class, 'importRun']);
 $router->get('/api/v1/import/apify/runs/{id}', [ApifyController::class, 'run']);
 $router->post('/api/v1/import/apify/refresh', [ApifyController::class, 'refreshRun']);

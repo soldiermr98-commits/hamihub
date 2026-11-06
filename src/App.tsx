@@ -14,7 +14,7 @@ type Route = 'dashboard'|'review'|'cities'|'businesses'|'import'|'articles'|'set
 const nav: Array<{id:Route;label:string;icon:React.ElementType}> = [
   {id:'dashboard',label:'داشبورد',icon:LayoutDashboard},{id:'review',label:'بازبینی',icon:Inbox},
   {id:'cities',label:'جمع‌آوری و شهرها',icon:MapPin},{id:'businesses',label:'کسب‌وکارها',icon:Store},
-  {id:'import',label:'ورود JSON',icon:FileJson},{id:'articles',label:'مقالات',icon:FileText},{id:'settings',label:'تنظیمات',icon:Settings},
+  {id:'import',label:'جمع‌آوری و ورود',icon:FileJson},{id:'articles',label:'مقالات',icon:FileText},{id:'settings',label:'تنظیمات',icon:Settings},
 ];
 export default function App() {
   const [route,setRoute]=useState<Route>('review');

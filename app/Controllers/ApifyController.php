@@ -43,6 +43,20 @@ final class ApifyController
         catch (Throwable $e) { self::fail($e); }
     }
 
+    public static function startDirect(Request $request): void
+    {
+        self::admin(true, $request);
+        try { Response::json(['ok'=>true] + ApifyAutomationService::configured()->startDirect($request->json())); }
+        catch (Throwable $e) { self::fail($e); }
+    }
+
+    public static function importLatest(Request $request): void
+    {
+        self::admin(true, $request);
+        try { $id=ApifyAutomationService::configured()->importLatest(); Response::json(['ok'=>true,'id'=>$id]); }
+        catch (Throwable $e) { self::fail($e); }
+    }
+
     public static function importRun(Request $request): void
     {
         self::admin(true, $request);
