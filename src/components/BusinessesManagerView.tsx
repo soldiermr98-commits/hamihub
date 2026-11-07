@@ -18,6 +18,7 @@ import {
   computeBusinessWarnings,
   fetchBusinessesPage,
   normalizeIranPhone,
+  recordBusinessDataReview,
   saveBusinessItem,
   setBusinessPromotion,
   suggestLatinSlug,
@@ -44,6 +45,12 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
   const [mode, setMode] = useState<'list' | 'form'>('list');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [cityFilter, setCityFilter] = useState<number>(0);
+  const [qualityFilter, setQualityFilter] = useState('');
+  const [reviewReady, setReviewReady] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<BusinessItem|null>(null);
+  const [reviewNote, setReviewNote] = useState('');
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [reviewBusy, setReviewBusy] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [pageBusinesses, setPageBusinesses] = useState<BusinessItem[]>([]);
@@ -55,12 +62,12 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const data = await fetchBusinessesPage(page, cityFilter, searchQuery);
-        if (!cancelled) { setPageBusinesses(data.businesses); setTotal(data.total); setListError(''); }
+        const data = await fetchBusinessesPage(page, cityFilter, searchQuery, qualityFilter);
+        if (!cancelled) { setPageBusinesses(data.businesses); setTotal(data.total); setReviewReady(!!data.data_review_schema_ready); setListError(''); }
       } catch (e) { if (!cancelled) { setPageBusinesses([]); setListError(e instanceof Error ? e.message : 'خطا در دریافت فهرست'); } }
     }, 200);
     return () => {cancelled=true;window.clearTimeout(timer);};
-  }, [mode, page, cityFilter, searchQuery, refreshList]);
+  }, [mode, page, cityFilter, searchQuery, qualityFilter, refreshList]);
 
   const togglePromotion = async (biz:BusinessItem) => {
     setPromotionBusy(biz.id);setListError('');
@@ -68,6 +75,18 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
     setPromotionBusy(0);
     if (!result.ok) {setListError(result.error || 'تغییر جایگاه ویژه ناموفق بود.');return;}
     setSaveSuccess(result.message);setRefreshList(v=>v+1);
+  };
+
+  const openDataReview = (biz:BusinessItem) => {
+    setReviewTarget(biz); setReviewNote(biz.review_source_note || ''); setReviewConfirmed(false); setListError('');
+  };
+  const submitDataReview = async () => {
+    if (!reviewTarget?.review_hash || !reviewConfirmed || reviewBusy) return;
+    setReviewBusy(true);
+    const result = await recordBusinessDataReview({business_id:Number(reviewTarget.id), review_hash:reviewTarget.review_hash, source_note:reviewNote, confirmed:true}, csrfToken);
+    setReviewBusy(false);
+    if (!result.ok) { setListError(result.error || 'ثبت بازبینی ناموفق بود.'); return; }
+    setReviewTarget(null); setSaveSuccess(result.message); setRefreshList(v=>v+1);
   };
 
   // فیلدهای فرم یک‌صفحه‌ای کسب‌وکار (بخش ۷ قوانین UX)
@@ -267,7 +286,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                 فهرست کسب‌وکارها ({total} مورد)
               </h2>
               <p className="text-xs text-slate-500 mt-1">
-                جستجو در همه رکوردها؛ جایگاه ویژه فقط برای موارد منتشرشده در سایت نمایش داده می‌شود.
+فیلترهای کیفیت همه رکوردها را جست‌وجو می‌کنند و موارد منتشرشده و ناقص‌تر را در اولویت می‌گذارند. وجود اطلاعات به‌معنای صحت آن‌ها نیست.
               </p>
             </div>
 
@@ -308,7 +327,19 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
             </div>
           </div>
 
+          <label className="block text-sm mb-4">اولویت تکمیل اطلاعات <select aria-label="فیلتر کیفیت اطلاعات" value={qualityFilter} onChange={e=>{setPage(1);setReviewTarget(null);setQualityFilter(e.target.value);}} className="mr-2 px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-lg">
+            <option value="">همه کسب‌وکارها</option><option value="incomplete">هر نقص در اطلاعات اصلی</option><option value="photo">بدون عکس قابل انتخاب</option><option value="description">بدون توضیح</option><option value="phone">بدون شماره تماس</option><option value="category">بدون دسته معتبر</option><option value="address">بدون آدرس</option><option value="unreviewed">بازبینی ثبت‌نشده یا قدیمی</option>
+          </select></label>
+          {!reviewReady&&<p className="text-xs text-amber-800 bg-amber-50 p-3 mb-4 rounded">برای ثبت نتیجه بازبینی، مدیر باید پس از پشتیبان‌گیری جدول‌های بخش جدید را در تنظیمات یا تبلیغات آماده کند. فیلترهای نقص همچنان کار می‌کنند.</p>}
           {listError && <p role="alert" className="text-sm text-rose-800 bg-rose-50 p-3 mb-4 rounded">{listError}</p>}
+          {reviewTarget&&<section className="mb-4 p-4 rounded-lg border border-blue-200 bg-blue-50/50 space-y-3" aria-label="ثبت بازبینی اطلاعات">
+            <h3 className="font-bold">بازبینی انسانی «{reviewTarget.name}»</h3>
+            <p className="text-xs leading-6 text-slate-700">پیش از تأیید، موارد زیر را با منبع واقعی تطبیق دهید و مجوز استفاده از تصویر را بررسی کنید. ذخیره معمولی، اطلاعات را تأییدشده محسوب نمی‌کند.</p>
+            <div className="grid sm:grid-cols-2 gap-3 text-sm"><div className="space-y-1"><p>شهر / دسته: {reviewTarget.city_name || 'نامشخص'} / {reviewTarget.category_name || 'نامشخص'}</p><p>آدرس: {reviewTarget.address || 'ثبت نشده'}</p><p>تلفن: <span dir="ltr">{reviewTarget.contacts.find(c=>c.type==='phone'||c.type==='mobile')?.value || 'ثبت نشده'}</span></p><p>توضیح: {reviewTarget.short_desc || 'ثبت نشده'}</p></div>{reviewTarget.cover_thumb_url?<img src={reviewTarget.cover_thumb_url} alt="تصویر مورد بررسی" className="max-w-full max-h-36 rounded border"/>:<p>عکس قابل انتخاب ثبت نشده است.</p>}</div>
+            <label className="block text-sm">منبع اطلاعات و وضعیت مجوز تصویر<textarea aria-label="منبع بازبینی و مجوز تصویر" className="w-full border rounded p-2 mt-1" rows={3} maxLength={1000} value={reviewNote} onChange={e=>setReviewNote(e.target.value)} placeholder="منبع، تاریخ بررسی و چگونگی اجازه استفاده از تصویر را ثبت کنید."/></label>
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={reviewConfirmed} onChange={e=>setReviewConfirmed(e.target.checked)}/> اطلاعات بالا و اجازه استفاده از تصویر را شخصاً بررسی کرده‌ام.</label>
+            <div className="flex gap-2"><button type="button" disabled={!reviewReady||!reviewConfirmed||reviewNote.trim().length<8||reviewBusy} onClick={()=>void submitDataReview()} className="px-3 py-2 rounded bg-blue-700 text-white text-sm disabled:opacity-50">ثبت بازبینی همین اطلاعات</button><button type="button" className="px-3 py-2 rounded border text-sm" onClick={()=>setReviewTarget(null)}>بستن</button></div>
+          </section>}
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
@@ -363,8 +394,9 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                       {biz.warnings && biz.warnings.length > 0 ? (
                         <span className="text-amber-800">{biz.warnings.join(' · ')}</span>
                       ) : (
-                        <span className="text-emerald-700 font-medium">تکمیل (بدون نقص)</span>
+                        <span className="text-emerald-700 font-medium">نقص ظاهری شناسایی نشد</span>
                       )}
+                      <span className={`block mt-1 ${biz.review_current?'text-blue-700':'text-amber-800'}`}>{biz.review_current ? `بازبینی انسانی ثبت‌شده · ${biz.reviewed_at || ''}` : biz.reviewed_at ? 'تغییر کرده؛ نیازمند بازبینی دوباره' : 'بازبینی انسانی ثبت نشده'}</span>
                     </td>
                     <td className="py-3.5 px-3 text-left">
                       <button
@@ -375,6 +407,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                         <Edit3 className="w-3.5 h-3.5" />
                         ویرایش
                       </button>
+                      <button type="button" disabled={!reviewReady} onClick={()=>openDataReview(biz)} className="block mt-2 text-xs font-semibold text-blue-700 hover:underline disabled:opacity-50">بازبینی اطلاعات</button>
                       {isAdmin && <button type="button" disabled={promotionBusy===biz.id} onClick={()=>togglePromotion(biz)} className="block mt-2 text-xs font-semibold text-blue-700 hover:underline disabled:opacity-50">
                         {Number(biz.promoted) ? 'حذف از جایگاه ویژه' : 'قرار دادن در جایگاه ویژه'}
                       </button>}

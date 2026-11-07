@@ -899,3 +899,18 @@ a:hover {
   .hx-place-actions .hx-btn { padding-inline: .6rem; }
 }
 .hx-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+/* Independent, clearly labelled advertising; no third-party scripts or HTML. */
+.hx-ad-wrap { margin-top: 1rem; margin-bottom: 1rem; }
+.hx-ad-label { display: block; font-size: .72rem; color: var(--hx-slate-600); margin-bottom: .25rem; }
+.hx-ad-banner { display: block; overflow: hidden; border-radius: 14px; border: 1px solid var(--hx-slate-200); background: #fff; }
+.hx-ad-banner img { display: block; width: 100%; height: auto; max-height: 260px; object-fit: contain; }
+.hx-ad-contact { width: 100%; max-width: 680px; padding: .8rem 1rem; border: 1px solid #3b4b68; border-radius: 12px; }
+.hx-ad-contact summary { cursor: pointer; color: #fff; font-weight: 700; }
+.hx-ad-contact p { font-size: .85rem; line-height: 1.9; }
+.hx-ad-contact form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .7rem; }
+.hx-ad-contact label { font-size: .82rem; display: block; }
+.hx-ad-contact label input:not([type="checkbox"]), .hx-ad-contact textarea { display: block; width: 100%; margin-top: .2rem; padding: .55rem; border-radius: 8px; border: 1px solid #bdcbe2; font: inherit; color: #0f172a; background: #fff; }
+.hx-ad-contact label:has(textarea), .hx-ad-contact .hx-ad-consent, .hx-ad-contact [data-hx-form-msg] { grid-column: 1 / -1; }
+.hx-ad-honeypot { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.hx-ad-contact button:disabled { opacity: .6; }
