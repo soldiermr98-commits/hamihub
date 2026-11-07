@@ -1,18 +1,97 @@
-import React, { useEffect, useState } from 'react';
-import { AiProviderStatus, fetchAiProviders, updateFeatureSchema } from '../services/adminApi';
+import React, { useCallback, useEffect, useState } from 'react';
+import { AiManagedProvider, AiProviderStatus, fetchAiProviderManagement, fetchAiProviders, removeAiProvider, saveAiProvider, testAiProvider, updateFeatureSchema } from '../services/adminApi';
+
+const input = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const secondary = 'rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-semibold text-blue-800 disabled:opacity-50';
+const primary = 'rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50';
+
+type Result = {error:boolean;text:string} | null;
+
+function ProviderCard({provider,csrfToken,schemaReady,onReload}:{provider:AiManagedProvider;csrfToken:string;schemaReady:boolean;onReload:()=>Promise<void>}) {
+  const [model,setModel]=useState(provider.model);
+  const [key,setKey]=useState('');
+  const [enabled,setEnabled]=useState(provider.enabled);
+  const [confirmed,setConfirmed]=useState(provider.free_tier_confirmed);
+  const [busy,setBusy]=useState(false);
+  const [result,setResult]=useState<Result>(null);
+  useEffect(()=>{setModel(provider.model);setEnabled(provider.enabled);setConfirmed(provider.free_tier_confirmed);setKey('');},
+    [provider.id,provider.version,provider.model,provider.enabled,provider.free_tier_confirmed]);
+
+  const save=async(test:boolean)=>{
+    if(busy)return;
+    if(test && !enabled){setResult({error:true,text:'برای تست، ابتدا سرویس را فعال کنید.'});return;}
+    if(test && !schemaReady){setResult({error:true,text:'ابتدا جدول‌های بخش هوش مصنوعی را آماده کنید.'});return;}
+    if(test && !window.confirm('تست، یک درخواست کوتاه واقعی به همین سرویس می‌فرستد و ممکن است سهمیه یا هزینه داشته باشد. ادامه می‌دهید؟'))return;
+    setBusy(true);setResult(null);
+    try {
+      const saved=await saveAiProvider({provider:provider.id,model,api_key:key,enabled,free_tier_confirmed:confirmed,version:provider.version},csrfToken);
+      if(!saved.ok){setResult({error:true,text:saved.error||'ذخیره انجام نشد.'});return;}
+      setKey('');
+      await onReload();
+      if(!test){setResult({error:false,text:saved.message||'تنظیمات ذخیره شد.'});return;}
+      const checked=await testAiProvider(provider.id,csrfToken);
+      setResult({error:!checked.ok,text:checked.ok?(checked.message||'اتصال موفق بود.'):`تنظیمات ذخیره شد؛ تست ناموفق: ${checked.error||'ارتباط برقرار نشد.'}`});
+    } finally {setBusy(false);}
+  };
+  const remove=async()=>{
+    if(busy || !window.confirm('کلید ذخیره‌شده در پنل حذف و این سرویس غیرفعال شود؟ کلیدهای قدیمی داخل فایل یا بکاپ جداگانه باقی می‌مانند.'))return;
+    setBusy(true);setResult(null);
+    try {
+      const removed=await removeAiProvider(provider.id,provider.version,csrfToken);
+      if(!removed.ok){setResult({error:true,text:removed.error||'حذف انجام نشد.'});return;}
+      setKey('');await onReload();setResult({error:false,text:removed.message||'کلید حذف شد.'});
+    } finally {setBusy(false);}
+  };
+  return <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3" aria-label={`تنظیمات ${provider.label}`}>
+    <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold" dir="ltr">{provider.label}</h3>
+      <span className={`text-xs font-semibold ${provider.available?'text-emerald-700':'text-slate-500'}`}>{provider.available?'تنظیم‌شده (اتصال را تست کنید)':'غیرفعال یا تنظیم‌نشده'}</span>
+    </div>
+    <p className="text-xs text-slate-600">{provider.key_configured?'کلید ثبت شده است؛ برای تغییر، کلید جدید را وارد کنید.':'کلید API را وارد کنید.'} {provider.source==='file'?'تنظیم قبلی از فایل خصوصی خوانده می‌شود.':''}</p>
+    {provider.error&&<p role="alert" className="text-xs text-rose-700">{provider.error}</p>}
+    <div className="grid gap-3 sm:grid-cols-2">
+      <label className="text-sm">کلید API <input aria-label={`کلید API ${provider.label}`} type="password" dir="ltr" maxLength={512} autoComplete="new-password" spellCheck={false} className={`${input} mt-1`} value={key}
+        placeholder={provider.key_configured?'خالی = حفظ کلید فعلی':'کلید API'} onChange={e=>{setKey(e.target.value);if(e.target.value && !provider.key_configured)setEnabled(true);}} /></label>
+      <label className="text-sm">مدل <input aria-label={`مدل ${provider.label}`} dir="ltr" autoComplete="off" spellCheck={false} className={`${input} mt-1`} value={model} onChange={e=>setModel(e.target.value)}/></label>
+    </div>
+    {provider.id==='openrouter'&&<p className="text-xs text-slate-600">در OpenRouter فقط <code dir="ltr">openrouter/free</code> یا مدل‌های دارای پسوند <code dir="ltr">:free</code> پذیرفته می‌شوند.</p>}
+    <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/><span>این سرویس برای نویسنده فعال باشد</span></label>
+    <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/><span>طرح، سهمیه و احتمال هزینه این حساب را بررسی کرده‌ام.</span></label>
+    <div className="flex flex-wrap gap-2">
+      <button type="button" className={primary} disabled={busy} onClick={()=>void save(false)}>ذخیره تنظیمات</button>
+      <button type="button" className={secondary} disabled={busy} onClick={()=>void save(true)}>ذخیره و تست اتصال</button>
+      {provider.key_configured&&<button type="button" className="rounded-lg border border-rose-200 px-3 py-2 text-sm text-rose-700 disabled:opacity-50" disabled={busy} onClick={()=>void remove()}>حذف کلید</button>}
+    </div>
+    {busy&&<p className="text-xs text-slate-600">در حال انجام…</p>}
+    {result&&<p role={result.error?'alert':'status'} className={`text-sm ${result.error?'text-rose-700':'text-emerald-700'}`}>{result.text}</p>}
+  </section>;
+}
 
 export const AiWorkerPanel: React.FC<{csrfToken:string;isAdmin:boolean}> = ({csrfToken,isAdmin}) => {
-  const [providers,setProviders]=useState<AiProviderStatus[]>([]);const [ready,setReady]=useState(false);const [error,setError]=useState('');const [busy,setBusy]=useState(false);
-  const load=async()=>{try{const d=await fetchAiProviders();setProviders(d.providers);setReady(d.schema_ready);setError('');}catch(e){setError(e instanceof Error?e.message:'خطا در دریافت وضعیت.');}};
-  useEffect(()=>{void load();},[]);
-  const install=async()=>{if(!window.confirm('از فایل‌ها و دیتابیس پشتیبان گرفته‌اید؟ فقط جدول‌های جدید اضافه می‌شوند و مهاجرت قدیمی ۰۰۳ اجرا نمی‌شود.'))return;
-    setBusy(true);const result=await updateFeatureSchema(csrfToken);setBusy(false);if(!result.ok)setError(result.error);else await load();};
-  return <section className="rounded-xl bg-white border border-slate-200 p-6 space-y-3">
+  const [providers,setProviders]=useState<AiProviderStatus[]>([]);
+  const [managed,setManaged]=useState<AiManagedProvider[]>([]);
+  const [ready,setReady]=useState<boolean|null>(null);
+  const [error,setError]=useState('');
+  const [busy,setBusy]=useState(false);
+  const load=useCallback(async()=>{
+    try {
+      if(isAdmin){const d=await fetchAiProviderManagement();setManaged(d.providers);setProviders(d.providers);setReady(d.schema_ready);}
+      else {const d=await fetchAiProviders();setProviders(d.providers);setReady(d.schema_ready);}
+      setError('');
+    } catch(e){setError(e instanceof Error?e.message:'خطا در دریافت وضعیت.');}
+  },[isAdmin]);
+  useEffect(()=>{void load();},[load]);
+  const install=async()=>{
+    if(!window.confirm('از فایل‌ها و دیتابیس پشتیبان گرفته‌اید؟ فقط جدول‌های جدید اضافه می‌شوند و مهاجرت قدیمی ۰۰۳ اجرا نمی‌شود.'))return;
+    setBusy(true);const result=await updateFeatureSchema(csrfToken);setBusy(false);if(!result.ok)setError(result.error);else await load();
+  };
+  return <section className="rounded-xl bg-white border border-slate-200 p-6 space-y-4">
     <h2 className="font-bold text-slate-900">سرویس‌های نویسنده هوش مصنوعی</h2>
-    <p className="text-sm text-slate-600 leading-7">تولید فقط از داخل ویرایش مقاله و با تأیید نویسنده انجام می‌شود. نتیجه پیش‌نویس است و خودکار ذخیره یا منتشر نمی‌شود؛ سهمیه و احتمال هزینه را برای هر حساب بررسی کنید.</p>
+    <p className="text-sm text-slate-600 leading-7">{isAdmin?'کلید و مدل را همین‌جا ثبت یا تغییر دهید. کلید پس از ذخیره دیگر نمایش داده نمی‌شود.':'مدیر سایت می‌تواند کلید و مدل سرویس‌ها را در این بخش تنظیم کند.'} سرویس‌ها خودکار جابه‌جا نمی‌شوند.</p>
+    <p className="text-xs text-amber-900 leading-6">رایگان‌بودن و هزینه به حساب، مدل، منطقه و سهمیه وابسته است. تست هم یک درخواست واقعی است؛ قبل از تأیید، صورتحساب را بررسی کنید.</p>
     {error&&<p role="alert" className="text-sm text-rose-800">{error}</p>}
-    {!ready&&<div className="text-sm rounded bg-amber-50 p-3 text-amber-900">جدول‌های بخش جدید آماده نیستند. {isAdmin&&<button type="button" disabled={busy} className="underline font-bold" onClick={()=>void install()}>آماده‌سازی پس از پشتیبان‌گیری</button>}</div>}
-    <ul className="text-sm divide-y">{providers.map(p=><li key={p.id} className="py-2 flex justify-between gap-3"><span dir="ltr">{p.label} {p.model&&`· ${p.model}`}</span><span className={p.available?'text-emerald-700':'text-slate-500'}>{p.available?'آماده':'تنظیم‌نشده'}</span></li>)}</ul>
-    <p className="text-xs text-slate-600 leading-6">مدیر کلیدها و گزینه تأیید سهمیه را فقط در فایل خصوصی <code dir="ltr">config/config.local.php</code> روی هاست تنظیم کند؛ آن‌ها را در پنل یا گفت‌وگو وارد نکنید. مدل OpenRouter به <code dir="ltr">openrouter/free</code> یا مدل‌های <code dir="ltr">:free</code> محدود است. فایل راهنمای <code dir="ltr">docs/AI_ADS_DATA_FA.md</code> را ببینید.</p>
+    {ready===false&&<div className="text-sm rounded bg-amber-50 p-3 text-amber-900">جدول‌های بخش جدید آماده نیستند. {isAdmin&&<button type="button" disabled={busy} className="underline font-bold" onClick={()=>void install()}>آماده‌سازی پس از پشتیبان‌گیری</button>}</div>}
+    {isAdmin?<div className="space-y-3">{managed.map(p=><ProviderCard key={p.id} provider={p} csrfToken={csrfToken} schemaReady={ready===true} onReload={load}/>)}</div>:
+      <ul className="text-sm divide-y">{providers.map(p=><li key={p.id} className="py-2 flex justify-between gap-3"><span dir="ltr">{p.label} {p.model&&`· ${p.model}`}</span><span className={p.available?'text-emerald-700':'text-slate-500'}>{p.available?'تنظیم‌شده':'تنظیم‌نشده'}</span></li>)}</ul>}
+    <p className="text-xs text-slate-600 leading-6">فقط مدیر می‌تواند کلیدها را ثبت یا حذف کند. کلید را در گفت‌وگو نفرستید؛ پشتیبان فایل‌های خصوصی و دیتابیس را امن نگه دارید.</p>
   </section>;
 };

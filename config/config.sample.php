@@ -28,8 +28,9 @@ return [
         // Private token belongs only in config.local.php on the host. Never paste it in chat.
         'apify' => ['api_token' => ''],
     ],
-    // Disabled until the site owner checks each account's plan, billing, model,
-    // region and free quota. API keys belong ONLY in config.local.php on the host.
+    // Providers are disabled by default. Administrators can set their keys in the
+    // HTTPS admin panel; the sample values below remain a backwards-compatible option.
+    // Check each account's plan, billing, model, region and free quota.
     'ai' => [
         'hourly_user_limit' => 5,
         'daily_site_limit' => 30,

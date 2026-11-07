@@ -35,6 +35,13 @@ check($requests[1]['url'] === 'https://api.groq.com/openai/v1/chat/completions',
 check($requests[2]['url'] === 'https://openrouter.ai/api/v1/chat/completions', 'OpenRouter URL incorrect');
 check(!str_contains($requests[0]['url'], 'secret'), 'Key in URL');
 check(str_contains(json_encode($requests[0]['body'], JSON_UNESCAPED_UNICODE), 'حدس نزن'), 'Fact warning missing');
+foreach (['gemini','groq','openrouter'] as $id) {
+    $test = $service->prepareConnectionTest($id);
+    $body = $test['request']['body'];
+    check(($id === 'gemini' ? $body['generationConfig']['maxOutputTokens'] : $body['max_tokens']) === 64, 'Connection test output limit is wrong');
+    check($service->send($test, $fake) !== '', 'Synthetic connection test failed');
+}
+check(count($requests) === 6, 'Connection tests must make exactly one request each');
 $prepared = $service->prepare('gemini','عنوان','', '');
 try { $service->send($prepared, fn()=>['status'=>429,'body'=>'test-gemini-secret']); throw new RuntimeException('Quota should be rejected'); }
 catch (RuntimeException $e) { check(!str_contains($e->getMessage(), 'secret') && str_contains($e->getMessage(),'سهمیه'), 'Unsafe quota error'); }

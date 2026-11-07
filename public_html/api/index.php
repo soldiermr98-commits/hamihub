@@ -11,6 +11,7 @@ require_once BASE_PATH . '/app/Core/Bootstrap.php';
 
 use App\Controllers\AdvertisingController;
 use App\Controllers\AiArticleController;
+use App\Controllers\AiProviderController;
 use App\Controllers\AiWorkerController;
 use App\Controllers\ApifyController;
 use App\Controllers\ArticleController;
@@ -102,6 +103,11 @@ $router->post('/api/v1/public/advertising-inquiry', [AdvertisingController::clas
 // The old batch/worker mutation routes stay disabled; this new path is manual and draft-only.
 $router->get('/api/v1/ai/article/providers', [AiArticleController::class, 'status']);
 $router->post('/api/v1/ai/article/generate', [AiArticleController::class, 'generate']);
+// Admin-only credential management; keys are never returned to the browser.
+$router->get('/api/v1/ai/providers/manage', [AiProviderController::class, 'index']);
+$router->post('/api/v1/ai/providers/save', [AiProviderController::class, 'save']);
+$router->post('/api/v1/ai/providers/remove', [AiProviderController::class, 'remove']);
+$router->post('/api/v1/ai/providers/test', [AiProviderController::class, 'test']);
 
 // ۶. مسیرهای صف کارهای هوش مصنوعی بدون توهم و ورکر راه دور (مرحله S5)
 $router->get('/api/v1/ai/tasks', [AiWorkerController::class, 'index']);
