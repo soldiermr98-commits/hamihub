@@ -35,7 +35,7 @@ return [
         'hourly_user_limit' => 5,
         'daily_site_limit' => 30,
         'providers' => [
-            'gemini' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'gemini-2.5-flash-lite'],
+            'gemini' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'gemini-3.5-flash-lite'],
             'groq' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'llama-3.1-8b-instant'],
             'openrouter' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'openrouter/free'],
         ],

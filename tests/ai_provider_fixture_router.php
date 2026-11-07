@@ -18,8 +18,16 @@ namespace App\Services {
         $expected=$gemini?'x-goog-api-key: synthetic-replacement-key':
             ($curl->url==='https://api.groq.com/openai/v1/chat/completions'?'Authorization: Bearer synthetic-file-only-key':'Authorization: Bearer synthetic-router-key');
         $limit=$gemini?($body['generationConfig']['maxOutputTokens'] ?? null):($body['max_tokens'] ?? null);
-        $curl->status=in_array($expected,$headers,true) && in_array($limit,[64,2048],true) ? 200 : 401;
-        $response=$gemini?['candidates'=>[['content'=>['parts'=>[['text'=>'synthetic-test-response']]]]]]:['choices'=>[['message'=>['content'=>'synthetic-test-response']]]];
+        $allowed=$gemini ? [256,2048] : [64,2048];
+        $shortPrompt=!$gemini || $limit !== 256 || ($body['contents'][0]['parts'][0]['text'] ?? '') === 'Reply with OK.';
+        $noTemperature=!$gemini || !array_key_exists('temperature', $body['generationConfig'] ?? []);
+        $curl->status=in_array($expected,$headers,true) && in_array($limit,$allowed,true) && $shortPrompt && $noTemperature ? 200 : 401;
+        if ($curl->status===200 && str_contains($curl->url, '/gemini-fixture-error404:')) {
+            $curl->status=404;
+            $response=['error'=>['status'=>'NOT_FOUND','message'=>'synthetic-provider-secret-must-not-leak']];
+        } else {
+            $response=$gemini?['candidates'=>[['content'=>['parts'=>[['text'=>'synthetic-test-response']]]]]]:['choices'=>[['message'=>['content'=>'synthetic-test-response']]]];
+        }
         $callback=$curl->options[CURLOPT_WRITEFUNCTION] ?? null;
         if (!is_callable($callback)) return false;
         $chunk=json_encode($response);
