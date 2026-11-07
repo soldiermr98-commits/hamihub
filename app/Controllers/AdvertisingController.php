@@ -10,8 +10,10 @@ use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
 use App\Services\AdvertisingService;
+use App\Services\AdvertisingReportingService;
 use App\Services\Normalizer;
 use DateTimeImmutable;
+use Throwable;
 
 final class AdvertisingController
 {
@@ -31,9 +33,20 @@ final class AdvertisingController
         Auth::requireRole(['admin']);
         header('Cache-Control: private, no-store');
         $ready = AdvertisingService::schemaReady();
-        $banners = $ready ? DB::fetchAll('SELECT a.*,m.file_path_480 AS image_url FROM advertising_banners a LEFT JOIN media m ON m.id=a.media_id ORDER BY a.updated_at DESC,a.id DESC LIMIT 200') : [];
+        $reportingReady = $ready && AdvertisingReportingService::schemaReady();
+        $banners = [];
+        if ($ready) {
+            $stats = $reportingReady ? "COALESCE(d.views,0) AS views_total, COALESCE(d.clicks,0) AS clicks_total,
+                COALESCE(d.views_30,0) AS views_30, COALESCE(d.clicks_30,0) AS clicks_30" :
+                'NULL AS views_total,NULL AS clicks_total,NULL AS views_30,NULL AS clicks_30';
+            $join = $reportingReady ? "LEFT JOIN (SELECT banner_id,SUM(views) AS views,SUM(clicks) AS clicks,
+                SUM(CASE WHEN day>=DATE_SUB(CURDATE(),INTERVAL 29 DAY) THEN views ELSE 0 END) AS views_30,
+                SUM(CASE WHEN day>=DATE_SUB(CURDATE(),INTERVAL 29 DAY) THEN clicks ELSE 0 END) AS clicks_30
+                FROM advertising_banner_daily GROUP BY banner_id) d ON d.banner_id=a.id" : '';
+            $banners = DB::fetchAll("SELECT a.*,m.file_path_480 AS image_url,{$stats} FROM advertising_banners a LEFT JOIN media m ON m.id=a.media_id {$join} ORDER BY a.updated_at DESC,a.id DESC LIMIT 200");
+        }
         $inquiries = $ready ? DB::fetchAll('SELECT id,name,phone,message,status,created_at FROM advertising_inquiries ORDER BY (status=\'new\') DESC,id DESC LIMIT 100') : [];
-        Response::json(['ok'=>true, 'schema_ready'=>$ready, 'placements'=>AdvertisingService::PLACEMENTS, 'banners'=>$banners, 'inquiries'=>$inquiries]);
+        Response::json(['ok'=>true, 'schema_ready'=>$ready, 'reporting_schema_ready'=>$reportingReady, 'placements'=>AdvertisingService::PLACEMENTS, 'banners'=>$banners, 'inquiries'=>$inquiries]);
     }
 
     private static function parseDate(string $value): ?string
@@ -89,9 +102,45 @@ final class AdvertisingController
     public static function deleteBanner(Request $request): void
     {
         Auth::requireRole(['admin']); Csrf::verifyOrFail($request); self::requireSchema();
-        $deleted = DB::query('DELETE FROM advertising_banners WHERE id=:id AND version=:version', ['id'=>(int)$request->input('id', 0),'version'=>(int)$request->input('version', 0)])->rowCount();
-        if ($deleted !== 1) Response::json(['ok'=>false, 'error'=>'بنر تغییر کرده یا یافت نشد؛ فهرست را تازه‌سازی کنید.'], 409);
-        Cache::flushAll(); Response::json(['ok'=>true, 'message'=>'بنر حذف شد. تصویر رسانه حذف نشده است.']);
+        $id = (int)$request->input('id', 0);
+        $pdo = DB::connection();
+        $pdo->beginTransaction();
+        try {
+            $deleted = DB::query('DELETE FROM advertising_banners WHERE id=:id AND version=:version', ['id'=>$id,'version'=>(int)$request->input('version', 0)])->rowCount();
+            if ($deleted !== 1) {
+                $pdo->rollBack();
+                Response::json(['ok'=>false, 'error'=>'بنر تغییر کرده یا یافت نشد؛ فهرست را تازه‌سازی کنید.'], 409);
+            }
+            if (AdvertisingReportingService::schemaReady()) DB::query('DELETE FROM advertising_banner_daily WHERE banner_id=:id', ['id'=>$id]);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
+        Cache::flushAll(); Response::json(['ok'=>true, 'message'=>'بنر و آمار آن حذف شد. تصویر رسانه و قراردادهای قبلی حذف نشده‌اند.']);
+    }
+
+    /** Public best-effort aggregate; intentionally no personal data or per-event log. */
+    public static function trackBanner(Request $request): void
+    {
+        if ((int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 1024 || strlen($request->rawBody()) > 1024) Response::noContent(413);
+        $id = $request->input('banner_id');
+        $event = $request->input('event');
+        if ((!is_int($id) && !(is_string($id) && preg_match('/^[1-9][0-9]{0,9}$/', $id)))
+            || (int)$id < 1 || !is_string($event) || !in_array($event, ['view','click'], true)) Response::noContent(422);
+        // Per-session ceiling limits accidental loops without storing IPs. It is
+        // not bot/fraud protection and these counts are never billing evidence.
+        Auth::startSessionIfNeeded();
+        $period = (int)floor(time() / 600);
+        $counter = $_SESSION['ad_counter_limit'] ?? ['period'=>$period,'count'=>0];
+        if (!is_array($counter) || (int)($counter['period'] ?? 0) !== $period) $counter = ['period'=>$period,'count'=>0];
+        $counter['count'] = (int)($counter['count'] ?? 0) + 1;
+        $_SESSION['ad_counter_limit'] = $counter;
+        session_write_close();
+        if ($counter['count'] > 300) Response::noContent(429);
+        try { AdvertisingReportingService::countBanner((int)$id, $event); }
+        catch (Throwable $e) { /* Optional schema or database unavailable: public pages remain usable. */ }
+        Response::noContent();
     }
 
     public static function submitInquiry(Request $request): void

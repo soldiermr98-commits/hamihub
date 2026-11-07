@@ -82,6 +82,8 @@ r=await admin.request('POST','/api/v1/articles',{
 assert.equal(r.status,200,r.text); let sponsored=r.json.article;
 assert.equal((await guest.request('GET','/fixture-sponsor/')).status,404);
 checkSponsor((await editor.request('GET',`/api/v1/articles/preview/${sponsored.id}`)).text,true);
+const sponsorSummary=async()=>(await editor.request('GET','/api/v1/analytics/summary')).json.sponsored_items.find(x=>Number(x.article_id)===Number(sponsored.id));
+assert.equal((await sponsorSummary()).display_status,'article_unpublished');
 r=await admin.request('POST','/api/v1/articles',{id:sponsored.id,edit_token:sponsored.edit_token,status:'published'});
 assert.equal(r.status,200,r.text); sponsored=r.json.article;
 assert.equal(Number(sponsored.items[1].is_sponsored),1);
@@ -89,6 +91,7 @@ assert.equal(sponsored.items[1].sponsor_label,sponsorLabel);
 assert.match(sponsored.items[1].sponsor_start,/^2000-01-01 00:00/);
 assert.match(sponsored.items[1].sponsor_end,/^2099-01-01 00:00/);
 checkSponsor((await guest.request('GET','/fixture-sponsor/')).text,true);
+assert.equal((await sponsorSummary()).display_status,'active');
 const expiredItems=sponsored.items.map(it=>Number(it.business_id)===2?{...it,sponsor_end:'2001-01-01T00:00'}:it);
 r=await admin.request('POST','/api/v1/articles',{id:sponsored.id,edit_token:sponsored.edit_token,status:'draft',items:expiredItems});
 assert.equal(r.status,200,r.text); sponsored=r.json.article;
@@ -97,6 +100,7 @@ checkSponsor((await editor.request('GET',`/api/v1/articles/preview/${sponsored.i
 r=await admin.request('POST','/api/v1/articles',{id:sponsored.id,edit_token:sponsored.edit_token,status:'published'});
 assert.equal(r.status,200,r.text); sponsored=r.json.article;
 checkSponsor((await guest.request('GET','/fixture-sponsor/')).text,false);
+assert.equal((await sponsorSummary()).display_status,'ended');
 const futureItems=sponsored.items.map(it=>Number(it.business_id)===2?{...it,sponsor_start:'2099-01-01T00:00',sponsor_end:null}:it);
 r=await admin.request('POST','/api/v1/articles',{id:sponsored.id,edit_token:sponsored.edit_token,status:'draft',items:futureItems});
 assert.equal(r.status,200,r.text); sponsored=r.json.article;

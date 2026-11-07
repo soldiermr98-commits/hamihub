@@ -23,6 +23,14 @@ interface Props {
   onNavigateReview?: () => void;
 }
 
+const sponsorLabels: Record<string, string> = {
+  active: 'فعال',
+  upcoming: 'آینده',
+  ended: 'پایان‌یافته',
+  article_unpublished: 'مقاله منتشر نشده',
+  business_unpublished: 'کسب‌وکار منتشر نشده',
+};
+
 export const S6AnalyticsPanel: React.FC<Props> = ({ csrfToken, onNavigateReview }) => {
   const [data, setData] = useState<AnalyticsSummaryState | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -264,7 +272,7 @@ export const S6AnalyticsPanel: React.FC<Props> = ({ csrfToken, onNavigateReview 
                 {data.sponsored_items.length === 0 ? (
                   <tr>
                     <td colSpan={3} className="py-6 text-center text-slate-500">
-                      مورد اسپانسری فعالی ثبت نشده است.
+                      مورد اسپانسری ثبت نشده است.
                     </td>
                   </tr>
                 ) : (
@@ -275,16 +283,19 @@ export const S6AnalyticsPanel: React.FC<Props> = ({ csrfToken, onNavigateReview 
                         <div className="text-[11px] text-blue-700 font-medium">
                           برچسب: {sp.sponsor_label || 'پیشنهاد ویژه'}
                         </div>
+                        <div className={`mt-1 font-semibold ${sp.display_status === 'active' ? 'text-emerald-700' : 'text-amber-800'}`}>
+                          وضعیت: {sponsorLabels[sp.display_status] || 'نامشخص؛ پنل را به‌روز کنید'}
+                        </div>
                       </td>
                       <td className="py-2.5 px-3">
-                        <a
-                          href={`/${sp.article_slug}/`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-slate-800 hover:text-blue-700 font-medium"
-                        >
-                          {sp.article_title}
-                        </a>
+                        {sp.article_status === 'published' && sp.article_slug ? (
+                          <a
+                            href={`/${encodeURIComponent(sp.article_slug)}/`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-slate-800 hover:text-blue-700 font-medium"
+                          >{sp.article_title}</a>
+                        ) : <span className="text-slate-700 font-medium">{sp.article_title}</span>}
                       </td>
                       <td className="py-2.5 px-3 font-mono text-[11px] text-slate-600" dir="ltr">
                         <div>از: {sp.sponsor_start || 'همیشه'}</div>
