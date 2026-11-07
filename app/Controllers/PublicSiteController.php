@@ -865,6 +865,9 @@ final class PublicSiteController
             return;
         }
 
+        // Use one clock for SQL ordering, preview ordering and labels so a
+        // transition cannot produce inconsistent order and badges in one page.
+        $sponsorNow = date('Y-m-d H:i:s');
         $working = $preview ? ArticleService::load((int)$article['id']) : null;
         $revision = $working['revision']['data'] ?? null;
         if (is_array($revision)) {
@@ -880,7 +883,7 @@ final class PublicSiteController
             $article['city_slug'] = $city['slug'] ?? null;
             $article['category_name_fa'] = $category['name_fa'] ?? null;
             $article['category_slug'] = $category['slug'] ?? null;
-            $items = self::previewArticleItems($revision['items'] ?? []);
+            $items = self::previewArticleItems($revision['items'] ?? [], $sponsorNow);
             $faqs = array_map(static fn(array $f): array => ['question'=>$f['question_fa'], 'answer'=>$f['answer_fa']], $revision['faqs'] ?? []);
             $coverUrl = (string)($revision['cover_url'] ?? '');
         } else {
@@ -894,9 +897,13 @@ final class PublicSiteController
                  INNER JOIN cities c ON c.id=b.city_id INNER JOIN categories cat ON cat.id=b.category_id
                  LEFT JOIN neighborhoods n ON n.id=b.neighborhood_id
                  WHERE ai.article_id=:aid AND b.status='published'
-                 ORDER BY CASE WHEN ai.is_sponsored=1 AND (ai.sponsor_start IS NULL OR ai.sponsor_start<=NOW())
-                            AND (ai.sponsor_end IS NULL OR ai.sponsor_end>=NOW()) THEN 1 ELSE 0 END DESC,
-                          ai.position ASC,b.internal_score DESC", ['aid'=>(int)$article['id']]
+                 ORDER BY CASE WHEN ai.is_sponsored=1 AND (ai.sponsor_start IS NULL OR ai.sponsor_start<=:sponsor_now_start)
+                            AND (ai.sponsor_end IS NULL OR ai.sponsor_end>:sponsor_now_end) THEN 1 ELSE 0 END DESC,
+                          ai.position ASC,b.internal_score DESC", [
+                    'aid'=>(int)$article['id'],
+                    'sponsor_now_start'=>$sponsorNow,
+                    'sponsor_now_end'=>$sponsorNow,
+                ]
             );
             $faqs = DB::fetchAll('SELECT * FROM article_faqs WHERE article_id=:aid ORDER BY sort,id', ['aid'=>(int)$article['id']]);
             $cover = ArticleService::schemaReady() ? DB::fetchOne('SELECT m.file_path_800 FROM article_extras x LEFT JOIN media m ON m.id=x.cover_media_id WHERE x.article_id=:id', ['id'=>(int)$article['id']]) : null;
@@ -1060,7 +1067,7 @@ final class PublicSiteController
                             </thead>
                             <tbody>
                                 <?php foreach ($items as $idx => $it):
-                                    $isSponsor = self::isActiveSponsored($it);
+                                    $isSponsor = self::isActiveSponsored($it, $sponsorNow);
                                     $hl = !empty($it['highlights']) ? (json_decode((string)$it['highlights'], true) ?: []) : [];
                                 ?>
                                     <tr>
@@ -1109,7 +1116,7 @@ final class PublicSiteController
                             $hl = !empty($it['highlights']) ? (json_decode((string)$it['highlights'], true) ?: []) : [];
                             $pros = is_array($hl['pros'] ?? null) ? $hl['pros'] : [];
                             $cons = is_array($hl['cons'] ?? null) ? $hl['cons'] : [];
-                            $isSponsor = self::isActiveSponsored($it);
+                            $isSponsor = self::isActiveSponsored($it, $sponsorNow);
                         ?>
                             <div class="hx-card <?= $isSponsor ? 'hx-card-sponsored' : '' ?>" id="rank-<?= $idx + 1 ?>">
                                 <div class="hx-card-top">
@@ -1591,7 +1598,7 @@ final class PublicSiteController
     }
 
     /** Hydrate a private revision's list without changing the live article_items. */
-    private static function previewArticleItems(array $draftItems): array
+    private static function previewArticleItems(array $draftItems, string $sponsorNow): array
     {
         $ids = array_values(array_unique(array_filter(array_map(static fn($item): int => is_array($item) ? (int)($item['business_id'] ?? 0) : 0, $draftItems))));
         if (!$ids) return [];
@@ -1617,8 +1624,8 @@ final class PublicSiteController
                 'sponsor_start'=>$draft['sponsor_start'] ?? null, 'sponsor_end'=>$draft['sponsor_end'] ?? null,
             ]);
         }
-        usort($items, static function (array $a, array $b): int {
-            return (int)self::isActiveSponsored($b) <=> (int)self::isActiveSponsored($a)
+        usort($items, static function (array $a, array $b) use ($sponsorNow): int {
+            return (int)self::isActiveSponsored($b, $sponsorNow) <=> (int)self::isActiveSponsored($a, $sponsorNow)
                 ?: ((int)$a['position'] <=> (int)$b['position'])
                 ?: ((float)$b['internal_score'] <=> (float)$a['internal_score']);
         });
@@ -1808,7 +1815,7 @@ final class PublicSiteController
     <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s9.0">
+    <link rel="stylesheet" href="/assets/css/public.css?v=s9.1">
     <?php foreach ($schemas as $schema):
         $schemaJson = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT));
     ?>
@@ -1872,16 +1879,16 @@ final class PublicSiteController
         Response::html($html, 404);
     }
 
-    private static function isActiveSponsored(array $item): bool
+    /** Start is inclusive; end is exclusive, matching the cache transition. */
+    private static function isActiveSponsored(array $item, string $now): bool
     {
         if (empty($item['is_sponsored'])) {
             return false;
         }
-        $now = date('Y-m-d H:i:s');
         if (!empty($item['sponsor_start']) && $item['sponsor_start'] > $now) {
             return false;
         }
-        if (!empty($item['sponsor_end']) && $item['sponsor_end'] < $now) {
+        if (!empty($item['sponsor_end']) && $item['sponsor_end'] <= $now) {
             return false;
         }
         return true;
