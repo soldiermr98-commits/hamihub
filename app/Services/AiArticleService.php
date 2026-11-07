@@ -63,12 +63,23 @@ final class AiArticleService
     /** @var array<string, array{label:string,adapter:ArticleTextProvider}> */
     private array $providers;
 
+    /** The fixed registry is also used by the admin UI; browser input never selects a URL. */
+    public static function catalog(): array
+    {
+        return [
+            'gemini'=>['label'=>'Gemini', 'default_model'=>'gemini-2.5-flash-lite'],
+            'groq'=>['label'=>'Groq', 'default_model'=>'llama-3.1-8b-instant'],
+            'openrouter'=>['label'=>'OpenRouter', 'default_model'=>'openrouter/free'],
+        ];
+    }
+
     public function __construct(private readonly array $config)
     {
+        $catalog = self::catalog();
         $this->providers = [
-            'gemini'=>['label'=>'Gemini', 'adapter'=>new GeminiArticleProvider()],
-            'groq'=>['label'=>'Groq', 'adapter'=>new ChatArticleProvider('https://api.groq.com/openai/v1/chat/completions')],
-            'openrouter'=>['label'=>'OpenRouter', 'adapter'=>new ChatArticleProvider('https://openrouter.ai/api/v1/chat/completions')],
+            'gemini'=>['label'=>$catalog['gemini']['label'], 'adapter'=>new GeminiArticleProvider()],
+            'groq'=>['label'=>$catalog['groq']['label'], 'adapter'=>new ChatArticleProvider('https://api.groq.com/openai/v1/chat/completions')],
+            'openrouter'=>['label'=>$catalog['openrouter']['label'], 'adapter'=>new ChatArticleProvider('https://openrouter.ai/api/v1/chat/completions')],
         ];
     }
 
@@ -88,9 +99,9 @@ final class AiArticleService
         return $out;
     }
 
-    private function validModel(string $id, string $model): bool
+    public static function validModel(string $id, string $model): bool
     {
-        if ($model === '' || strlen($model) > 120) return false;
+        if (!isset(self::catalog()[$id]) || $model === '' || strlen($model) > 120) return false;
         if ($id === 'gemini') return (bool)preg_match('/\A[a-zA-Z0-9._-]+\z/', $model);
         if (!preg_match('/\A[a-zA-Z0-9._:\/-]+\z/', $model)) return false;
         // OpenRouter has paid models too. This integration will not use one.
@@ -116,6 +127,15 @@ final class AiArticleService
         $adapter = $this->providers[$id]['adapter'];
         return ['id'=>$id, 'label'=>$configured['label'], 'model'=>$configured['model'], 'adapter'=>$adapter,
             'request'=>$adapter->request($configured['model'], trim((string)$c['api_key']), $prompt)];
+    }
+
+    /** A small explicit real generation verifies the configured model, not just DNS. */
+    public function prepareConnectionTest(string $id): array
+    {
+        $prepared = $this->prepare($id, 'آزمایش اتصال', 'فقط واژه سلام را بنویس.', '');
+        if ($id === 'gemini') $prepared['request']['body']['generationConfig']['maxOutputTokens'] = 64;
+        else $prepared['request']['body']['max_tokens'] = 64;
+        return $prepared;
     }
 
     /** @param callable|null $transport Test seam; production always uses the fixed HTTPS transport. */

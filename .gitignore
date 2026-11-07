@@ -11,3 +11,4 @@ coverage/
 /public_html/uploads/
 /storage/installed.lock
 /storage/logs/
+/storage/private/

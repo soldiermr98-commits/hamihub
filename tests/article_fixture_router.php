@@ -20,7 +20,7 @@ $root = $base . '/public_html';
 $path = parse_url((string)($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH) ?: '/';
 if ($path === '/__article_fixture_guard__') {
     header('Content-Type: application/json'); header('Cache-Control: no-store');
-    echo json_encode(['nonce'=>$nonce,'database'=>$db['database']]); exit;
+    echo json_encode(['nonce'=>$nonce,'database'=>$db['database'],'fake_ai'=>defined('HHX_TEST_FAKE_AI_TRANSPORT') && HHX_TEST_FAKE_AI_TRANSPORT === true]); exit;
 }
 if (str_starts_with($path, '/cache/')) { http_response_code(403); exit; }
 $file = realpath($root . $path);

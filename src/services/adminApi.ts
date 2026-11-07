@@ -532,8 +532,24 @@ export async function logoutAdmin(csrfToken:string): Promise<any> { return actio
 export async function runWebMigrations(csrfToken:string): Promise<any> { return action('/api/v1/system/migrate', {}, csrfToken); }
 export async function updateFeatureSchema(csrfToken:string): Promise<any> { return action('/api/v1/system/update-feature-schema', {}, csrfToken); }
 export interface AiProviderStatus { id:string; label:string; model:string; available:boolean }
+export interface AiManagedProvider extends AiProviderStatus {
+  enabled:boolean; free_tier_confirmed:boolean; key_configured:boolean;
+  source:'none'|'file'|'panel'; version:number; error:string;
+}
 export async function fetchAiProviders(): Promise<{ok:boolean;schema_ready:boolean;providers:AiProviderStatus[]}> {
   return request('/api/v1/ai/article/providers', {cache:'no-store'});
+}
+export async function fetchAiProviderManagement(): Promise<{ok:boolean;schema_ready:boolean;providers:AiManagedProvider[]}> {
+  return request('/api/v1/ai/providers/manage', {cache:'no-store'});
+}
+export async function saveAiProvider(payload:{provider:string;model:string;api_key:string;enabled:boolean;free_tier_confirmed:boolean;version:number},csrf:string):Promise<{ok:boolean;message?:string;error?:string}> {
+  return action('/api/v1/ai/providers/save',payload,csrf);
+}
+export async function removeAiProvider(provider:string,version:number,csrf:string):Promise<{ok:boolean;message?:string;error?:string}> {
+  return action('/api/v1/ai/providers/remove',{provider,version,confirm:true},csrf);
+}
+export async function testAiProvider(provider:string,csrf:string):Promise<{ok:boolean;message?:string;error?:string}> {
+  return action('/api/v1/ai/providers/test',{provider,confirm_cost:true},csrf);
 }
 export async function generateAiArticle(payload:{provider:string;title:string;brief:string;facts:string;confirm_send:boolean;confirm_quota:boolean}, csrf:string): Promise<{ok:boolean;text?:string;provider?:string;model?:string;error?:string}> {
   return action('/api/v1/ai/article/generate',payload,csrf);

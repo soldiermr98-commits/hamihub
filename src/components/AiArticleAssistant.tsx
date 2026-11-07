@@ -50,7 +50,7 @@ export const AiArticleAssistant:React.FC<Props> = ({title,currentText,csrfToken,
       {loading&&<p className="text-sm">در حال بررسی تنظیمات…</p>}
       {error&&<p role="alert" className="text-sm text-rose-800">{error}</p>}
       {!loading&&!schemaReady&&<p className="text-sm text-amber-900">مدیر باید پس از پشتیبان، به‌روزرسانی اختصاصی بخش‌های جدید را در تنظیمات اجرا کند.</p>}
-      {!loading&&schemaReady&&providers.every(p=>!p.available)&&<p className="text-sm text-amber-900">هیچ سرویس آماده‌ای نیست. مدیر باید کلید و تأیید سهمیه را فقط در تنظیمات خصوصی هاست قرار دهد؛ کلید را اینجا یا در گفت‌وگو ننویسید.</p>}
+      {!loading&&schemaReady&&providers.every(p=>!p.available)&&<p className="text-sm text-amber-900">هیچ سرویس آماده‌ای نیست. مدیر می‌تواند کلید و مدل را در «تنظیمات ← سرویس‌های نویسنده» ثبت و تست کند؛ کلید را در گفت‌وگو نفرستید.</p>}
       <label className="block text-sm">سرویس<select aria-label="سرویس هوش مصنوعی" className={`${input} mt-1`} value={provider} onChange={e=>setProvider(e.target.value)} disabled={busy||!schemaReady}>
         <option value="">انتخاب سرویس</option>{providers.map(p=><option key={p.id} value={p.id} disabled={!p.available}>{p.label} {p.model ? `· ${p.model}` : ''} {!p.available?'(آماده نیست)':''}</option>)}
       </select></label>
