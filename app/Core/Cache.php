@@ -62,8 +62,8 @@ final class Cache
         }
 
         $content = file_get_contents($filePath);
-        // Ignore pages generated before city-first URLs and the current template.
-        if (!is_string($content) || !str_contains($content, 'public.css?v=s9.0')) return null;
+        // Ignore pages generated before the current template and sponsorship-window logic.
+        if (!is_string($content) || !str_contains($content, 'public.css?v=s9.1')) return null;
         return $content;
     }
 

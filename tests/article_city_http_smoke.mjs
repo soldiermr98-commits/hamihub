@@ -60,6 +60,50 @@ assert.equal(r.status,200);assert.match(r.headers.get('cache-control'),/private.
 assert(!((await guest.request('GET','/sitemap.xml')).text.includes('/fixture-draft/')));
 ok('draft preview requires a panel session, is no-store/noindex, and is absent from public pages and sitemap');
 
+// A sponsorship is attached to an article item, not a separate banner. Only a
+// published article and published business can show it publicly.
+const sponsorLabel='حامی ویژه آزمایشی';
+const sponsorTable=(html)=>{
+  const table=html.match(/<table class="hx-table">([\s\S]*?)<\/table>/)?.[1];
+  assert(table,'article comparison table is missing');
+  return table;
+};
+const checkSponsor=(html,active)=>{
+  const table=sponsorTable(html);
+  const first=table.indexOf('کافه آزمایشی'),second=table.indexOf('کافه دوم');
+  assert(first>=0 && second>=0,'both test businesses must be present');
+  assert.equal(second<first,active,'active sponsor is pinned before organic item');
+  assert.equal(table.includes(sponsorLabel),active,'label appears only in the active window');
+};
+r=await admin.request('POST','/api/v1/articles',{
+  title_fa:'مقاله اسپانسر آزمایشی',slug:'fixture-sponsor',intro_html:'متن آزمایشی',status:'draft',
+  items:[{business_id:1,rank_num:1},{business_id:2,rank_num:2,is_sponsored:1,sponsor_label:sponsorLabel,sponsor_start:'2000-01-01T00:00',sponsor_end:'2099-01-01T00:00'}],
+});
+assert.equal(r.status,200,r.text); let sponsored=r.json.article;
+assert.equal((await guest.request('GET','/fixture-sponsor/')).status,404);
+checkSponsor((await editor.request('GET',`/api/v1/articles/preview/${sponsored.id}`)).text,true);
+r=await admin.request('POST','/api/v1/articles',{id:sponsored.id,edit_token:sponsored.edit_token,status:'published'});
+assert.equal(r.status,200,r.text); sponsored=r.json.article;
+assert.equal(Number(sponsored.items[1].is_sponsored),1);
+assert.equal(sponsored.items[1].sponsor_label,sponsorLabel);
+assert.match(sponsored.items[1].sponsor_start,/^2000-01-01 00:00/);
+assert.match(sponsored.items[1].sponsor_end,/^2099-01-01 00:00/);
+checkSponsor((await guest.request('GET','/fixture-sponsor/')).text,true);
+const expiredItems=sponsored.items.map(it=>Number(it.business_id)===2?{...it,sponsor_end:'2001-01-01T00:00'}:it);
+r=await admin.request('POST','/api/v1/articles',{id:sponsored.id,edit_token:sponsored.edit_token,status:'draft',items:expiredItems});
+assert.equal(r.status,200,r.text); sponsored=r.json.article;
+checkSponsor((await guest.request('GET','/fixture-sponsor/')).text,true);
+checkSponsor((await editor.request('GET',`/api/v1/articles/preview/${sponsored.id}`)).text,false);
+r=await admin.request('POST','/api/v1/articles',{id:sponsored.id,edit_token:sponsored.edit_token,status:'published'});
+assert.equal(r.status,200,r.text); sponsored=r.json.article;
+checkSponsor((await guest.request('GET','/fixture-sponsor/')).text,false);
+const futureItems=sponsored.items.map(it=>Number(it.business_id)===2?{...it,sponsor_start:'2099-01-01T00:00',sponsor_end:null}:it);
+r=await admin.request('POST','/api/v1/articles',{id:sponsored.id,edit_token:sponsored.edit_token,status:'draft',items:futureItems});
+assert.equal(r.status,200,r.text); sponsored=r.json.article;
+checkSponsor((await editor.request('GET',`/api/v1/articles/preview/${sponsored.id}`)).text,false);
+assert.equal(sponsored.revision.data.items[1].sponsor_label,sponsorLabel);
+ok('sponsorship label and ordering respect publication and time windows, without changing the live version while drafting');
+
 let oldDraft=(await list(editor)).find(item=>item.slug==='fixture-draft');
 r=await editor.request('POST','/api/v1/articles',{id:oldDraft.id,edit_token:oldDraft.edit_token,title_fa:'پیش‌نویس ویرایش‌شده',items:oldDraft.items,status:'draft'});
 assert.equal(r.status,200,r.text);

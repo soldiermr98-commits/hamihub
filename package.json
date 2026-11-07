@@ -10,7 +10,8 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "build:deploy": "vite build && node scripts/deploy-admin.mjs",
-    "test:apify-ui": "tsx tests/apify_panel_smoke.tsx"
+    "test:apify-ui": "tsx tests/apify_panel_smoke.tsx",
+    "test:article-ui": "tsx tests/article_sponsor_ui_smoke.tsx"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
