@@ -9,6 +9,7 @@ use App\Core\Csrf;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
+use App\Services\ArticleService;
 use App\Services\SlugService;
 
 /**
@@ -17,250 +18,42 @@ use App\Services\SlugService;
  */
 final class ArticleController
 {
-    /**
-     * GET /api/v1/articles
-     */
+    /** The list includes the live version and (when present) a private working copy. */
     public static function index(Request $req, array $params = []): void
     {
         Auth::requireRole(['admin', 'editor']);
-
-        $articles = DB::fetchAll(
-            "SELECT a.*,
-                    c.name_fa AS city_name_fa, c.slug AS city_slug,
-                    cat.name_fa AS category_name_fa, cat.slug AS category_slug
-             FROM articles a
-             INNER JOIN cities c ON c.id = a.city_id
-             LEFT JOIN categories cat ON cat.id = a.category_id
-             ORDER BY a.id DESC"
-        );
-
-        foreach ($articles as &$art) {
-            $aid = (int)$art['id'];
-            $items = DB::fetchAll(
-                "SELECT ai.*,
-                        b.name AS business_name_fa,
-                        b.slug AS business_slug,
-                        b.internal_score AS weighted_score,
-                        b.tier
-                 FROM article_items ai
-                 INNER JOIN businesses b ON b.id = ai.business_id
-                 WHERE ai.article_id = :aid
-                 ORDER BY ai.position ASC, ai.id ASC",
-                ['aid' => $aid]
-            );
-            foreach ($items as &$it) {
-                $hl = !empty($it['highlights']) ? (json_decode((string)$it['highlights'], true) ?: []) : [];
-                $it['rank_num'] = (int)$it['position'];
-                $it['badge_fa'] = (string)($hl['badge'] ?? '');
-                $it['verdict_fa'] = (string)($hl['verdict'] ?? '');
-                $it['custom_desc_html'] = (string)($it['custom_desc'] ?? '');
-            }
-            unset($it);
-
-            $faqs = DB::fetchAll(
-                "SELECT id, article_id, question AS question_fa, answer AS answer_fa, sort AS sort_order
-                 FROM article_faqs
-                 WHERE article_id = :aid
-                 ORDER BY sort ASC, id ASC",
-                ['aid' => $aid]
-            );
-
-            $art['title_fa'] = (string)$art['title'];
-            $art['subtitle_fa'] = (string)($art['meta_description'] ?? '');
-            $art['intro_html'] = (string)($art['intro'] ?? '');
-            $art['methodology_html'] = (string)($art['tips_html'] ?? '');
-            $art['items'] = $items;
-            $art['faqs'] = $faqs;
+        $ids = DB::fetchAll('SELECT id FROM articles ORDER BY id DESC');
+        $articles = [];
+        foreach ($ids as $row) {
+            $article = ArticleService::load((int)$row['id']);
+            if ($article) $articles[] = $article;
         }
-        unset($art);
-
-        Response::json([
-            'ok'       => true,
-            'articles' => $articles,
-        ]);
+        Response::json(['ok'=>true, 'schema_ready'=>ArticleService::schemaReady(), 'articles'=>$articles]);
     }
 
-    /**
-     * POST /api/v1/articles
-     * ذخیره یا ویرایش مقاله لیستی، آیتم‌ها، وضعیت اسپانسرشیپ و سؤالات متداول + ابطال کش صفحات عمومی
-     */
+    /** Save without exposing drafts or replacing the published version prematurely. */
     public static function storeOrUpdate(Request $req, array $params = []): void
     {
         Csrf::verifyOrFail($req);
         $user = Auth::requireRole(['admin', 'editor']);
-
-        $id = (int)$req->input('id', 0);
-        $cityId = (int)$req->input('city_id', 0);
-        $categoryId = (int)$req->input('category_id', 0);
-        $titleFa = trim((string)($req->input('title_fa', $req->input('title', ''))));
-        $subtitleFa = trim((string)($req->input('subtitle_fa', $req->input('meta_description', ''))));
-        $slugInput = trim((string)$req->input('slug', ''));
-        $introHtml = trim((string)($req->input('intro_html', $req->input('intro', ''))));
-        $methodologyHtml = trim((string)($req->input('methodology_html', $req->input('tips_html', ''))));
-        $status = (string)$req->input('status', 'draft');
-        if (!in_array($status, ['draft', 'review', 'published'], true)) {
-            $status = 'draft';
+        try {
+            $result = ArticleService::save($req->json(), $user);
+            Cache::flushAll();
+            $message = $result['working_status'] === 'review' ? 'تغییرات برای بررسی مدیر ارسال شد؛ نسخه منتشرشده بدون تغییر باقی ماند.'
+                : ($result['working_status'] === 'draft' ? 'پیش‌نویس تغییرات ذخیره شد؛ نسخه منتشرشده بدون تغییر باقی ماند.'
+                : ($result['status'] === 'published' ? 'مقاله منتشر شد.' : ($result['status'] === 'review' ? 'مقاله برای بررسی مدیر ارسال شد.' : 'پیش‌نویس ذخیره شد.')));
+            Response::json(array_merge(['ok'=>true,'message'=>$message], $result, ['article'=>ArticleService::load((int)$result['article_id'])]));
+        } catch (\InvalidArgumentException $e) {
+            Response::json(['ok'=>false,'error'=>$e->getMessage()], 422);
+        } catch (\PDOException $e) {
+            error_log('Article database save failed: ' . $e->getMessage());
+            Response::json(['ok'=>false,'error'=>'ذخیره مقاله ناموفق بود؛ اطلاعات قبلی تغییر نکرده است. گزارش سرور را بررسی کنید.'], 500);
+        } catch (\RuntimeException $e) {
+            Response::json(['ok'=>false,'error'=>$e->getMessage()], 409);
+        } catch (\Throwable $e) {
+            error_log('Article save failed: ' . $e->getMessage());
+            Response::json(['ok'=>false,'error'=>'ذخیره مقاله ناموفق بود؛ اطلاعات قبلی تغییر نکرده است. گزارش سرور را بررسی کنید.'], 500);
         }
-        if ($user['role'] !== 'admin' && $status === 'published') { $status = 'review'; }
-        $metaTitle = trim((string)$req->input('meta_title', '')) ?: ($titleFa . ' | حامی‌هاب گیلان');
-        $metaDesc = trim((string)$req->input('meta_description', '')) ?: $subtitleFa;
-
-        if ($cityId <= 0 || $titleFa === '') {
-            Response::json([
-                'ok'    => false,
-                'error' => 'انتخاب شهر و وارد کردن عنوان مقاله لیستی الزامی است.',
-            ], 422);
-            return;
-        }
-
-        if ($categoryId <= 0) {
-            $firstCat = DB::fetchOne("SELECT id FROM categories ORDER BY id ASC LIMIT 1");
-            $categoryId = (int)($firstCat['id'] ?? 1);
-        }
-
-        $rawSlug = $slugInput !== '' ? $slugInput : SlugService::suggestSlug($titleFa, 'best');
-        $slugCheck = SlugService::validateSlug($rawSlug);
-        if (!$slugCheck['ok']) Response::json(['ok'=>false,'error'=>$slugCheck['error'],'field'=>'slug'],422);
-        if (!DB::fetchOne('SELECT id FROM cities WHERE id=:id', ['id'=>$cityId]) || !DB::fetchOne('SELECT id FROM categories WHERE id=:id', ['id'=>$categoryId])) Response::json(['ok'=>false,'error'=>'شهر یا دسته‌بندی یافت نشد.'],422);
-        $slug = SlugService::ensureUniqueSlug('articles', strtolower($rawSlug), $id > 0 ? $id : null);
-
-        if ($id > 0 && !DB::fetchOne('SELECT id FROM articles WHERE id=:id', ['id'=>$id])) Response::json(['ok'=>false,'error'=>'مقاله یافت نشد.'], 404);
-        $pdo = DB::connection();
-        $pdo->beginTransaction();
-        if ($id > 0) {
-            DB::query(
-                "UPDATE articles SET
-                    city_id = :city_id,
-                    category_id = :cat_id,
-                    slug = :slug,
-                    title = :title,
-                    meta_title = :meta_title,
-                    meta_description = :meta_desc,
-                    intro = :intro,
-                    tips_html = :tips,
-                    status = :status,
-                    published_at = CASE WHEN :status2 = 'published' AND published_at IS NULL THEN NOW() ELSE published_at END,
-                    updated_at = NOW()
-                 WHERE id = :id",
-                [
-                    'city_id'    => $cityId,
-                    'cat_id'     => $categoryId,
-                    'slug'       => $slug,
-                    'title'      => $titleFa,
-                    'meta_title' => $metaTitle,
-                    'meta_desc'  => $metaDesc,
-                    'intro'      => $introHtml !== '' ? $introHtml : null,
-                    'tips'       => $methodologyHtml !== '' ? $methodologyHtml : null,
-                    'status'     => $status,
-                    'status2'    => $status,
-                    'id'         => $id,
-                ]
-            );
-            $articleId = $id;
-        } else {
-            DB::query(
-                "INSERT INTO articles (
-                    title, slug, meta_title, meta_description, category_id, city_id,
-                    intro, tips_html, year_label, status, ai_generated, published_at, created_at, updated_at
-                 ) VALUES (
-                    :title, :slug, :meta_title, :meta_desc, :cat_id, :city_id,
-                    :intro, :tips, '', :status, 0,
-                    CASE WHEN :status2 = 'published' THEN NOW() ELSE NULL END, NOW(), NOW()
-                 )",
-                [
-                    'title'      => $titleFa,
-                    'slug'       => $slug,
-                    'meta_title' => $metaTitle,
-                    'meta_desc'  => $metaDesc,
-                    'cat_id'     => $categoryId,
-                    'city_id'    => $cityId,
-                    'intro'      => $introHtml !== '' ? $introHtml : null,
-                    'tips'       => $methodologyHtml !== '' ? $methodologyHtml : null,
-                    'status'     => $status,
-                    'status2'    => $status,
-                ]
-            );
-            $articleId = DB::lastInsertId();
-        }
-
-        // بروزرسانی آیتم‌های مقاله
-        $items = $req->input('items');
-        if (is_array($items)) {
-            DB::query("DELETE FROM article_items WHERE article_id = :aid", ['aid' => $articleId]);
-            $pos = 1;
-            foreach ($items as $it) {
-                $bid = (int)($it['business_id'] ?? 0);
-                if ($bid <= 0) {
-                    continue;
-                }
-                $isSponsored = !empty($it['is_sponsored']) ? 1 : 0;
-                $highlights = json_encode([
-                    'badge'   => trim((string)($it['badge_fa'] ?? '')),
-                    'verdict' => trim((string)($it['verdict_fa'] ?? '')),
-                    'pros'    => is_array($it['pros'] ?? null) ? $it['pros'] : [],
-                    'cons'    => is_array($it['cons'] ?? null) ? $it['cons'] : [],
-                ], JSON_UNESCAPED_UNICODE);
-
-                DB::query(
-                    "INSERT IGNORE INTO article_items (
-                        article_id, business_id, position, custom_desc, highlights,
-                        is_sponsored, sponsor_label, sponsor_start, sponsor_end
-                     ) VALUES (
-                        :aid, :bid, :pos, :desc, :hl,
-                        :is_spon, :spon_label, :spon_start, :spon_end
-                     )",
-                    [
-                        'aid'        => $articleId,
-                        'bid'        => $bid,
-                        'pos'        => (int)($it['rank_num'] ?? $pos),
-                        'desc'       => trim((string)($it['custom_desc_html'] ?? '')),
-                        'hl'         => $highlights,
-                        'is_spon'    => $isSponsored,
-                        'spon_label' => trim((string)($it['sponsor_label'] ?? 'پیشنهاد ویژه')),
-                        'spon_start' => !empty($it['sponsor_start']) ? $it['sponsor_start'] : ($isSponsored ? date('Y-m-d 00:00:00') : null),
-                        'spon_end'   => !empty($it['sponsor_end']) ? $it['sponsor_end'] : ($isSponsored ? date('Y-m-d 23:59:59', strtotime('+30 days')) : null),
-                    ]
-                );
-                $pos++;
-            }
-        }
-
-        // بروزرسانی سؤالات متداول مقاله
-        $faqs = $req->input('faqs');
-        if (is_array($faqs)) {
-            DB::query("DELETE FROM article_faqs WHERE article_id = :aid", ['aid' => $articleId]);
-            foreach ($faqs as $idx => $f) {
-                $q = trim((string)($f['question_fa'] ?? ($f['question'] ?? '')));
-                $a = trim((string)($f['answer_fa'] ?? ($f['answer'] ?? '')));
-                if ($q === '' || $a === '') {
-                    continue;
-                }
-                DB::query(
-                    "INSERT INTO article_faqs (article_id, question, answer, sort) VALUES (:aid, :q, :a, :sort)",
-                    [
-                        'aid'  => $articleId,
-                        'q'    => $q,
-                        'a'    => $a,
-                        'sort' => $idx + 1,
-                    ]
-                );
-            }
-        }
-
-        if ($status === 'review') {
-            \App\Services\PipelineService::enqueueReviewIfNotExists('article', $articleId, 'manual_review', ['article_id'=>$articleId,'title'=>$titleFa]);
-        } else {
-            DB::query("UPDATE review_queue SET status=:status,decided_by=:user,decided_at=NOW() WHERE kind='article' AND target_id=:id AND status='pending'", ['status'=>$status === 'published' ? 'approved' : 'rejected','user'=>(int)$user['id'],'id'=>$articleId]);
-        }
-        $pdo->commit();
-        Cache::flushAll();
-
-        Response::json([
-            'ok'         => true,
-            'article_id' => $articleId,
-            'slug'       => $slug,
-            'message'    => 'مقاله لیستی با موفقیت ذخیره شد و کش صفحات عمومی به‌روزرسانی گردید.',
-        ]);
     }
 
     /**
@@ -271,6 +64,7 @@ final class ArticleController
     {
         Csrf::verifyOrFail($req);
         Auth::requireRole(['admin', 'editor']);
+        if (!ArticleService::schemaReady()) Response::json(['ok'=>false,'error'=>'ابتدا به‌روزرسانی دیتابیس را طبق راهنمای نصب انجام دهید.'],409);
         $cityId = (int) $req->input('city_id', 0);
         $categoryId = (int) $req->input('category_id', 0);
         $city = DB::fetchOne("SELECT id, name_fa, slug FROM cities WHERE id = :id", ['id' => $cityId]);

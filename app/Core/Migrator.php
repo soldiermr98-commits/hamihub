@@ -45,6 +45,17 @@ final class Migrator
         $applied = [];
         $skipped = [];
 
+        // Migration 003 changes publication states, provider settings and jobs.
+        // Never run it implicitly on an existing installation just to apply a later update.
+        $legacy = '003_manual_collection_defaults.sql';
+        if (!isset($executedMap[$legacy]) && is_file($migrationsDir . '/' . $legacy)) {
+            $installed = is_file($base . '/storage/installed.lock');
+            foreach (['businesses', 'articles'] as $table) {
+                if (DB::fetchOne("SHOW TABLES LIKE '{$table}'") !== null && DB::fetchOne("SELECT id FROM `{$table}` WHERE status='published' LIMIT 1") !== null) $installed = true;
+            }
+            if ($installed) throw new RuntimeException('مایگریشن قدیمی 003 هنوز در سابقه ثبت نشده و می‌تواند محتوا و تنظیمات را تغییر دهد. اجرای کلی متوقف شد؛ ابتدا پشتیبان بگیرید و وضعیت آن را با متخصص بررسی کنید. برای این نسخه از دکمه به‌روزرسانی اختصاصی مقاله استفاده کنید.');
+        }
+
         foreach ($files as $filePath) {
             $fileName = basename($filePath);
             if (isset($executedMap[$fileName])) {
@@ -73,5 +84,32 @@ final class Migrator
             'skipped' => $skipped,
             'total_applied' => count($applied),
         ];
+    }
+
+    /** Apply only the non-destructive editor/URL migration, never older migrations. */
+    public static function runArticleUpdate(): array
+    {
+        $pdo = DB::connection();
+        foreach (['articles','article_items','article_faqs','businesses','cities','categories','media','review_queue','business_promotions','business_source_rating_dates'] as $table) {
+            if (DB::fetchOne("SHOW TABLES LIKE '{$table}'") === null) {
+                throw new RuntimeException('پیش‌نیاز دیتابیس «' . $table . '» موجود نیست. ابتدا نسخه قبلی را با پشتیبان و بررسی مایگریشن‌ها تکمیل کنید.');
+            }
+        }
+        $pdo->exec("CREATE TABLE IF NOT EXISTS schema_migrations (
+            migration VARCHAR(190) NOT NULL, executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (migration)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $file = '006_article_editor_city_urls.sql';
+        if (DB::fetchOne('SELECT migration FROM schema_migrations WHERE migration=:m', ['m'=>$file])) {
+            return ['ok'=>true, 'applied'=>[], 'skipped'=>[$file], 'total_applied'=>0];
+        }
+        $base = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
+        $sql = @file_get_contents($base . '/database/migrations/' . $file);
+        if (!is_string($sql) || trim($sql) === '') throw new RuntimeException('فایل به‌روزرسانی دیتابیس یافت نشد.');
+        // Each DDL statement is safe to repeat after an interrupted installation.
+        $pdo->exec($sql);
+        DB::query('INSERT IGNORE INTO schema_migrations (migration,executed_at) VALUES (:m,NOW())', ['m'=>$file]);
+        Cache::flushAll();
+        return ['ok'=>true, 'applied'=>[$file], 'skipped'=>[], 'total_applied'=>1];
     }
 }

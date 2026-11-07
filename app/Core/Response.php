@@ -67,6 +67,18 @@ final class Response
         exit;
     }
 
+    /** Redirect only to an application-relative path, never to an arbitrary host. */
+    public static function redirect(string $path, int $status = 301): never
+    {
+        if (!str_starts_with($path, '/') || str_starts_with($path, '//') || str_contains($path, "\r") || str_contains($path, "\n")) {
+            throw new \InvalidArgumentException('Invalid redirect path');
+        }
+        self::sendSecurityHeaders(false);
+        header('Cache-Control: public, max-age=3600');
+        header('Location: ' . $path, true, $status);
+        exit;
+    }
+
     /**
      * ایمن‌سازی رشته برای جلوگیری از XSS در قالب‌های HTML
      */

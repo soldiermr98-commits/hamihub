@@ -104,6 +104,20 @@ final class AuthController
         ]);
     }
 
+    /** Apply only the editor/URL schema, without executing the older 003 migration. */
+    public static function updateArticleSchema(Request $request): void
+    {
+        Csrf::verifyOrFail($request);
+        Auth::requireRole(['admin']);
+        try {
+            $result = Migrator::runArticleUpdate();
+            Response::json(['ok'=>true,'migration_result'=>$result,'message'=>'به‌روزرسانی مقاله و نشانی‌ها آماده است؛ وضعیت انتشار محتوای قبلی تغییر نکرد.']);
+        } catch (Throwable $e) {
+            error_log('Article schema update failed: ' . $e->getMessage());
+            Response::json(['ok'=>false,'error'=>'به‌روزرسانی انجام نشد: ' . $e->getMessage()], 409);
+        }
+    }
+
     /**
      * اجرای افزایشی مایگریشن‌های جدید دیتابیس از داخل پنل ادمین (مخصوص هاست اشتراکی بدون SSH)
      * POST /api/v1/system/migrate

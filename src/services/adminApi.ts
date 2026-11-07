@@ -81,6 +81,7 @@ export interface BusinessItem {
   promoted?: number;
   confidence: 'low' | 'medium' | 'high';
   city_name?: string;
+  city_slug?: string;
   category_name?: string;
   neighborhood_name?: string;
   contacts: BusinessContactItem[];
@@ -191,8 +192,11 @@ export interface ArticleBizRow {
   badge_fa: string;
   verdict_fa: string;
   custom_desc_html: string;
+  highlights?: string | null;
+  pros?: string[];
+  cons?: string[];
   is_sponsored?: number;
-  sponsor_label?: string;
+  sponsor_label?: string | null;
   sponsor_start?: string | null;
   sponsor_end?: string | null;
 }
@@ -205,25 +209,30 @@ export interface ArticleFaqRow {
   sort_order: number;
 }
 
-export interface ArticleItem {
-  id: number;
-  city_id: number;
+export interface ArticleData {
+  city_id: number | null;
   category_id: number | null;
-  city_name_fa?: string;
-  city_slug?: string;
-  category_name_fa?: string;
-  category_slug?: string;
   slug: string;
   title_fa: string;
-  subtitle_fa: string;
   intro_html: string;
   methodology_html: string;
-  status: 'draft' | 'review' | 'published';
-  meta_title: string;
-  meta_description: string;
-  published_at?: string | null;
+  meta_title: string | null;
+  meta_description: string | null;
+  cover_media_id: number | null;
+  cover_url?: string | null;
   items: ArticleBizRow[];
   faqs: ArticleFaqRow[];
+}
+export interface ArticleItem extends ArticleData {
+  id: number;
+  status: 'draft' | 'review' | 'published';
+  city_name_fa?: string | null;
+  city_slug?: string | null;
+  category_name_fa?: string | null;
+  category_slug?: string | null;
+  published_at?: string | null;
+  edit_token: string;
+  revision: null | {status:'draft'|'review';base_conflict:boolean;updated_by:number;updated_at:string;data:ArticleData};
 }
 
 export interface CheckReport {
@@ -451,6 +460,7 @@ export interface TopEngagedBusiness {
   tier: 'A' | 'B' | 'C';
   internal_score: number;
   city_name: string;
+  city_slug: string;
   views_cnt: number;
   calls_cnt: number;
   maps_cnt: number;
@@ -574,8 +584,12 @@ export async function fetchReviewQueueState(status='pending',kind='all'): Promis
   return request('/api/v1/review-queue?' + new URLSearchParams({status,kind}));
 }
 export async function decideReviewQueueItems(ids:number[],decision:'approved'|'rejected',csrf:string): Promise<any> { return action('/api/v1/review-queue/decide',{ids,decision},csrf); }
-export async function fetchArticlesList(): Promise<ArticleItem[]> { return (await request('/api/v1/articles')).articles; }
+export async function fetchArticlesList(): Promise<{articles:ArticleItem[];schema_ready:boolean}> { return request('/api/v1/articles', {cache:'no-store'}); }
 export async function saveArticleItem(payload:Partial<ArticleItem>,csrf:string): Promise<any> { return action('/api/v1/articles',payload,csrf); }
+export async function updateArticleSchema(csrf:string):Promise<any> { return action('/api/v1/system/update-article-schema',{},csrf); }
+export async function fetchArticleBusinesses(page:number, query:string, cityId:number, categoryId:number): Promise<{businesses:BusinessItem[];total:number;per_page:number}> {
+  return request('/api/v1/businesses?' + new URLSearchParams({page:String(page),q:query,city_id:String(cityId),category_id:String(categoryId),status:'published'}));
+}
 export async function autoBuildCityCategoryArticle(cityId:number,categoryId:number,csrf:string): Promise<any> { return action('/api/v1/articles/auto-build',{city_id:cityId,category_id:categoryId},csrf); }
 export async function flushPublicHtmlCache(csrf:string): Promise<any> { return action('/api/v1/cache/flush',{},csrf); }
 export async function fetchAnalyticsSummary(): Promise<AnalyticsSummaryState> { return request('/api/v1/analytics/summary'); }

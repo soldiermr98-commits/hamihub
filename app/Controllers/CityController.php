@@ -9,6 +9,7 @@ use App\Core\Cache;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
+use App\Services\BusinessUrlService;
 use App\Services\SlugService;
 
 /**
@@ -120,8 +121,20 @@ final class CityController
         $publishMode = 'manual';
         if ($id > 0 && !DB::fetchOne('SELECT id FROM cities WHERE id=:id', ['id'=>$id])) Response::json(['ok'=>false,'error'=>'شهر یافت نشد.'], 404);
         $isActive = (int) $request->input('is_active', 1) === 1 ? 1 : 0;
+        $pdo = DB::connection();
+        $pdo->beginTransaction();
 
         if ($id > 0) {
+            $previous = DB::fetchOne('SELECT slug FROM cities WHERE id=:id FOR UPDATE', ['id'=>$id]);
+            if (!$previous) { $pdo->rollBack(); Response::json(['ok'=>false,'error'=>'شهر یافت نشد.'], 404); }
+            if ((string)$previous['slug'] !== $uniqueSlug) {
+                try {
+                    BusinessUrlService::rememberCity($id, (string)$previous['slug']);
+                } catch (\RuntimeException $e) {
+                    $pdo->rollBack();
+                    Response::json(['ok'=>false,'error'=>$e->getMessage()], 409);
+                }
+            }
             DB::query(
                 "UPDATE cities
                  SET name_fa = :name_fa,
@@ -164,6 +177,7 @@ final class CityController
             $msg = "شهر «{$nameFa}» با اسلاگ «{$uniqueSlug}» اضافه شد؛ برای جمع‌آوری، محدوده و مختصات شهر را بررسی کنید.";
         }
 
+        $pdo->commit();
         Cache::flushAll();
         $city = DB::fetchOne("SELECT * FROM cities WHERE id = :id", ['id' => $cityId]);
 
