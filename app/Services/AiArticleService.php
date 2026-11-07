@@ -24,8 +24,9 @@ final class GeminiArticleProvider implements ArticleTextProvider
         return [
             'url'=>'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent',
             'headers'=>['Content-Type: application/json', 'x-goog-api-key: ' . $apiKey],
+            // Newer Gemini models ignore (and future ones may reject) sampling parameters.
             'body'=>['contents'=>[['role'=>'user','parts'=>[['text'=>$prompt]]]],
-                'generationConfig'=>['temperature'=>0.4, 'maxOutputTokens'=>2048]],
+                'generationConfig'=>['maxOutputTokens'=>2048]],
         ];
     }
     public function text(array $response): string
@@ -33,7 +34,7 @@ final class GeminiArticleProvider implements ArticleTextProvider
         $parts = $response['candidates'][0]['content']['parts'] ?? [];
         $text = '';
         if (is_array($parts)) foreach ($parts as $part) {
-            if (is_array($part) && isset($part['text']) && is_string($part['text'])) $text .= $part['text'];
+            if (is_array($part) && ($part['thought'] ?? false) !== true && isset($part['text']) && is_string($part['text'])) $text .= $part['text'];
         }
         return $text;
     }
@@ -67,7 +68,7 @@ final class AiArticleService
     public static function catalog(): array
     {
         return [
-            'gemini'=>['label'=>'Gemini', 'default_model'=>'gemini-2.5-flash-lite'],
+            'gemini'=>['label'=>'Gemini', 'default_model'=>'gemini-3.5-flash-lite'],
             'groq'=>['label'=>'Groq', 'default_model'=>'llama-3.1-8b-instant'],
             'openrouter'=>['label'=>'OpenRouter', 'default_model'=>'openrouter/free'],
         ];
@@ -133,8 +134,14 @@ final class AiArticleService
     public function prepareConnectionTest(string $id): array
     {
         $prepared = $this->prepare($id, 'آزمایش اتصال', 'فقط واژه سلام را بنویس.', '');
-        if ($id === 'gemini') $prepared['request']['body']['generationConfig']['maxOutputTokens'] = 64;
-        else $prepared['request']['body']['max_tokens'] = 64;
+        if ($id === 'gemini') {
+            // Gemini 3 Flash-Lite uses some output tokens for thinking, even for simple requests.
+            // A short test prompt with a bounded but less restrictive limit avoids false empty responses.
+            $prepared['request']['body']['contents'] = [['role'=>'user', 'parts'=>[['text'=>'Reply with OK.']]]];
+            $prepared['request']['body']['generationConfig']['maxOutputTokens'] = 256;
+        } else {
+            $prepared['request']['body']['max_tokens'] = 64;
+        }
         return $prepared;
     }
 
@@ -145,14 +152,49 @@ final class AiArticleService
         $result = $transport ? $transport($request) : self::postJson($request);
         if (!is_array($result) || !isset($result['status'], $result['body'])) throw new RuntimeException('پاسخ سرویس هوش مصنوعی نامعتبر بود.');
         $status = (int)$result['status'];
-        if ($status === 429) throw new RuntimeException('سهمیه یا محدودیت این سرویس تمام شده است. سهمیه را بررسی کنید یا سرویس دیگری را دستی انتخاب کنید.');
-        if ($status === 401 || $status === 403) throw new RuntimeException('سرویس اجازه دسترسی نداد؛ کلید، دسترسی منطقه و تنظیمات حساب را بررسی کنید.');
-        if ($status < 200 || $status >= 300) throw new RuntimeException('سرویس پاسخ موفق نداد؛ مدل، شبکه و سهمیه را در حساب ارائه‌دهنده بررسی کنید.');
+        if ($status < 200 || $status >= 300) {
+            throw new RuntimeException(self::providerError((string)($prepared['id'] ?? ''), $status, (string)$result['body']));
+        }
         $decoded = json_decode((string)$result['body'], true);
         if (!is_array($decoded)) throw new RuntimeException('پاسخ سرویس هوش مصنوعی قابل خواندن نبود.');
         $text = trim($prepared['adapter']->text($decoded));
+        if ($text === '' && ($prepared['id'] ?? '') === 'gemini' && ($decoded['candidates'][0]['finishReason'] ?? '') === 'MAX_TOKENS') {
+            throw new RuntimeException('سرویس پاسخ داد، اما خروجی پیش از تولید متن به سقف توکن رسید (MAX_TOKENS).');
+        }
         if ($text === '') throw new RuntimeException('سرویس متن قابل استفاده‌ای برنگرداند؛ ممکن است خروجی مسدود شده باشد.');
         return mb_substr($text, 0, 18000);
+    }
+
+    /** Display only a status and fixed guidance; provider bodies may contain credentials or prompts. */
+    private static function providerError(string $provider, int $status, string $body): string
+    {
+        $hint = '';
+        if ($provider === 'gemini' && $status === 400) {
+            $data = json_decode($body, true);
+            $details = is_array($data) && is_array($data['error']['details'] ?? null) ? $data['error']['details'] : [];
+            foreach ($details as $detail) {
+                if (is_array($detail) && ($detail['reason'] ?? '') === 'API_KEY_INVALID') {
+                    $hint = 'کلید ارسال‌شده توسط Google معتبر شناخته نشد؛ کلید و پروژه را در پنل بررسی کنید.';
+                    break;
+                }
+            }
+            if ($hint === '' && is_array($data) && ($data['error']['status'] ?? '') === 'FAILED_PRECONDITION') {
+                $hint = 'پیش‌شرط حساب، پروژه یا منطقه برقرار نیست؛ وضعیت دسترسی و طرح را در Google AI Studio بررسی کنید.';
+            }
+        }
+        if ($hint === '') {
+            $hint = match ($status) {
+                400 => 'درخواست پذیرفته نشد؛ شناسه دقیق مدل، تنظیمات پروژه و کلید را بررسی کنید.',
+                401, 403 => 'سرویس اجازه دسترسی نداد؛ کلید، محدودیت‌های آن، منطقه و تنظیمات حساب را بررسی کنید.',
+                402 => 'سرویس وضعیت پرداخت یا اعتبار حساب را رد کرد؛ طرح و موجودی حساب را بررسی کنید.',
+                404 => 'مدل یا نشانی آن برای این حساب پیدا نشد؛ نام دقیق مدل و دسترسی پروژه را بررسی کنید.',
+                429 => 'سهمیه یا محدودیت این سرویس تمام شده است؛ سهمیه را بررسی کنید یا بعداً تلاش کنید.',
+                500, 502, 503, 504 => 'سرویس یا مسیر ارتباطی موقتاً خطا داد؛ کمی بعد دوباره بررسی کنید.',
+                default => 'سرویس پاسخ موفق نداد؛ تنظیمات مدل، حساب و وضعیت سرویس را بررسی کنید.',
+            };
+        }
+        $code = $status >= 100 && $status <= 599 ? " (HTTP {$status})" : '';
+        return 'پاسخ سرویس' . $code . ': ' . $hint;
     }
 
     private static function postJson(array $request): array

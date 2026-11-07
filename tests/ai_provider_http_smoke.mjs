@@ -44,6 +44,10 @@ r=await admin.request('POST','/api/v1/ai/providers/save',{...payload,api_key:'sy
 r=await admin.request('POST','/api/v1/ai/providers/save',{...payload,api_key:'synthetic-replacement-key',model:'gemini-fixture-2',version:2});assert.equal(r.status,200,r.text);
 r=await editor.request('POST','/api/v1/ai/article/generate',{provider:'gemini',title:'عنوان آزمایشی',brief:'',facts:'',confirm_send:true,confirm_quota:true});
 assert.equal(r.status,200,r.text);assert.equal(r.json.text,'synthetic-test-response');assert(!r.text.includes('synthetic-replacement-key'),'generation leaked the saved key');
+r=await admin.request('POST','/api/v1/ai/providers/save',{...payload,api_key:'',model:'gemini-fixture-error404',version:3});assert.equal(r.status,200,r.text);
+r=await admin.request('POST','/api/v1/ai/providers/test',{provider:'gemini',confirm_cost:true});
+assert.equal(r.status,502,r.text);assert.match(r.json.error,/HTTP 404/);assert(!r.text.includes('synthetic-'),'error leaked provider body or key');
+r=await admin.request('POST','/api/v1/ai/providers/save',{...payload,api_key:'',model:'gemini-fixture-2',version:4});assert.equal(r.status,200,r.text);
 r=await admin.request('POST','/api/v1/ai/providers/test',{provider:'groq',confirm_cost:true});assert.equal(r.status,200,r.text);
 r=await admin.request('POST','/api/v1/ai/providers/save',{...payload,provider:'openrouter',model:'openrouter/free',api_key:'synthetic-router-key',version:0});assert.equal(r.status,200,r.text);
 r=await admin.request('POST','/api/v1/ai/providers/test',{provider:'openrouter',confirm_cost:true});assert.equal(r.status,200,r.text);
@@ -51,9 +55,9 @@ r=await admin.request('POST','/api/v1/ai/providers/remove',{provider:'groq',vers
 r=await editor.request('GET','/api/v1/ai/article/providers');assert(!r.json.providers.find(p=>p.id==='groq').available,'removing legacy override must not re-enable file key');
 r=await admin.request('POST','/api/v1/ai/providers/test',{provider:'gemini',confirm_cost:false});assert.equal(r.status,422);
 r=await editor.request('POST','/api/v1/ai/providers/test',{provider:'gemini',confirm_cost:true});assert.equal(r.status,403);
-for(let i=0;i<3;i++) {r=await admin.request('POST','/api/v1/ai/providers/test',{provider:'gemini',confirm_cost:true});assert.equal(r.status,200,r.text);assert(r.json.ok);assert(!r.text.includes('synthetic-'),'Neither fake key nor provider response should be returned');}
+for(let i=0;i<2;i++) {r=await admin.request('POST','/api/v1/ai/providers/test',{provider:'gemini',confirm_cost:true});assert.equal(r.status,200,r.text);assert(r.json.ok);assert(!r.text.includes('synthetic-'),'Neither fake key nor provider response should be returned');}
 r=await admin.request('POST','/api/v1/ai/providers/test',{provider:'gemini',confirm_cost:true});assert.equal(r.status,429,'tests must use the same quota as generation');
-r=await admin.request('POST','/api/v1/ai/providers/remove',{provider:'gemini',version:3,confirm:true});assert.equal(r.status,200,r.text);
+r=await admin.request('POST','/api/v1/ai/providers/remove',{provider:'gemini',version:5,confirm:true});assert.equal(r.status,200,r.text);
 r=await admin.request('GET','/api/v1/ai/providers/manage');status=Object.fromEntries(r.json.providers.map(p=>[p.id,p]));assert(!status.gemini.key_configured && !status.gemini.available);
 const ipv4=Object.values(os.networkInterfaces()).flat().find(x=>x && x.family==='IPv4' && !x.internal)?.address;
 if(ipv4){
