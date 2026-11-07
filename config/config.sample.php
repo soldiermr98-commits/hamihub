@@ -36,8 +36,9 @@ return [
         'daily_site_limit' => 30,
         'providers' => [
             'gemini' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'gemini-3.5-flash-lite'],
-            'groq' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'llama-3.1-8b-instant'],
+            'groq' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'openai/gpt-oss-120b'],
             'openrouter' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'openrouter/free'],
+            'nvidia' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'nvidia/nemotron-3.5-lightning-30b-a3b'],
         ],
     ],
     'reserved_slugs' => ['admin','api','assets','uploads','cache','city','b','sitemap','robots','install','check','storage'],

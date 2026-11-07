@@ -13,8 +13,8 @@ globalThis.fetch=async(input,options={})=>{
   const url=String(input),method=options.method||'GET',body=options.body?JSON.parse(String(options.body)):null;
   calls.push({url,method,body});
   const json=(data:any)=>new Response(JSON.stringify(data),{status:200,headers:{'content-type':'application/json'}});
-  if(url==='/api/v1/ai/article/providers')return json({ok:true,schema_ready:true,providers:[{id:'gemini',label:'Gemini',model:'fixture-model',available:true},{id:'groq',label:'Groq',model:'fixture',available:true},{id:'openrouter',label:'OpenRouter',model:'openrouter/free',available:false}]});
-  if(url==='/api/v1/ai/article/generate')return json({ok:true,text:'متن پیشنهادی آزمایشی',provider:'Gemini',model:'fixture-model'});
+  if(url==='/api/v1/ai/article/providers')return json({ok:true,schema_ready:true,providers:[{id:'gemini',label:'Gemini',model:'fixture-model',available:true},{id:'groq',label:'Groq',model:'fixture',available:true},{id:'openrouter',label:'OpenRouter',model:'openrouter/free',available:false},{id:'nvidia',label:'NVIDIA',model:'nvidia/nemotron-3.5-lightning-30b-a3b',available:true}]});
+  if(url==='/api/v1/ai/article/generate')return json({ok:true,text:'متن پیشنهادی آزمایشی',provider:body.provider==='nvidia'?'NVIDIA':'Gemini',model:body.provider==='nvidia'?'nvidia/nemotron-3.5-lightning-30b-a3b':'fixture-model'});
   throw new Error('Unexpected request: '+url);
 };
 const pause=()=>new Promise(r=>setTimeout(r,0));
@@ -39,6 +39,12 @@ try {
   assert.equal(inserted,'','result must not be inserted, saved, or published automatically');
   assert((document.querySelector('[aria-label="متن پیشنهادی هوش مصنوعی"]') as HTMLTextAreaElement).value.includes('پیشنهادی'));
   await click('افزودن به انتهای متن');assert.equal(inserted,'متن قبلی محفوظ\n\nمتن پیشنهادی آزمایشی');
+  const selector=document.querySelector('[aria-label="سرویس هوش مصنوعی"]') as HTMLSelectElement;
+  assert([...selector.options].some(o=>o.value==='nvidia'&&!o.disabled),'configured NVIDIA should be selectable');
+  await act(async()=>{selector.value='nvidia';selector.dispatchEvent(new dom.window.Event('change',{bubbles:true}));await pause();});
+  await click('ساخت متن پیشنهادی');const last=calls.filter(c=>c.url==='/api/v1/ai/article/generate').at(-1)!;
+  assert.equal(last.body.provider,'nvidia','generation must use the explicitly selected provider');
+  assert(document.body.textContent?.includes('nvidia/nemotron-3.5-lightning-30b-a3b'));
   assert(calls.every(c=>c.url.startsWith('/api/v1/ai/article/')),'no save or publish call');
   console.log('PASS: AI requires two acknowledgements, sends only selected fields, and inserts only after review');
 } finally {await act(async()=>root.unmount());dom.window.close();}

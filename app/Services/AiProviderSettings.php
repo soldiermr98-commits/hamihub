@@ -55,6 +55,7 @@ final class AiProviderSettings
             $out[] = [
                 'id'=>$id, 'label'=>$definition['label'],
                 'model'=>(string)($effective['model'] ?: $definition['default_model']),
+                'default_model'=>$definition['default_model'], 'suggested_models'=>$definition['suggested_models'],
                 'available'=>(bool)$statuses[$id]['available'],
                 'enabled'=>(bool)$effective['enabled'],
                 'free_tier_confirmed'=>(bool)$effective['free_tier_confirmed'],

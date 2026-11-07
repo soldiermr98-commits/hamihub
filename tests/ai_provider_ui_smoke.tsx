@@ -9,11 +9,12 @@ const {createRoot}=await import('react-dom/client');
 const {AiWorkerPanel}=await import('../src/components/AiWorkerPanel');
 const requests:Array<{url:string;method:string;body:any}>=[];
 const rows=[
-  {id:'gemini',label:'Gemini',model:'gemini-test',available:false,enabled:false,free_tier_confirmed:false,key_configured:false,source:'none',version:0,error:''},
-  {id:'groq',label:'Groq',model:'groq-test',available:false,enabled:false,free_tier_confirmed:false,key_configured:false,source:'none',version:0,error:''},
-  {id:'openrouter',label:'OpenRouter',model:'openrouter/free',available:false,enabled:false,free_tier_confirmed:false,key_configured:false,source:'none',version:0,error:''},
+  {id:'gemini',label:'Gemini',model:'gemini-test',available:false,enabled:false,free_tier_confirmed:false,key_configured:false,source:'none',version:0,error:'',suggested_models:[{id:'gemini-3.5-flash-lite',note:'پیش‌فرض'}]},
+  {id:'groq',label:'Groq',model:'openai/gpt-oss-120b',available:false,enabled:false,free_tier_confirmed:false,key_configured:false,source:'none',version:0,error:'',suggested_models:[{id:'openai/gpt-oss-120b',note:'پیش‌فرض'},{id:'qwen/qwen3.8-27b',note:'آزمایشی'}]},
+  {id:'openrouter',label:'OpenRouter',model:'openrouter/free',available:false,enabled:false,free_tier_confirmed:false,key_configured:false,source:'none',version:0,error:'',suggested_models:[{id:'openrouter/free',note:'پیش‌فرض'}]},
+  {id:'nvidia',label:'NVIDIA',model:'nvidia/nemotron-3.5-lightning-30b-a3b',available:false,enabled:false,free_tier_confirmed:false,key_configured:false,source:'none',version:0,error:'',suggested_models:[{id:'nvidia/nemotron-3.5-lightning-30b-a3b',note:'پیش‌فرض'}]},
 ];
-let secret='';
+const secrets=new Map<string,string>();
 globalThis.fetch=async(input,options={})=>{
   const url=String(input),method=options.method||'GET',body=options.body?JSON.parse(String(options.body)):null;
   requests.push({url,method,body});
@@ -23,13 +24,14 @@ globalThis.fetch=async(input,options={})=>{
   if(url==='/api/v1/ai/providers/save'){
     const p=rows.find(x=>x.id===body.provider)!;
     if(body.enabled&&!body.free_tier_confirmed)return json({ok:false,error:'سهمیه را تأیید کنید'},422);
-    if(body.api_key)secret=body.api_key;
-    Object.assign(p,{model:body.model,enabled:body.enabled,free_tier_confirmed:body.free_tier_confirmed,key_configured:!!secret,available:body.enabled&&!!secret,source:'panel',version:p.version+1});
+    if(body.api_key)secrets.set(body.provider,body.api_key);
+    const hasKey=secrets.has(body.provider);
+    Object.assign(p,{model:body.model,enabled:body.enabled,free_tier_confirmed:body.free_tier_confirmed,key_configured:hasKey,available:body.enabled&&hasKey,source:'panel',version:p.version+1});
     return json({ok:true,message:'ذخیره شد'});
   }
   if(url==='/api/v1/ai/providers/test')return json({ok:true,message:'اتصال موفق بود'});
   if(url==='/api/v1/ai/providers/remove'){
-    const p=rows.find(x=>x.id===body.provider)!;secret='';Object.assign(p,{enabled:false,key_configured:false,available:false,version:p.version+1});
+    const p=rows.find(x=>x.id===body.provider)!;secrets.delete(body.provider);Object.assign(p,{enabled:false,key_configured:false,available:false,version:p.version+1});
     return json({ok:true,message:'کلید حذف شد'});
   }
   throw new Error('Unexpected request: '+url);
@@ -39,6 +41,7 @@ function card(id:string){const c=document.querySelector(`[aria-label="تنظیم
 function button(scope:ParentNode,text:string){const b=[...scope.querySelectorAll('button')].find(x=>x.textContent?.trim()===text);assert(b,'Missing '+text);return b;}
 async function click(b:HTMLElement){await act(async()=>{b.click();await pause();});}
 async function input(el:HTMLInputElement,value:string){await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value')!.set!.call(el,value);el.dispatchEvent(new dom.window.Event('input',{bubbles:true}));await pause();});}
+async function select(el:HTMLSelectElement,value:string){await act(async()=>{el.value=value;el.dispatchEvent(new dom.window.Event('change',{bubbles:true}));await pause();});}
 const root=createRoot(document.getElementById('root')!);
 try {
   await act(async()=>{root.render(<AiWorkerPanel csrfToken="fixture-csrf" isAdmin/>);await pause();});
@@ -56,6 +59,25 @@ try {
   const model=gemini.querySelector('[aria-label="مدل Gemini"]') as HTMLInputElement;await input(model,'new-model');await click(button(gemini,'ذخیره تنظیمات'));
   assert.equal(requests.filter(r=>r.url==='/api/v1/ai/providers/save').at(-1)!.body.api_key,'','blank field preserves key');
   await click(button(gemini,'حذف کلید'));assert(requests.some(r=>r.url==='/api/v1/ai/providers/remove'));assert(!gemini.textContent?.includes('synthetic-ui-key'));
+  const groq=card('Groq');const groqModel=groq.querySelector('[aria-label="مدل Groq"]') as HTMLInputElement;
+  const groqSuggestions=groq.querySelector('[aria-label="مدل پیشنهادی Groq"]') as HTMLSelectElement;
+  assert.deepEqual([...groqSuggestions.options].slice(1).map(x=>x.value),['openai/gpt-oss-120b','qwen/qwen3.8-27b']);
+  assert(groqSuggestions.textContent?.includes('آزمایشی'));
+  const beforeSelect=requests.length;await select(groqSuggestions,'qwen/qwen3.8-27b');assert.equal(groqModel.value,'qwen/qwen3.8-27b');assert.equal(requests.length,beforeSelect,'selecting a model must not save or test');
+  await input(groq.querySelector('[aria-label="کلید API Groq"]') as HTMLInputElement,'synthetic-groq-ui-key');
+  const groqChecks=[...groq.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];await click(groqChecks[1]);await click(button(groq,'ذخیره تنظیمات'));
+  assert.equal(requests.filter(r=>r.url==='/api/v1/ai/providers/save').at(-1)!.body.model,'qwen/qwen3.8-27b');
+  await input(groqModel,'vendor/new-groq-model');assert.equal(groqSuggestions.value,'');await click(button(groq,'ذخیره تنظیمات'));
+  const groqSave=requests.filter(r=>r.url==='/api/v1/ai/providers/save').at(-1)!;assert.equal(groqSave.body.model,'vendor/new-groq-model');assert.equal(groqSave.body.api_key,'');
+  const nvidia=card('NVIDIA');const nvModel=nvidia.querySelector('[aria-label="مدل NVIDIA"]') as HTMLInputElement;
+  await input(nvModel,'vendor/custom-nvidia');await input(nvidia.querySelector('[aria-label="کلید API NVIDIA"]') as HTMLInputElement,'synthetic-nvidia-ui-key');
+  const nvChecks=[...nvidia.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];await click(nvChecks[1]);await click(button(nvidia,'ذخیره و تست اتصال'));
+  assert.equal(requests.filter(r=>r.url==='/api/v1/ai/providers/save').at(-1)!.body.model,'vendor/custom-nvidia');
+  assert.equal(requests.filter(r=>r.url==='/api/v1/ai/providers/test').at(-1)!.body.provider,'nvidia');
+  await select(nvidia.querySelector('[aria-label="مدل پیشنهادی NVIDIA"]') as HTMLSelectElement,'nvidia/nemotron-3.5-lightning-30b-a3b');
+  await click(button(nvidia,'ذخیره تنظیمات'));const nvSave=requests.filter(r=>r.url==='/api/v1/ai/providers/save').at(-1)!;
+  assert.equal(nvSave.body.model,'nvidia/nemotron-3.5-lightning-30b-a3b');assert.equal(nvSave.body.api_key,'','changing models preserves the NVIDIA key');
+  await click(button(nvidia,'حذف کلید'));assert(!nvidia.textContent?.includes('synthetic-nvidia-ui-key'));
   await act(async()=>{root.render(<AiWorkerPanel csrfToken="fixture-csrf" isAdmin={false}/>);await pause();});
   assert.equal(document.querySelector('[aria-label="کلید API Gemini"]'),null,'editor must not see management controls');
   assert(!requests.some(r=>r.url.includes('/articles')||r.url.includes('/generate')),'settings never publishes or generates content');
