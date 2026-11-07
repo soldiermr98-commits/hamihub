@@ -214,8 +214,14 @@ final class SlugService
             return $baseSlug;
         }
 
+        // Slugs are stored in VARCHAR(200), and old public addresses must not
+        // be reassigned to a different item after a rename.
+        $maxLength = match ($table) { 'cities' => 90, 'neighborhoods', 'categories' => 110, default => 190 };
+        $baseSlug = rtrim(substr($baseSlug, 0, $maxLength), '-');
         $candidate = $baseSlug;
         $counter = 2;
+        $hasBusinessAliases = $table === 'businesses' && BusinessUrlService::schemaReady();
+        $hasArticleAliases = $table === 'articles' && DB::fetchOne("SHOW TABLES LIKE 'article_url_aliases'") !== null;
 
         while (true) {
             $sql = "SELECT id FROM `{$table}` WHERE slug = :slug";
@@ -228,7 +234,13 @@ final class SlugService
             $sql .= " LIMIT 1";
 
             $existing = DB::fetchOne($sql, $params);
-            if ($existing === null) {
+            $aliasOwner = null;
+            if ($hasBusinessAliases) {
+                $aliasOwner = DB::fetchOne('SELECT business_id AS id FROM business_url_aliases WHERE path=:path', ['path' => BusinessUrlService::legacyPath($candidate)]);
+            } elseif ($hasArticleAliases) {
+                $aliasOwner = DB::fetchOne('SELECT article_id AS id FROM article_url_aliases WHERE slug=:slug', ['slug' => $candidate]);
+            }
+            if ($existing === null && ($aliasOwner === null || (int)$aliasOwner['id'] === (int)$ignoreId)) {
                 return $candidate;
             }
 

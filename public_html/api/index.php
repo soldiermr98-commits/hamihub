@@ -27,12 +27,6 @@ use App\Core\Router;
 
 Bootstrap::init(BASE_PATH);
 
-// پاک‌سازی خودکار کش قدیمی در صورت عدم تطابق با استایل جدید S6.0 (حامی‌هاب + گلس‌مورفیسم + فرم‌های S6)
-$homeCache = Cache::getPage('/');
-if ($homeCache !== null && !str_contains($homeCache, 'public.css?v=s7.0')) {
-    Cache::flushAll();
-}
-
 $request = new Request();
 $router = new Router();
 
@@ -42,6 +36,7 @@ $router->post('/api/v1/auth/login', [AuthController::class, 'login']);
 $router->post('/api/v1/auth/logout', [AuthController::class, 'logout']);
 $router->post('/api/v1/cache/flush', [AuthController::class, 'flushCache']);
 $router->post('/api/v1/system/migrate', [AuthController::class, 'runMigrations']);
+$router->post('/api/v1/system/update-article-schema', [AuthController::class, 'updateArticleSchema']);
 
 // ۲. مسیرهای CRUD شهر، دسته، بسته دسته، کسب‌وکار و رسانه WebP (S1)
 $router->get('/api/v1/cities', [CityController::class, 'index']);
@@ -88,6 +83,7 @@ $router->post('/api/v1/pipeline/benchmark-100', [ReviewQueueController::class, '
 
 // ۵. مسیرهای مدیریت مقالات لیستی سئو و رهگیری کلیک‌های عمومی (مرحله S4)
 $router->get('/api/v1/articles', [ArticleController::class, 'index']);
+$router->get('/api/v1/articles/preview/{id}', [PublicSiteController::class, 'articlePreview']);
 $router->post('/api/v1/articles', [ArticleController::class, 'storeOrUpdate']);
 $router->post('/api/v1/articles/auto-build', [ArticleController::class, 'autoBuild']);
 $router->post('/api/v1/events/track', [PublicSiteController::class, 'trackEvent']);

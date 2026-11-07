@@ -54,14 +54,16 @@ final class Cache
      */
     public static function getPage(string $uriPath): ?string
     {
+        // Never let an invalid path alias a valid cached path after sanitization.
+        if ($uriPath !== '/' && !preg_match('~^/[a-z0-9-]+(?:/[a-z0-9-]+)*/?$~D', $uriPath)) return null;
         $filePath = self::resolveFilePath($uriPath);
         if (!is_file($filePath)) {
             return null;
         }
 
         $content = file_get_contents($filePath);
-        // Ignore legacy pages built before the current public template and policy.
-        if (!is_string($content) || !str_contains($content, 'public.css?v=s8.0')) return null;
+        // Ignore pages generated before city-first URLs and the current template.
+        if (!is_string($content) || !str_contains($content, 'public.css?v=s9.0')) return null;
         return $content;
     }
 

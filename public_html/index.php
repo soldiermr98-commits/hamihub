@@ -45,16 +45,10 @@ if ($path === '/admin' || str_starts_with($path, '/admin/')) {
     }
 }
 
-// ۴. سرو از کش دیسک (public_html/cache/pages) در صورت معتبر بودن نسخه استایل S6.0
+// Only current-version public pages may be served from the disk cache.
 if ($request->method() === 'GET' && empty($_GET)) {
     $cachedHtml = Cache::getPage($path);
-    if ($cachedHtml !== null) {
-        if (!str_contains($cachedHtml, 'public.css?v=s8.0')) {
-            Cache::flushAll();
-        } else {
-            Response::html($cachedHtml);
-        }
-    }
+    if ($cachedHtml !== null) Response::html($cachedHtml);
 }
 
 $router = new Router();
@@ -63,9 +57,10 @@ $router = new Router();
 $router->get('/', [PublicSiteController::class, 'home']);
 $router->get('/sitemap.xml', [PublicSiteController::class, 'sitemapXml']);
 $router->get('/robots.txt', [PublicSiteController::class, 'robotsTxt']);
-$router->get('/b/{slug}', [PublicSiteController::class, 'businessDetail']);
+$router->get('/b/{slug}', [PublicSiteController::class, 'legacyBusinessDetail']);
 $router->get('/city/{city}', [PublicSiteController::class, 'cityHub']);
 $router->get('/city/{city}/{category}', [PublicSiteController::class, 'cityCategory']);
+$router->get('/{city}/{slug}', [PublicSiteController::class, 'businessDetail']);
 $router->get('/{slug}', [PublicSiteController::class, 'articleDetail']);
 
 $router->dispatch($request);

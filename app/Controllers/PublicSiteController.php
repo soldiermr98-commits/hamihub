@@ -10,6 +10,8 @@ use App\Core\Csrf;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
+use App\Services\ArticleService;
+use App\Services\BusinessUrlService;
 use App\Services\Normalizer;
 use Throwable;
 
@@ -78,7 +80,7 @@ final class PublicSiteController
                     cat.name_fa AS category_name_fa,
                     (SELECT COUNT(*) FROM article_items ai WHERE ai.article_id = a.id) AS items_count
              FROM articles a
-             INNER JOIN cities c ON c.id = a.city_id
+             LEFT JOIN cities c ON c.id = a.city_id
              LEFT JOIN categories cat ON cat.id = a.category_id
              WHERE a.status = 'published'
              ORDER BY a.published_at DESC, a.id DESC
@@ -144,7 +146,7 @@ final class PublicSiteController
                     <?php foreach ($articles as $art): ?>
                         <article class="hx-card">
                             <div class="hx-card-top">
-                                <span class="hx-badge hx-badge-tier-a"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> <?= self::e($art['city_name_fa']) ?> · <?= (int)$art['items_count'] ?> مورد</span>
+                                <span class="hx-badge hx-badge-tier-a"><?= self::icon('verify', 'hx-icon hx-icon-sm') ?> <?= !empty($art['city_name_fa']) ? self::e($art['city_name_fa']) : 'مقاله تحریریه' ?><?= (int)$art['items_count'] > 0 ? ' · ' . (int)$art['items_count'] . ' مورد' : '' ?></span>
                                 <?php if (!empty($art['category_name_fa'])): ?>
                                     <span class="hx-badge hx-badge-cat"><?= self::e($art['category_name_fa']) ?> · <?= self::e($art['year_label'] ?? '') ?></span>
                                 <?php endif; ?>
@@ -156,7 +158,7 @@ final class PublicSiteController
                                 <p class="hx-card-desc"><?= self::e($art['meta_description']) ?></p>
                             <?php endif; ?>
                             <div class="hx-card-actions">
-                                <a class="hx-btn hx-btn-primary" href="/<?= self::e($art['slug']) ?>/">مشاهده لیست کامل و نقشه ←</a>
+                                <a class="hx-btn hx-btn-primary" href="/<?= self::e($art['slug']) ?>/">خواندن مقاله ←</a>
                             </div>
                         </article>
                     <?php endforeach; ?>
@@ -232,17 +234,31 @@ final class PublicSiteController
         Response::html($fullHtml);
     }
 
-    /**
-     * GET /b/{slug} — صفحه اختصاصی هر کسب‌وکار با اسکیمای LocalBusiness (بدون امتیاز جعلی)
-     */
+    /** Old business links remain permanent redirects to the current city-first address. */
+    public static function legacyBusinessDetail(Request $req, array $params = []): void
+    {
+        $slug = rawurldecode((string)($params['slug'] ?? ''));
+        $biz = DB::fetchOne("SELECT b.id,b.slug,c.slug AS city_slug FROM businesses b INNER JOIN cities c ON c.id=b.city_id WHERE b.slug=:slug AND b.status='published' LIMIT 1", ['slug'=>$slug]);
+        $biz ??= BusinessUrlService::resolveAlias(BusinessUrlService::legacyPath($slug));
+        if (!$biz) {
+            self::render404('کسب‌وکار مورد نظر یافت نشد یا هنوز منتشر نشده است.');
+            return;
+        }
+        Response::redirect(BusinessUrlService::path((string)$biz['city_slug'], (string)$biz['slug']));
+    }
+
+    /** GET /{city}/{slug} — only the actual city and published business resolve. */
     public static function businessDetail(Request $req, array $params = []): void
     {
         $slug = rawurldecode((string)($params['slug'] ?? ''));
+        $city = rawurldecode((string)($params['city'] ?? ''));
 
-        $rows = self::fetchPublishedBusinesses("b.slug = :slug AND b.status = 'published'", ['slug' => $slug], 1);
+        $rows = self::fetchPublishedBusinesses("b.slug = :slug AND c.slug = :city AND b.status = 'published'", ['slug' => $slug, 'city' => $city], 1);
         $biz = $rows[0] ?? null;
 
         if (!$biz) {
+            $alias = BusinessUrlService::resolveAlias(BusinessUrlService::path($city, $slug));
+            if ($alias) Response::redirect(BusinessUrlService::path((string)$alias['city_slug'], (string)$alias['slug']));
             self::render404('کسب‌وکار مورد نظر یافت نشد یا هنوز در وضعیت منتشرشده قرار نگرفته است.');
             return;
         }
@@ -250,7 +266,7 @@ final class PublicSiteController
         $mediaItems = DB::fetchAll(
             "SELECT m.*
              FROM media m
-             LEFT JOIN business_photos bp ON bp.media_id = m.id AND bp.business_id = :bid
+             LEFT JOIN business_photos bp ON bp.media_id = m.id AND bp.business_id = :bid AND bp.status = 'approved'
              WHERE m.id = :cover_id OR bp.business_id = :bid2
              ORDER BY (m.id = :cover_id2) DESC, bp.sort ASC, m.id DESC",
             [
@@ -272,7 +288,7 @@ final class PublicSiteController
         );
 
         $baseUrl = self::baseUrl();
-        $canonical = $baseUrl . '/b/' . rawurlencode((string)$biz['slug']) . '/';
+        $canonical = $baseUrl . BusinessUrlService::path((string)$biz['city_slug'], (string)$biz['slug']);
 
         // اسکیمای LocalBusiness استاندارد و صادقانه بدون هیچ‌گونه aggregateRating ساختگی
         $localBizSchema = [
@@ -553,7 +569,7 @@ final class PublicSiteController
             'body'        => $bodyHtml,
         ]);
 
-        Cache::putPage('/b/' . $biz['slug'], $fullHtml);
+        Cache::putPage(BusinessUrlService::path((string)$biz['city_slug'], (string)$biz['slug']), $fullHtml);
         Response::html($fullHtml);
     }
 
@@ -817,57 +833,76 @@ final class PublicSiteController
     /**
      * GET /{slug} — صفحه مقاله لیستی («بهترین کافه‌های رشت») با اسکیمای Article + ItemList + FAQPage + BreadcrumbList
      */
+    /** Private, authenticated preview; it never touches the public page cache. */
+    public static function articlePreview(Request $req, array $params = []): void
+    {
+        header('Cache-Control: private, no-store, max-age=0');
+        header('Pragma: no-cache');
+        header('X-Robots-Tag: noindex, nofollow, noarchive');
+        Auth::requireRole(['admin', 'editor']);
+        // session_start() can replace Cache-Control; restore the stricter preview policy.
+        header('Cache-Control: private, no-store, max-age=0');
+        self::articleDetail($req, ['preview_id'=>(int)($params['id'] ?? 0)]);
+    }
+
     public static function articleDetail(Request $req, array $params = []): void
     {
-        self::ensureDefaultListArticle();
+        $preview = isset($params['preview_id']);
         $slug = rawurldecode((string)($params['slug'] ?? ''));
-
-        $article = DB::fetchOne(
-            "SELECT a.*,
-                    c.name_fa AS city_name_fa, c.slug AS city_slug,
-                    cat.name_fa AS category_name_fa, cat.slug AS category_slug
-             FROM articles a
-             INNER JOIN cities c ON c.id = a.city_id
-             LEFT JOIN categories cat ON cat.id = a.category_id
-             WHERE a.slug = :slug AND a.status = 'published'
-             LIMIT 1",
-            ['slug' => $slug]
-        );
-
+        $query = "SELECT a.*,c.name_fa AS city_name_fa,c.slug AS city_slug,
+                    cat.name_fa AS category_name_fa,cat.slug AS category_slug
+                  FROM articles a LEFT JOIN cities c ON c.id=a.city_id
+                  LEFT JOIN categories cat ON cat.id=a.category_id WHERE ";
+        $article = $preview
+            ? DB::fetchOne($query . 'a.id=:id LIMIT 1', ['id'=>(int)$params['preview_id']])
+            : DB::fetchOne($query . "a.slug=:slug AND a.status='published' LIMIT 1", ['slug'=>$slug]);
+        if (!$article && !$preview && ArticleService::schemaReady()) {
+            $alias = DB::fetchOne("SELECT a.slug FROM article_url_aliases u INNER JOIN articles a ON a.id=u.article_id WHERE u.slug=:slug AND a.status='published' LIMIT 1", ['slug'=>$slug]);
+            if ($alias) Response::redirect('/' . rawurlencode((string)$alias['slug']) . '/');
+        }
         if (!$article) {
             self::render404('مقاله یا لیست مورد نظر یافت نشد.');
             return;
         }
 
-        $items = DB::fetchAll(
-            "SELECT ai.*,
-                    b.slug AS biz_slug, b.name, b.short_desc, b.address, b.lat, b.lng,
-                    b.internal_score, b.tier, b.confidence,
-                    n.name_fa AS neighborhood_name_fa,
-                    c.name_fa AS city_name_fa, c.slug AS city_slug,
-                    cat.name_fa AS category_name_fa, cat.slug AS category_slug,
-                    (SELECT bc.value FROM business_contacts bc WHERE bc.business_id = b.id AND bc.type IN ('phone','mobile') ORDER BY bc.is_primary DESC, bc.id ASC LIMIT 1) AS phone,
-                    (SELECT COALESCE(SUM(bs.reviews_count), 0) FROM business_sources bs WHERE bs.business_id = b.id) AS reviews_total
-             FROM article_items ai
-             INNER JOIN businesses b ON b.id = ai.business_id
-             INNER JOIN cities c ON c.id = b.city_id
-             INNER JOIN categories cat ON cat.id = b.category_id
-             LEFT JOIN neighborhoods n ON n.id = b.neighborhood_id
-             WHERE ai.article_id = :aid AND b.status = 'published'
-             ORDER BY
-                 CASE WHEN ai.is_sponsored = 1
-                      AND (ai.sponsor_start IS NULL OR ai.sponsor_start <= NOW())
-                      AND (ai.sponsor_end IS NULL OR ai.sponsor_end >= NOW())
-                 THEN 1 ELSE 0 END DESC,
-                 ai.position ASC,
-                 b.internal_score DESC",
-            ['aid' => (int)$article['id']]
-        );
-
-        $faqs = DB::fetchAll(
-            "SELECT * FROM article_faqs WHERE article_id = :aid ORDER BY sort ASC, id ASC",
-            ['aid' => (int)$article['id']]
-        );
+        $working = $preview ? ArticleService::load((int)$article['id']) : null;
+        $revision = $working['revision']['data'] ?? null;
+        if (is_array($revision)) {
+            $article['title'] = $revision['title_fa'];
+            $article['slug'] = $revision['slug'];
+            $article['meta_title'] = $revision['meta_title'];
+            $article['meta_description'] = $revision['meta_description'];
+            $article['intro'] = $revision['intro_html'];
+            $article['tips_html'] = $revision['methodology_html'];
+            $city = !empty($revision['city_id']) ? DB::fetchOne('SELECT name_fa,slug FROM cities WHERE id=:id', ['id'=>(int)$revision['city_id']]) : null;
+            $category = !empty($revision['category_id']) ? DB::fetchOne('SELECT name_fa,slug FROM categories WHERE id=:id', ['id'=>(int)$revision['category_id']]) : null;
+            $article['city_name_fa'] = $city['name_fa'] ?? null;
+            $article['city_slug'] = $city['slug'] ?? null;
+            $article['category_name_fa'] = $category['name_fa'] ?? null;
+            $article['category_slug'] = $category['slug'] ?? null;
+            $items = self::previewArticleItems($revision['items'] ?? []);
+            $faqs = array_map(static fn(array $f): array => ['question'=>$f['question_fa'], 'answer'=>$f['answer_fa']], $revision['faqs'] ?? []);
+            $coverUrl = (string)($revision['cover_url'] ?? '');
+        } else {
+            $items = DB::fetchAll(
+                "SELECT ai.*,b.slug AS biz_slug,b.name,b.short_desc,b.address,b.lat,b.lng,
+                        b.internal_score,b.tier,b.confidence,n.name_fa AS neighborhood_name_fa,
+                        c.name_fa AS city_name_fa,c.slug AS city_slug,cat.name_fa AS category_name_fa,cat.slug AS category_slug,
+                        (SELECT bc.value FROM business_contacts bc WHERE bc.business_id=b.id AND bc.type IN ('phone','mobile') ORDER BY bc.is_primary DESC,bc.id ASC LIMIT 1) AS phone,
+                        (SELECT COALESCE(SUM(bs.reviews_count),0) FROM business_sources bs WHERE bs.business_id=b.id) AS reviews_total
+                 FROM article_items ai INNER JOIN businesses b ON b.id=ai.business_id
+                 INNER JOIN cities c ON c.id=b.city_id INNER JOIN categories cat ON cat.id=b.category_id
+                 LEFT JOIN neighborhoods n ON n.id=b.neighborhood_id
+                 WHERE ai.article_id=:aid AND b.status='published'
+                 ORDER BY CASE WHEN ai.is_sponsored=1 AND (ai.sponsor_start IS NULL OR ai.sponsor_start<=NOW())
+                            AND (ai.sponsor_end IS NULL OR ai.sponsor_end>=NOW()) THEN 1 ELSE 0 END DESC,
+                          ai.position ASC,b.internal_score DESC", ['aid'=>(int)$article['id']]
+            );
+            $faqs = DB::fetchAll('SELECT * FROM article_faqs WHERE article_id=:aid ORDER BY sort,id', ['aid'=>(int)$article['id']]);
+            $cover = ArticleService::schemaReady() ? DB::fetchOne('SELECT m.file_path_800 FROM article_extras x LEFT JOIN media m ON m.id=x.cover_media_id WHERE x.article_id=:id', ['id'=>(int)$article['id']]) : null;
+            $coverUrl = (string)($cover['file_path_800'] ?? '');
+        }
+        if (!preg_match('~^/uploads/[a-zA-Z0-9_/-]+\.(?:webp|jpg|jpeg|png)$~iD', $coverUrl)) $coverUrl = '';
 
         $baseUrl = self::baseUrl();
         $canonical = $baseUrl . '/' . rawurlencode((string)$article['slug']) . '/';
@@ -898,7 +933,7 @@ final class PublicSiteController
                 '@type'    => 'ListItem',
                 'position' => $idx + 1,
                 'name'     => (string)$it['name'],
-                'url'      => $baseUrl . '/b/' . rawurlencode((string)$it['biz_slug']) . '/',
+                'url'      => $baseUrl . BusinessUrlService::path((string)$it['city_slug'], (string)$it['biz_slug']),
             ];
         }
         $itemListSchema = [
@@ -911,9 +946,11 @@ final class PublicSiteController
 
         $breadcrumbItems = [
             ['name' => 'حامی‌هاب گیلان', 'url' => $baseUrl . '/'],
-            ['name' => (string)$article['city_name_fa'], 'url' => $baseUrl . '/city/' . $article['city_slug'] . '/'],
         ];
-        if (!empty($article['category_slug'])) {
+        if (!empty($article['city_slug'])) {
+            $breadcrumbItems[] = ['name' => (string)$article['city_name_fa'], 'url' => $baseUrl . '/city/' . $article['city_slug'] . '/'];
+        }
+        if (!empty($article['city_slug']) && !empty($article['category_slug'])) {
             $breadcrumbItems[] = [
                 'name' => (string)$article['category_name_fa'],
                 'url'  => $baseUrl . '/city/' . $article['city_slug'] . '/' . $article['category_slug'] . '/',
@@ -921,11 +958,8 @@ final class PublicSiteController
         }
         $breadcrumbItems[] = ['name' => (string)$article['title'], 'url' => $canonical];
 
-        $schemas = [
-            $articleSchema,
-            $itemListSchema,
-            self::buildBreadcrumbSchema($breadcrumbItems),
-        ];
+        $schemas = [$articleSchema, self::buildBreadcrumbSchema($breadcrumbItems)];
+        if ($items) $schemas[] = $itemListSchema;
 
         if (!empty($faqs)) {
             $faqEntities = [];
@@ -955,19 +989,24 @@ final class PublicSiteController
                     'lat'      => (float)$it['lat'],
                     'lng'      => (float)$it['lng'],
                     'district' => (string)($it['neighborhood_name_fa'] ?: $it['city_name_fa']),
-                    'url'      => '/b/' . $it['biz_slug'] . '/',
+                    'url'      => BusinessUrlService::path((string)$it['city_slug'], (string)$it['biz_slug']),
                 ];
             }
         }
 
         ob_start();
         ?>
-        <main class="hx-container" data-hx-page-view data-article-id="<?= (int)$article['id'] ?>">
+        <main class="hx-container" <?= $preview ? '' : 'data-hx-page-view data-article-id="' . (int)$article['id'] . '"' ?>>
+            <?php if ($preview): ?>
+                <div class="hx-card" role="status" style="margin-top:1rem;border:2px solid #d97706;">پیش‌نمایش خصوصی؛ فقط کاربران مجاز پنل این نسخه را می‌بینند. ممکن است نسخه متفاوتی در سایت منتشر شده باشد.</div>
+            <?php endif; ?>
             <nav class="hx-breadcrumb" aria-label="مسیر صفحه">
                 <a href="/">حامی‌هاب گیلان</a>
-                <span>/</span>
-                <a href="/city/<?= self::e($article['city_slug']) ?>/"><?= self::e($article['city_name_fa']) ?></a>
-                <?php if (!empty($article['category_slug'])): ?>
+                <?php if (!empty($article['city_slug'])): ?>
+                    <span>/</span>
+                    <a href="/city/<?= self::e($article['city_slug']) ?>/"><?= self::e($article['city_name_fa']) ?></a>
+                <?php endif; ?>
+                <?php if (!empty($article['city_slug']) && !empty($article['category_slug'])): ?>
                     <span>/</span>
                     <a href="/city/<?= self::e($article['city_slug']) ?>/<?= self::e($article['category_slug']) ?>/"><?= self::e($article['category_name_fa']) ?></a>
                 <?php endif; ?>
@@ -978,29 +1017,27 @@ final class PublicSiteController
             <article>
                 <header class="hx-article-header">
                     <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-                        <span class="hx-badge hx-badge-tier-a"><?= self::icon('verify', 'hx-icon hx-icon-sm') ?> فهرست تحریریه<?= !empty($article['year_label']) ? ' · ' . self::e($article['year_label']) : '' ?></span>
-                        <span class="hx-badge hx-badge-cat"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> شهر <?= self::e($article['city_name_fa']) ?> · <?= count($items) ?> واحد منتخب</span>
+                        <span class="hx-badge hx-badge-tier-a"><?= self::icon('verify', 'hx-icon hx-icon-sm') ?> <?= $items ? 'فهرست تحریریه' : 'مقاله تحریریه' ?><?= !empty($article['year_label']) ? ' · ' . self::e($article['year_label']) : '' ?></span>
+                        <?php if (!empty($article['city_name_fa'])): ?><span class="hx-badge hx-badge-cat"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> <?= self::e($article['city_name_fa']) ?></span><?php endif; ?>
                     </div>
                     <h1><?= self::e($article['title']) ?></h1>
 
+                    <?php if ($coverUrl !== ''): ?>
+                        <img src="<?= self::e($coverUrl) ?>" alt="<?= self::e($article['title']) ?>" style="display:block;width:100%;max-height:460px;object-fit:cover;border-radius:16px;margin:1rem 0;" loading="eager">
+                    <?php endif; ?>
+                    <?php if ($items): ?>
                     <div class="hx-summary-box">
-                        <div class="hx-summary-item">
-                            <strong><?= self::icon('location', 'hx-icon hx-icon-sm') ?> شهر و حوزه بررسی</strong>
-                            <span><?= self::e($article['city_name_fa']) ?><?= !empty($article['category_name_fa']) ? ' · ' . self::e($article['category_name_fa']) : '' ?></span>
-                        </div>
-                        <div class="hx-summary-item">
-                            <strong><?= self::icon('award', 'hx-icon hx-icon-sm') ?> تعداد گزینه‌های رتبه‌بندی‌شده</strong>
-                            <span><?= count($items) ?> واحد منتخب</span>
-                        </div>
-                        <div class="hx-summary-item">
-                            <strong><?= self::icon('star', 'hx-icon hx-icon-sm') ?> الگوریتم رتبه‌بندی</strong>
-                            <span>انتخاب و ترتیب تحریریه</span>
-                        </div>
+                        <?php if (!empty($article['city_name_fa']) || !empty($article['category_name_fa'])): ?>
+                        <div class="hx-summary-item"><strong><?= self::icon('location', 'hx-icon hx-icon-sm') ?> حوزه بررسی</strong><span><?= self::e($article['city_name_fa'] ?? '') ?><?= !empty($article['city_name_fa']) && !empty($article['category_name_fa']) ? ' · ' : '' ?><?= self::e($article['category_name_fa'] ?? '') ?></span></div>
+                        <?php endif; ?>
+                        <div class="hx-summary-item"><strong><?= self::icon('award', 'hx-icon hx-icon-sm') ?> تعداد گزینه‌ها</strong><span><?= count($items) ?> واحد منتخب</span></div>
+                        <div class="hx-summary-item"><strong><?= self::icon('star', 'hx-icon hx-icon-sm') ?> ترتیب نمایش</strong><span>انتخاب و ترتیب تحریریه</span></div>
                     </div>
+                    <?php endif; ?>
 
                     <?php if (!empty($article['intro'])): ?>
                         <div class="hx-prose" style="margin-top:1rem;">
-                            <?= nl2br(self::e(strip_tags((string)$article['intro']))) ?>
+                            <?= self::renderArticleText((string)$article['intro']) ?>
                         </div>
                     <?php endif; ?>
                 </header>
@@ -1029,7 +1066,7 @@ final class PublicSiteController
                                     <tr>
                                         <td><strong>#<?= $idx + 1 ?></strong></td>
                                         <td>
-                                            <a href="/b/<?= self::e($it['biz_slug']) ?>/" style="font-weight:800;color:var(--hx-lapis-900);">
+                                            <a href="<?= self::e(BusinessUrlService::path((string)$it['city_slug'], (string)$it['biz_slug'])) ?>" style="font-weight:800;color:var(--hx-lapis-900);">
                                                 <?= self::e($it['name']) ?>
                                             </a>
                                             <?php if ($isSponsor): ?>
@@ -1046,7 +1083,7 @@ final class PublicSiteController
                                                     <span>تماس</span>
                                                 </a>
                                             <?php else: ?>
-                                                <a class="hx-btn hx-btn-outline" style="padding:0.25rem 0.65rem;font-size:0.75rem;" href="/b/<?= self::e($it['biz_slug']) ?>/">مشاهده</a>
+                                                <a class="hx-btn hx-btn-outline" style="padding:0.25rem 0.65rem;font-size:0.75rem;" href="<?= self::e(BusinessUrlService::path((string)$it['city_slug'], (string)$it['biz_slug'])) ?>">مشاهده</a>
                                             <?php endif; ?>
                                         </td>
                                     </tr>
@@ -1061,6 +1098,7 @@ final class PublicSiteController
                     <?= self::renderLazyMapBox($mapMarkers, 'نقشه تعاملی گزینه‌های منتخب این مقاله') ?>
                 <?php endif; ?>
 
+                <?php if ($items): ?>
                 <section class="hx-section">
                     <h2 class="hx-section-title" style="margin-bottom:1rem;">
                         <?= self::icon('star') ?>
@@ -1078,7 +1116,7 @@ final class PublicSiteController
                                     <div style="display:flex;align-items:center;gap:0.55rem;flex-wrap:wrap;">
                                         <span class="hx-rank-num"><?= $idx + 1 ?></span>
                                         <h3 class="hx-card-title" style="margin:0;font-size:1.2rem;">
-                                            <a href="/b/<?= self::e($it['biz_slug']) ?>/"><?= self::e($it['name']) ?></a>
+                                            <a href="<?= self::e(BusinessUrlService::path((string)$it['city_slug'], (string)$it['biz_slug'])) ?>"><?= self::e($it['name']) ?></a>
                                         </h3>
                                         <?php if ($isSponsor): ?>
                                             <span class="hx-badge hx-badge-sponsor"><?= self::icon('star', 'hx-icon hx-icon-sm') ?> <?= self::e($it['sponsor_label'] ?: 'پیشنهاد ویژه') ?></span>
@@ -1136,7 +1174,7 @@ final class PublicSiteController
                                 <?php endif; ?>
 
                                 <div class="hx-card-actions">
-                                    <a class="hx-btn hx-btn-outline" href="/b/<?= self::e($it['biz_slug']) ?>/">صفحه اختصاصی و جزئیات</a>
+                                    <a class="hx-btn hx-btn-outline" href="<?= self::e(BusinessUrlService::path((string)$it['city_slug'], (string)$it['biz_slug'])) ?>">صفحه اختصاصی و جزئیات</a>
                                     <?php if (!empty($it['phone'])): ?>
                                         <a class="hx-btn hx-btn-primary" href="tel:<?= self::e($it['phone']) ?>" data-hx-track="call" data-business-id="<?= (int)$it['business_id'] ?>" data-source-page="article_card">
                                             <?= self::icon('call', 'hx-icon hx-icon-sm') ?>
@@ -1154,6 +1192,7 @@ final class PublicSiteController
                         <?php endforeach; ?>
                     </div>
                 </section>
+                <?php endif; ?>
 
                 <?php if (!empty($article['tips_html'])): ?>
                     <section class="hx-section">
@@ -1162,7 +1201,7 @@ final class PublicSiteController
                                 <?= self::icon('verify') ?>
                                 <span>توضیحات تکمیلی</span>
                             </h2>
-                            <div class="hx-prose"><?= nl2br(self::e(strip_tags((string)$article['tips_html']))) ?></div>
+                            <div class="hx-prose"><?= self::renderArticleText((string)$article['tips_html']) ?></div>
                         </div>
                     </section>
                 <?php endif; ?>
@@ -1201,7 +1240,7 @@ final class PublicSiteController
             'body'        => $bodyHtml,
         ]);
 
-        Cache::putPage('/' . $article['slug'], $fullHtml);
+        if (!$preview) Cache::putPage('/' . $article['slug'], $fullHtml);
         Response::html($fullHtml);
     }
 
@@ -1244,10 +1283,10 @@ final class PublicSiteController
             ];
         }
 
-        $businesses = DB::fetchAll("SELECT slug FROM businesses WHERE status = 'published' ORDER BY id DESC LIMIT 1000");
+        $businesses = DB::fetchAll("SELECT b.slug,c.slug AS city_slug FROM businesses b INNER JOIN cities c ON c.id=b.city_id WHERE b.status = 'published' ORDER BY b.id DESC LIMIT 1000");
         foreach ($businesses as $b) {
             $urls[] = [
-                'loc'        => $baseUrl . '/b/' . rawurlencode((string)$b['slug']) . '/',
+                'loc'        => $baseUrl . BusinessUrlService::path((string)$b['city_slug'], (string)$b['slug']),
                 'priority'   => '0.8',
                 'changefreq' => 'weekly',
             ];
@@ -1491,7 +1530,7 @@ final class PublicSiteController
 
         $topBusinesses = DB::fetchAll(
             "SELECT b.id, b.name, b.slug, b.tier, b.internal_score,
-                    c.name_fa AS city_name,
+                    c.name_fa AS city_name, c.slug AS city_slug,
                     COALESCE(SUM(CASE WHEN e.type = 'view' THEN e.cnt ELSE 0 END), 0) AS views_cnt,
                     COALESCE(SUM(CASE WHEN e.type = 'call' THEN e.cnt ELSE 0 END), 0) AS calls_cnt,
                     COALESCE(SUM(CASE WHEN e.type = 'map' THEN e.cnt ELSE 0 END), 0) AS maps_cnt,
@@ -1500,7 +1539,7 @@ final class PublicSiteController
              LEFT JOIN cities c ON c.id = b.city_id
              LEFT JOIN events_daily e ON e.business_id = b.id
              WHERE b.status = 'published'
-             GROUP BY b.id, b.name, b.slug, b.tier, b.internal_score, c.name_fa
+             GROUP BY b.id, b.name, b.slug, b.tier, b.internal_score, c.name_fa, c.slug
              ORDER BY total_interactions DESC, b.internal_score DESC
              LIMIT 8"
         );
@@ -1549,6 +1588,63 @@ final class PublicSiteController
             error_log('Maintenance failed: ' . $e->getMessage());
             Response::json(['ok' => false, 'error' => 'اجرای نگهداری ناموفق بود؛ گزارش سرور را بررسی کنید.'], 500);
         }
+    }
+
+    /** Hydrate a private revision's list without changing the live article_items. */
+    private static function previewArticleItems(array $draftItems): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map(static fn($item): int => is_array($item) ? (int)($item['business_id'] ?? 0) : 0, $draftItems))));
+        if (!$ids) return [];
+        $rows = DB::fetchAll("SELECT b.id AS business_id,b.slug AS biz_slug,b.name,b.short_desc,b.address,b.lat,b.lng,
+                b.internal_score,b.tier,b.confidence,n.name_fa AS neighborhood_name_fa,c.name_fa AS city_name_fa,c.slug AS city_slug,
+                cat.name_fa AS category_name_fa,cat.slug AS category_slug,
+                (SELECT bc.value FROM business_contacts bc WHERE bc.business_id=b.id AND bc.type IN ('phone','mobile') ORDER BY bc.is_primary DESC,bc.id ASC LIMIT 1) AS phone,
+                (SELECT COALESCE(SUM(bs.reviews_count),0) FROM business_sources bs WHERE bs.business_id=b.id) AS reviews_total
+            FROM businesses b INNER JOIN cities c ON c.id=b.city_id INNER JOIN categories cat ON cat.id=b.category_id
+            LEFT JOIN neighborhoods n ON n.id=b.neighborhood_id
+            WHERE b.status='published' AND b.id IN (" . implode(',', $ids) . ')');
+        $byId = [];
+        foreach ($rows as $row) $byId[(int)$row['business_id']] = $row;
+        $items = [];
+        foreach ($draftItems as $draft) {
+            if (!is_array($draft)) continue;
+            $id = (int)($draft['business_id'] ?? 0);
+            if (!isset($byId[$id])) continue;
+            $items[] = array_merge($byId[$id], [
+                'position'=>(int)($draft['rank_num'] ?? 1), 'custom_desc'=>(string)($draft['custom_desc_html'] ?? ''),
+                'highlights'=>(string)($draft['highlights'] ?? '{}'), 'is_sponsored'=>(int)($draft['is_sponsored'] ?? 0),
+                'sponsor_label'=>(string)($draft['sponsor_label'] ?? 'تبلیغ'),
+                'sponsor_start'=>$draft['sponsor_start'] ?? null, 'sponsor_end'=>$draft['sponsor_end'] ?? null,
+            ]);
+        }
+        usort($items, static function (array $a, array $b): int {
+            return (int)self::isActiveSponsored($b) <=> (int)self::isActiveSponsored($a)
+                ?: ((int)$a['position'] <=> (int)$b['position'])
+                ?: ((float)$b['internal_score'] <=> (float)$a['internal_score']);
+        });
+        return $items;
+    }
+
+    /** Plain writing with optional heading lines; all content is escaped, never trusted HTML. */
+    private static function renderArticleText(string $text): string
+    {
+        $text = (string)preg_replace('~<br\s*/?>~i', "\n", $text);
+        $text = (string)preg_replace('~</(?:p|div|h[1-6]|li)>~i', "\n\n", $text);
+        $text = strip_tags($text);
+        $lines = preg_split('/\R/u', $text) ?: [];
+        $result = ''; $paragraph = [];
+        $flush = static function () use (&$result, &$paragraph): void {
+            if ($paragraph) { $result .= '<p>' . nl2br(self::e(implode("\n", $paragraph))) . '</p>'; $paragraph = []; }
+        };
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '') { $flush(); continue; }
+            if (str_starts_with($trimmed, '### ')) { $flush(); $result .= '<h3>' . self::e(substr($trimmed, 4)) . '</h3>'; }
+            elseif (str_starts_with($trimmed, '## ')) { $flush(); $result .= '<h2>' . self::e(substr($trimmed, 3)) . '</h2>'; }
+            else $paragraph[] = $line;
+        }
+        $flush();
+        return $result;
     }
 
     private static function fetchPublishedBusinesses(string $whereClause, array $params, int $limit, int $offset = 0): array
@@ -1604,7 +1700,7 @@ final class PublicSiteController
 
     private static function renderBusinessCard(array $biz, int $rank, string $sourcePage): string
     {
-        $slugUrl = '/b/' . rawurlencode((string)$biz['slug']) . '/';
+        $slugUrl = BusinessUrlService::path((string)$biz['city_slug'], (string)$biz['slug']);
         $coverPath = (string)($biz['cover_thumb_url'] ?? '');
         // Never substitute a stock photo or load arbitrary external URLs as a place's photo.
         $hasCover = (bool)preg_match('~^/uploads/[a-zA-Z0-9_/-]+\.(?:webp|jpg|jpeg|png)$~iD', $coverPath);
@@ -1712,7 +1808,7 @@ final class PublicSiteController
     <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s8.0">
+    <link rel="stylesheet" href="/assets/css/public.css?v=s9.0">
     <?php foreach ($schemas as $schema):
         $schemaJson = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT));
     ?>
@@ -1731,9 +1827,9 @@ final class PublicSiteController
             </a>
             <nav class="hx-nav" aria-label="منوی اصلی">
                 <a href="/">صفحه اصلی</a>
-                <a href="/best-cafes-rasht/"><?= self::icon('award', 'hx-icon hx-icon-sm') ?> بهترین کافه‌های رشت</a>
+                <a href="/city/rasht/cafe-restaurant/"><?= self::icon('award', 'hx-icon hx-icon-sm') ?> کافه‌ها و رستوران‌های رشت</a>
                 <a href="/city/rasht/"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> شهر رشت</a>
-                <a href="/city/anzali/">بندر انزلی</a>
+                <a href="/city/bandar-anzali/">بندر انزلی</a>
                 <a href="/city/lahijan/">لاهیجان</a>
                 <a href="/admin/" class="hx-nav-admin">پنل مدیریت</a>
             </nav>
@@ -1799,7 +1895,7 @@ final class PublicSiteController
                 '@type'    => 'ListItem',
                 'position' => $idx + 1,
                 'name'     => (string)$b['name'],
-                'url'      => $baseUrl . '/b/' . rawurlencode((string)$b['slug']) . '/',
+                'url'      => $baseUrl . BusinessUrlService::path((string)$b['city_slug'], (string)$b['slug']),
             ];
         }
         return $elements;
@@ -1834,7 +1930,7 @@ final class PublicSiteController
                     'lat'      => (float)$b['lat'],
                     'lng'      => (float)$b['lng'],
                     'district' => (string)($b['neighborhood_name_fa'] ?: ($b['city_name_fa'] ?? '')),
-                    'url'      => '/b/' . $b['slug'] . '/',
+                    'url'      => BusinessUrlService::path((string)$b['city_slug'], (string)$b['slug']),
                 ];
             }
         }

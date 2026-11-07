@@ -218,7 +218,7 @@ export const S6AnalyticsPanel: React.FC<Props> = ({ csrfToken, onNavigateReview 
                     <tr key={b.id} className="hover:bg-slate-50">
                       <td className="py-2.5 px-3 font-bold text-slate-900">
                         <a
-                          href={`/b/${b.slug}/`}
+                          href={`/${b.city_slug}/${b.slug}/`}
                           target="_blank"
                           rel="noreferrer"
                           className="hover:text-blue-700"

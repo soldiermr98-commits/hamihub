@@ -21,6 +21,7 @@ import {
 interface Props {
   csrfToken: string;
   onRefreshParent: () => Promise<void>;
+  isAdmin: boolean;
 }
 
 const KIND_TABS: Array<{ key: string; label: string }> = [
@@ -90,7 +91,7 @@ const REASON_LABELS: Record<string, { label: string; badgeClass: string }> = {
   },
 };
 
-export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent }) => {
+export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent, isAdmin }) => {
   const [items, setItems] = useState<ReviewQueueItem[]>([]);
   const [changeLogs, setChangeLogs] = useState<ChangeLogItem[]>([]);
   const [pendingCounts, setPendingCounts] = useState<Record<string, number>>({ all: 0 });
@@ -123,7 +124,8 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
 
   const handleDecision = useCallback(
     async (ids: number[], decision: 'approved' | 'rejected') => {
-      if (ids.length === 0) return;
+      if (ids.length === 0 || !isAdmin) return;
+      if (decision === 'approved' && items.some(item=>item.kind==='article' && ids.includes(item.id)) && !window.confirm('پیش‌نمایش خصوصی مقاله را بررسی کرده‌اید؟ با تأیید، نسخه در سایت منتشر می‌شود.')) return;
       const res = await decideReviewQueueItems(ids, decision, csrfToken);
       if (!res.ok) {
         setFeedback({ type: 'err', text: res.error || 'خطا در ثبت تصمیم بازبینی' });
@@ -133,7 +135,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
       await loadQueue();
       await onRefreshParent();
     },
-    [csrfToken, loadQueue, onRefreshParent]
+    [csrfToken, isAdmin, items, loadQueue, onRefreshParent]
   );
 
   // میانبرهای کیبورد برای سرعت بالای مدیر (J/K حرکت بین ردیف‌ها، A تأیید، R رد، Space انتخاب)
@@ -270,7 +272,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
             </button>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+          {isAdmin && <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
             <Keyboard className="w-3.5 h-3.5 text-slate-600" />
             <span>
               میانبر کیبورد: <kbd className="font-mono font-bold">J/K</kbd> حرکت ·{' '}
@@ -278,7 +280,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
               <kbd className="font-mono font-bold text-emerald-700">A</kbd> تأیید سریع ·{' '}
               <kbd className="font-mono font-bold text-rose-700">R</kbd> رد سریع
             </span>
-          </div>
+          </div>}
         </div>
 
         {activeSubView === 'queue' ? (
@@ -320,7 +322,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
                   <option value="rejected">وضعیت: ردشده (rejected)</option>
                 </select>
 
-                {selectedIds.length > 0 && statusFilter === 'pending' && (
+                {isAdmin && selectedIds.length > 0 && statusFilter === 'pending' && (
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -434,6 +436,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
                               {item.city_name ? `شهر: ${item.city_name}` : ''}{' '}
                               {payload.provider ? `· منبع: ${payload.provider}` : ''}
                             </div>
+                            {item.kind === 'article' && <a className="text-blue-700 underline text-xs" target="_blank" rel="noreferrer" href={`/api/v1/articles/preview/${item.target_id}`}>مشاهده پیش‌نمایش خصوصی مقاله</a>}
                             {typeof payload.source_url === 'string' && /^https:\/\/www\.openstreetmap\.org\/(node|way|relation)\/\d+$/.test(payload.source_url) && <a className="text-blue-700 underline text-xs" target="_blank" rel="noreferrer" href={payload.source_url}>مشاهده منبع OpenStreetMap</a>}
                             {Array.isArray(payload.raw_phones) && payload.raw_phones.length > 0 && <div className="text-xs text-slate-500">شماره در منبع: {payload.raw_phones.join('، ')}</div>}
                           </td>
@@ -496,7 +499,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
                             {item.reason_code !== 'source_conflict' &&
                               item.kind !== 'change' &&
                               item.kind !== 'claim' &&
-                              item.kind !== 'report' && (
+                              item.kind !== 'report' && item.kind !== 'article' && (
                                 <div>
                                   {item.business_address || payload.address || 'بدون آدرس ثبت‌شده'}
                                 </div>
@@ -518,7 +521,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent })
                             )}
                           </td>
                           <td className="py-3 px-3 text-left whitespace-nowrap">
-                            {item.status === 'pending' ? (
+                            {item.status === 'pending' && !isAdmin ? <span className="text-slate-500">در انتظار مدیر</span> : item.status === 'pending' ? (
                               <div className="inline-flex items-center gap-1.5">
                                 <button
                                   type="button"

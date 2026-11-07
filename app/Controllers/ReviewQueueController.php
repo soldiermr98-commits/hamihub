@@ -9,6 +9,7 @@ use App\Core\Csrf;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
+use App\Services\ArticleService;
 use App\Services\PipelineService;
 
 /**
@@ -131,6 +132,7 @@ final class ReviewQueueController
 
         $processedCount = 0;
         $skipped = 0;
+        $conflicts = 0;
         foreach (array_unique($cleanIds) as $rqId) {
             $pdo = DB::connection();
             $pdo->beginTransaction();
@@ -145,10 +147,13 @@ final class ReviewQueueController
                     if (!$target || $target['status'] !== 'pending_review') { $pdo->rollBack(); $skipped++; continue; }
                     DB::query("UPDATE businesses SET status=:status,publish_reason=:reason,last_verified_at=NOW(),updated_at=NOW() WHERE id=:id", ['status'=>$decision === 'approved'?'published':'rejected','reason'=>$decision . '_in_review_queue','id'=>$targetId]);
                 } elseif ($kind === 'article') {
-                    $target = DB::fetchOne("SELECT status FROM articles WHERE id=:id FOR UPDATE", ['id'=>$targetId]);
-                    if (!$target || $target['status'] !== 'review') { $pdo->rollBack(); $skipped++; continue; }
-                    $status = $decision === 'approved' ? 'published' : 'draft';
-                    DB::query("UPDATE articles SET status=:status,published_at=CASE WHEN :s='published' AND published_at IS NULL THEN NOW() ELSE published_at END,updated_at=NOW() WHERE id=:id", ['status'=>$status,'s'=>$status,'id'=>$targetId]);
+                    $result = ArticleService::decideReview($targetId, $decision);
+                    if ($result !== 'applied') {
+                        $pdo->rollBack();
+                        $skipped++;
+                        if ($result === 'conflict') $conflicts++;
+                        continue;
+                    }
                 } elseif ($kind === 'change') {
                     $field = (string)($payload['field'] ?? '');
                     $new = (string)($payload['new_value'] ?? '');
@@ -202,12 +207,14 @@ final class ReviewQueueController
             'ok' => true,
             'processed_count' => $processedCount,
             'skipped_count' => $skipped,
+            'conflict_count' => $conflicts,
             'decision' => $decision,
             'message' => sprintf(
-                '%d مورد «%s» شد؛ %d مورد قبلاً بررسی شده یا تغییر کرده و اعمال نشد.',
+                '%d مورد «%s» شد؛ %d مورد قبلاً بررسی شده یا تغییر کرده و اعمال نشد.%s',
                 $processedCount,
                 $decision === 'approved' ? 'تأیید' : 'رد',
-                $skipped
+                $skipped,
+                $conflicts ? ' نسخه منتشرشده یا نشانی بعضی مقالات تغییر کرده است؛ ابتدا نسخه‌ها را بررسی کنید.' : ''
             ),
         ]);
     }

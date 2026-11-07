@@ -1,694 +1,231 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, ExternalLink, Eye, FileText, Plus, Save, Trash2, Upload } from 'lucide-react';
 import {
-  FileText,
-  Plus,
-  Sparkles,
-  ExternalLink,
-  RefreshCw,
-  Trash2,
-  Award,
-  HelpCircle,
-  CheckCircle2,
-  MapPin,
-  Code2,
-} from 'lucide-react';
-import {
-  ArticleBizRow,
-  ArticleFaqRow,
-  ArticleItem,
-  BusinessItem,
-  CategoryItem,
-  CityItem,
-  autoBuildCityCategoryArticle,
-  fetchArticlesList,
-  flushPublicHtmlCache,
-  saveArticleItem,
+  ArticleBizRow, ArticleData, ArticleFaqRow, ArticleItem, BusinessItem, CategoryItem, CityItem,
+  autoBuildCityCategoryArticle, fetchArticleBusinesses, fetchArticlesList, saveArticleItem,
+  updateArticleSchema, uploadMediaWebp,
 } from '../services/adminApi';
-import { AiWorkerPanel } from './AiWorkerPanel';
 
-interface ArticlesManagerViewProps {
+interface Props {
   cities: CityItem[];
   categories: CategoryItem[];
-  businesses: BusinessItem[];
   csrfToken: string;
+  isAdmin: boolean;
+  onGoReview: () => void;
+  onDirtyChange: (dirty:boolean) => void;
 }
+const emptyArticle = ():ArticleData => ({
+  title_fa:'', intro_html:'', slug:'', city_id:null, category_id:null, meta_title:'', meta_description:'',
+  methodology_html:'', cover_media_id:null, cover_url:null, items:[], faqs:[],
+});
+const editorData = (a:ArticleItem):ArticleData => {
+  const d = a.revision?.data || a;
+  return {
+    title_fa:d.title_fa || '', intro_html:d.intro_html || '', slug:d.slug || '',
+    city_id:d.city_id ? Number(d.city_id) : null, category_id:d.category_id ? Number(d.category_id) : null,
+    meta_title:d.meta_title || '', meta_description:d.meta_description || '', methodology_html:d.methodology_html || '',
+    cover_media_id:d.cover_media_id ? Number(d.cover_media_id) : null, cover_url:d.cover_url || null,
+    items:Array.isArray(d.items) ? d.items.map(i=>({...i, business_id:Number(i.business_id)})) : [],
+    faqs:Array.isArray(d.faqs) ? d.faqs.map(f=>({...f})) : [],
+  };
+};
+const input = 'w-full border border-slate-300 rounded-lg bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300';
+const secondary = 'inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50';
+const primary = 'inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50';
+const statusLabel = (a:ArticleItem) => a.revision
+  ? `منتشرشده · ${a.revision.status === 'review' ? 'تغییرات در انتظار بررسی' : 'تغییرات پیش‌نویس'}`
+  : ({draft:'پیش‌نویس خصوصی',review:'در انتظار بررسی',published:'منتشرشده'}[a.status]);
 
-export const ArticlesManagerView: React.FC<ArticlesManagerViewProps> = ({
-  cities,
-  categories,
-  businesses,
-  csrfToken,
-}) => {
-  const [articles, setArticles] = useState<ArticleItem[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [banner, setBanner] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken,isAdmin,onGoReview,onDirtyChange}) => {
+  const [articles,setArticles]=useState<ArticleItem[]>([]);
+  const [schemaReady,setSchemaReady]=useState(true);
+  const [loading,setLoading]=useState(true);
+  const [mode,setMode]=useState<'list'|'edit'>('list');
+  const [selected,setSelected]=useState<ArticleItem|null>(null);
+  const [form,setForm]=useState<ArticleData>(emptyArticle);
+  const [dirty,setDirty]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const inFlight=useRef(false);
+  const [message,setMessage]=useState<{error:boolean;text:string}|null>(null);
+  const [autoCity,setAutoCity]=useState(0);
+  const [autoCategory,setAutoCategory]=useState(0);
+  const [pickerOpen,setPickerOpen]=useState(false);
+  const [query,setQuery]=useState('');
+  const [page,setPage]=useState(1);
+  const [picker,setPicker]=useState<{businesses:BusinessItem[];total:number;per_page:number}>({businesses:[],total:0,per_page:50});
+  const [pickerError,setPickerError]=useState('');
+  const textRef=useRef<HTMLTextAreaElement>(null);
 
-  // ساخت خودکار مقاله با ۱ کلیک
-  const [autoCityId, setAutoCityId] = useState<number>(cities[0]?.id || 1);
-  const [autoCatId, setAutoCatId] = useState<number>(categories[0]?.id || 1);
-  const [autoBuilding, setAutoBuilding] = useState<boolean>(false);
-
-  // فرم ویرایش / ساخت مقاله لیستی
-  const [editingId, setEditingId] = useState<number>(0);
-  const [cityId, setCityId] = useState<number>(cities[0]?.id || 1);
-  const [categoryId, setCategoryId] = useState<number>(categories[0]?.id || 1);
-  const [titleFa, setTitleFa] = useState<string>('');
-  const [slug, setSlug] = useState<string>('');
-  const [subtitleFa, setSubtitleFa] = useState<string>('');
-  const [introHtml, setIntroHtml] = useState<string>('');
-  const [methodologyHtml, setMethodologyHtml] = useState<string>('');
-  const [status, setStatus] = useState<'draft' | 'review' | 'published'>('draft');
-  const [items, setItems] = useState<ArticleBizRow[]>([]);
-  const [faqs, setFaqs] = useState<ArticleFaqRow[]>([]);
-  const [saving, setSaving] = useState<boolean>(false);
-
-  const loadArticles = async () => {
+  const load = async ():Promise<ArticleItem[]> => {
     setLoading(true);
-    try { setArticles(await fetchArticlesList()); }
-    catch(e) { setBanner({type:'err',text:e instanceof Error ? e.message : 'خطا در دریافت مقالات'}); }
-    finally { setLoading(false); }
+    try {
+      const result=await fetchArticlesList(); setArticles(result.articles); setSchemaReady(result.schema_ready); return result.articles;
+    } catch(e) {setMessage({error:true,text:e instanceof Error?e.message:'دریافت مقالات ناموفق بود.'}); return [];}
+    finally {setLoading(false);}
   };
+  useEffect(()=>{void load();},[]);
+  useEffect(()=>{onDirtyChange(dirty);return()=>onDirtyChange(false);},[dirty,onDirtyChange]);
+  useEffect(()=>{if (!autoCity && cities.length) setAutoCity(Number(cities[0].id)); if (!autoCategory && categories.length) setAutoCategory(Number(categories[0].id));},[cities,categories,autoCity,autoCategory]);
+  useEffect(()=>{
+    if (!dirty) return;
+    const leave=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue='';};
+    window.addEventListener('beforeunload',leave);return()=>window.removeEventListener('beforeunload',leave);
+  },[dirty]);
+  useEffect(()=>{
+    if (mode!=='edit' || !pickerOpen) return;
+    let cancelled=false;
+    const timer=window.setTimeout(async()=>{
+      try {const result=await fetchArticleBusinesses(page,query,Number(form.city_id||0),Number(form.category_id||0)); if(!cancelled){setPicker(result);setPickerError('');}}
+      catch(e){if(!cancelled)setPickerError(e instanceof Error?e.message:'جست‌وجوی کسب‌وکار ناموفق بود.');}
+    },200);
+    return()=>{cancelled=true;window.clearTimeout(timer);};
+  },[mode,pickerOpen,page,query,form.city_id,form.category_id]);
 
-  useEffect(() => {
-    loadArticles();
-  }, []);
-
-  useEffect(() => {
-    if (cities.length > 0 && !autoCityId) setAutoCityId(cities[0].id);
-    if (categories.length > 0 && !autoCatId) setAutoCatId(categories[0].id);
-  }, [cities, categories, autoCityId, autoCatId]);
-
-  const handleSelectArticleForEdit = (art: ArticleItem) => {
-    setEditingId(art.id);
-    setCityId(art.city_id);
-    setCategoryId(art.category_id || categories[0]?.id || 1);
-    setTitleFa(art.title_fa);
-    setSlug(art.slug);
-    setSubtitleFa(art.subtitle_fa || '');
-    setIntroHtml(art.intro_html || '');
-    setMethodologyHtml(art.methodology_html || '');
-    setStatus(art.status || 'draft');
-    setItems(Array.isArray(art.items) ? art.items : []);
-    setFaqs(Array.isArray(art.faqs) ? art.faqs : []);
-    setBanner(null);
+  const change = (patch:Partial<ArticleData>) => {setForm(f=>({...f,...patch}));setDirty(true);};
+  const canLeave = () => !dirty || window.confirm('تغییرات ذخیره نشده‌اند. از این صفحه خارج شوید؟');
+  const openArticle = (a:ArticleItem|null) => {
+    if(!canLeave()) return;
+    setSelected(a);setForm(a?editorData(a):emptyArticle());setDirty(false);setPickerOpen(false);setMessage(null);setMode('edit');
   };
+  const returnToList = () => {if(canLeave()){setMode('list');setDirty(false);setMessage(null);}};
+  const updateList = (article:ArticleItem) => setArticles(prev=>[article,...prev.filter(a=>Number(a.id)!==Number(article.id))]);
 
-  const handleResetForm = () => {
-    setEditingId(0);
-    setTitleFa('');
-    setSlug('');
-    setSubtitleFa('');
-    setIntroHtml('');
-    setMethodologyHtml('');
-    setStatus('draft');
-    setItems([]);
-    setFaqs([]);
+  const save = async (status:'draft'|'review'|'published'):Promise<ArticleItem|null> => {
+    if (inFlight.current) return null;
+    if (!form.title_fa.trim()) {setMessage({error:true,text:'لطفاً عنوان مقاله را بنویسید.'});return null;}
+    inFlight.current=true;setBusy(true);setMessage(null);
+    try {
+      const res=await saveArticleItem({
+        ...form, id:selected?.id, edit_token:selected?.edit_token, status,
+        items:form.items.map((item,index)=>({...item,rank_num:index+1})),
+        faqs:form.faqs.map((faq,index)=>({...faq,sort_order:index+1})),
+      },csrfToken);
+      if (!res.ok || !res.article) {setMessage({error:true,text:res.error || 'ذخیره ناموفق بود.'});return null;}
+      const article=res.article as ArticleItem;
+      setSelected(article);setForm(editorData(article));setDirty(false);updateList(article);
+      setMessage({error:false,text:res.message});
+      return article;
+    } finally {inFlight.current=false;setBusy(false);}
   };
-
-  const handleAutoBuild = async () => {
-    setAutoBuilding(true);
-    setBanner(null);
-    const res = await autoBuildCityCategoryArticle(autoCityId, autoCatId, csrfToken);
-    setAutoBuilding(false);
-    if (res.ok) {
-      setBanner({ type: 'ok', text: res.message });
-      await loadArticles();
-    } else {
-      setBanner({ type: 'err', text: res.error || 'خطا در ساخت خودکار مقاله' });
-    }
+  const preview = async () => {
+    // Open synchronously, before awaiting the save, to avoid popup blockers.
+    const popup=window.open('about:blank','_blank');
+    const pendingStatus = selected?.revision?.status === 'review' || (!selected?.revision && selected?.status === 'review') ? 'review' : 'draft';
+    const article = dirty || !selected ? await save(pendingStatus) : selected;
+    if (!article) {popup?.close();return;}
+    const url=`/api/v1/articles/preview/${article.id}`;
+    if (popup) popup.location.href=url;
+    else setMessage({error:true,text:'پنجره پیش‌نمایش مسدود شد. اجازه بازشدن پنجره را بدهید و دوباره بزنید.'});
   };
-
-  const handleFlushCache = async () => {
-    const res = await flushPublicHtmlCache(csrfToken);
-    setBanner({ type: res.ok ? 'ok' : 'err', text: res.message });
+  const publish = async () => {
+    const prompt=isAdmin ? 'این نسخه در سایت عمومی منتشر شود؟' : 'این نسخه برای تأیید مدیر ارسال شود؟';
+    if(window.confirm(prompt)) await save(isAdmin?'published':'review');
   };
-
-  const handleAddBusinessToArticle = (bizId: number) => {
-    if (!bizId) return;
-    if (items.some((i) => Number(i.business_id) === Number(bizId))) return;
-    const biz = businesses.find((b) => Number(b.id) === Number(bizId));
-    if (!biz) return;
-
-    setItems((prev) => [
-      ...prev,
-      {
-        business_id: biz.id,
-        business_name_fa: biz.name,
-        business_slug: biz.slug,
-        weighted_score: biz.internal_score,
-        tier: biz.tier,
-        rank_num: prev.length + 1,
-        badge_fa: '',
-        verdict_fa: '',
-        custom_desc_html: biz.short_desc || '',
-        is_sponsored: 0,
-        sponsor_label: 'پیشنهاد ویژه',
-      },
-    ]);
+  const runSchema = async () => {
+    if(!window.confirm('از فایل‌ها و دیتابیس نسخه پشتیبان تهیه کرده‌اید؟ فقط به‌روزرسانی اختصاصی مقاله و نشانی‌ها اجرا می‌شود.')) return;
+    setBusy(true);const result=await updateArticleSchema(csrfToken);setBusy(false);
+    setMessage({error:!result.ok,text:result.message || result.error});if(result.ok) await load();
   };
-
-  const handleSaveArticle = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setBanner(null);
-    const res = await saveArticleItem(
-      {
-        id: editingId > 0 ? editingId : undefined,
-        city_id: cityId,
-        category_id: categoryId,
-        title_fa: titleFa,
-        slug,
-        subtitle_fa: subtitleFa,
-        intro_html: introHtml,
-        methodology_html: methodologyHtml,
-        status,
-        items,
-        faqs,
-      },
-      csrfToken
-    );
-    setSaving(false);
-    if (res.ok) {
-      setBanner({ type: 'ok', text: res.message });
-      await loadArticles();
-    } else {
-      setBanner({ type: 'err', text: res.error || 'خطا در ذخیره مقاله لیستی' });
-    }
+  const autoBuild = async () => {
+    if(!canLeave())return;
+    setBusy(true);const result=await autoBuildCityCategoryArticle(autoCity,autoCategory,csrfToken);setBusy(false);
+    if(!result.ok){setMessage({error:true,text:result.error || 'ساخت پیش‌نویس ناموفق بود.'});return;}
+    const list=await load();const created=list.find(a=>Number(a.id)===Number(result.article_id));
+    if(created){setSelected(created);setForm(editorData(created));setMode('edit');setDirty(false);}
+    setMessage({error:false,text:result.message});
   };
+  const upload = async (file?:File) => {
+    if(!file)return;
+    setBusy(true);const result=await uploadMediaWebp(file,form.title_fa,csrfToken);setBusy(false);
+    if(!result.ok){setMessage({error:true,text:result.error || 'آپلود تصویر ناموفق بود.'});return;}
+    change({cover_media_id:Number(result.media.id),cover_url:result.media.file_path_800 || result.previewUrl});
+    setMessage({error:false,text:'تصویر اضافه شد. برای نگه‌داشتن آن، پیش‌نویس را ذخیره کنید.'});
+  };
+  const insertHeading = () => {
+    const el=textRef.current;if(!el)return;
+    const start=el.selectionStart,end=el.selectionEnd,chosen=form.intro_html.slice(start,end);
+    const prefix=start>0?'\n\n':''; const insert=`${prefix}## ${chosen}\n`;
+    change({intro_html:form.intro_html.slice(0,start)+insert+form.intro_html.slice(end)});
+    requestAnimationFrame(()=>{el.focus();el.setSelectionRange(start+prefix.length+3,start+prefix.length+3+chosen.length);});
+  };
+  const addBusiness = (b:BusinessItem) => {
+    if(form.items.some(i=>Number(i.business_id)===Number(b.id)))return;
+    const item:ArticleBizRow={business_id:Number(b.id),business_name_fa:b.name,business_slug:b.slug,rank_num:form.items.length+1,badge_fa:'',verdict_fa:'',custom_desc_html:'',is_sponsored:0,sponsor_label:'تبلیغ'};
+    change({items:[...form.items,item]});
+  };
+  const moveItem = (index:number, direction:number) => {
+    const next=[...form.items], target=index+direction;if(target<0||target>=next.length)return;
+    [next[index],next[target]]=[next[target],next[index]];change({items:next});
+  };
+  const updateItem = (index:number, patch:Partial<ArticleBizRow>) => change({items:form.items.map((item,i)=>i===index?{...item,...patch}:item)});
+  const updateFaq = (index:number, patch:Partial<ArticleFaqRow>) => change({faqs:form.faqs.map((faq,i)=>i===index?{...faq,...patch}:faq)});
 
-  return (
-    <div className="space-y-6">
-      {/* پنل گلس‌مورفیسم مرحله S5: صف هوش مصنوعی بدون توهم (ai_tasks) */}
-      <AiWorkerPanel csrfToken={csrfToken} onRefreshParent={loadArticles} />
-
-      {/* هدر بخش مدیریت مقالات لیستی و قالب‌های سئو S4 */}
-      <div className="bg-white/85 backdrop-blur-md border border-blue-200/80 rounded-2xl p-6 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-blue-600" />
-              مدیریت مقالات لیستی سئو، اسکیماهای JSON-LD و کش صفحات عمومی (مرحله S4)
-            </h1>
-            <p className="text-xs text-slate-600 mt-1">
-              مقالات ابتدا پیش‌نویس هستند و پیش از انتشار باید دستی بازبینی شوند.
-            </p>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={handleFlushCache}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              پاک‌سازی کش صفحات عمومی (cache/pages)
-            </button>
-            <a
-              href="/best-cafes-rasht/"
-              target="_blank"
-              rel="noopener"
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              مشاهده صفحه عمومی «بهترین کافه‌های رشت»
-            </a>
-          </div>
-        </div>
-
-        {/* نوار لینک‌های سریع تست صفحات عمومی مرحله S4 */}
-        <div className="mt-4 pt-4 border-t border-slate-200 flex flex-wrap items-center gap-2 text-xs">
-          <span className="font-bold text-slate-700 ml-1">لینک‌های مستقیم تست سئو و قالب عمومی S4:</span>
-          <a
-            href="/"
-            target="_blank"
-            rel="noopener"
-            className="px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 text-slate-800 rounded font-mono"
-            dir="ltr"
-          >
-            / (Home)
-          </a>
-          <a
-            href="/best-cafes-rasht/"
-            target="_blank"
-            rel="noopener"
-            className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-semibold rounded font-mono"
-            dir="ltr"
-          >
-            /best-cafes-rasht/ (Article + FAQ + ItemList)
-          </a>
-          <a
-            href="/city/rasht/"
-            target="_blank"
-            rel="noopener"
-            className="px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 text-slate-800 rounded font-mono"
-            dir="ltr"
-          >
-            /city/rasht/ (City Hub)
-          </a>
-          <a
-            href="/sitemap.xml"
-            target="_blank"
-            rel="noopener"
-            className="px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 text-slate-800 rounded font-mono"
-            dir="ltr"
-          >
-            /sitemap.xml
-          </a>
-          <a
-            href="/robots.txt"
-            target="_blank"
-            rel="noopener"
-            className="px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 text-slate-800 rounded font-mono"
-            dir="ltr"
-          >
-            /robots.txt
-          </a>
-        </div>
-      </div>
-
-      {banner && (
-        <div
-          className={`p-4 rounded-xl border text-xs font-semibold flex items-center justify-between ${
-            banner.type === 'ok'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-              : 'bg-rose-50 border-rose-200 text-rose-800'
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            {banner.text}
-          </span>
-          <button type="button" onClick={() => setBanner(null)} className="underline">
-            بستن
-          </button>
-        </div>
-      )}
-
-      {/* باکس تولید خودکار مقاله لیستی از برترین‌های شهر و دسته */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6">
-        <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2 mb-3">
-          <Sparkles className="w-4 h-4 text-emerald-700" />
-          ساخت پیش‌نویس مقاله از کسب‌وکارهای منتشرشده
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">انتخاب شهر هدف</label>
-            <select
-              value={autoCityId}
-              onChange={(e) => setAutoCityId(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg"
-            >
-              {cities.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name_fa} (/city/{c.slug}/)
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">انتخاب دسته‌بندی</label>
-            <select
-              value={autoCatId}
-              onChange={(e) => setAutoCatId(Number(e.target.value))}
-              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg"
-            >
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name_fa} ({cat.slug})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <button
-              type="button"
-              disabled={autoBuilding}
-              onClick={handleAutoBuild}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg disabled:opacity-50"
-            >
-              <Sparkles className="w-4 h-4" />
-              {autoBuilding ? 'در حال ساخت مقاله و اسکیما...' : 'ساخت پیش‌نویس از موارد تأییدشده'}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* لیست مقالات موجود + ویرایشگر کامل */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900">
-              فهرست مقالات لیستی ({articles.length})
-            </h2>
-            <button
-              type="button"
-              onClick={handleResetForm}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              مقاله جدید
-            </button>
-          </div>
-
-          {loading ? (
-            <div className="py-8 text-center text-xs text-slate-500">در حال بارگذاری مقالات...</div>
-          ) : articles.length === 0 ? (
-            <div className="py-8 text-center text-xs text-slate-500">هیچ مقاله‌ای ثبت نشده است.</div>
-          ) : (
-            <div className="space-y-3">
-              {articles.map((art) => (
-                <div
-                  key={art.id}
-                  className={`p-4 rounded-xl border transition-colors ${
-                    editingId === art.id
-                      ? 'border-emerald-600 bg-emerald-50/40'
-                      : 'border-slate-200 hover:border-slate-300 bg-slate-50/50'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span className="inline-block px-2 py-0.5 text-[11px] font-semibold rounded bg-emerald-100 text-emerald-900 mb-1">
-                        {art.city_name_fa || 'گیلان'} · {art.items?.length || 0} کسب‌وکار
-                      </span>
-                      <h3 className="text-sm font-bold text-slate-900 leading-snug">
-                        {art.title_fa}
-                      </h3>
-                      <div className="text-xs font-mono text-slate-500 mt-1" dir="ltr">
-                        /{art.slug}/
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 pt-3 border-t border-slate-200/80 flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleSelectArticleForEdit(art)}
-                      className="px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg"
-                    >
-                      ویرایش آیتم‌ها و اسپانسرشیپ
-                    </button>
-                    <a
-                      href={`/${art.slug}/`}
-                      target="_blank"
-                      rel="noopener"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      مشاهده صفحه عمومی
-                    </a>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* فرم ویرایشگر مقاله لیستی و جایگاه‌های ویژه */}
-        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6">
-          <h2 className="text-base font-bold text-slate-900 mb-4">
-            {editingId > 0 ? `ویرایش مقاله لیستی #${editingId}` : 'ساخت مقاله لیستی جدید'}
-          </h2>
-
-          <form onSubmit={handleSaveArticle} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">شهر</label>
-                <select
-                  value={cityId}
-                  onChange={(e) => setCityId(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg"
-                >
-                  {cities.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name_fa}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">دسته‌بندی</label>
-                <select
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg"
-                >
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name_fa}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  عنوان فارسی مقاله (H1 و اسکیمای Article)
-                </label>
-                <input
-                  type="text"
-                  value={titleFa}
-                  onChange={(e) => setTitleFa(e.target.value)}
-                  placeholder="مثلاً: راهنمای کافه‌های رشت"
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  اسلاگ لاتین (URL)
-                </label>
-                <input
-                  type="text"
-                  dir="ltr"
-                  value={slug}
-                  onChange={(e) => setSlug(e.target.value)}
-                  placeholder="best-cafes-rasht"
-                  className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                توضیحات متا سئو (Meta Description)
-              </label>
-              <input
-                type="text"
-                value={subtitleFa}
-                onChange={(e) => setSubtitleFa(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                مقدمه مقاله (HTML مجاز)
-              </label>
-              <textarea
-                rows={3}
-                value={introHtml}
-                onChange={(e) => setIntroHtml(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg leading-relaxed"
-              />
-            </div>
-
-            {/* مدیریت کسب‌وکارهای داخل لیست و اسپانسرشیپ */}
-            <div className="pt-4 border-t border-slate-200 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                  <Award className="w-4 h-4 text-amber-600" />
-                  کسب‌وکارهای داخل این لیست (ItemList Schema + جایگاه Sponsored)
-                </h3>
-                <select
-                  onChange={(e) => {
-                    handleAddBusinessToArticle(Number(e.target.value));
-                    e.target.value = '';
-                  }}
-                  defaultValue=""
-                  className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg"
-                >
-                  <option value="" disabled>
-                    + افزودن کسب‌وکار به لیست...
-                  </option>
-                  {businesses.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} ({b.city_name || 'گیلان'} - امتیاز {b.internal_score})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {items.length === 0 ? (
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 text-center">
-                  کسب‌وکاری به این مقاله اضافه نشده است. از منوی بالا یک کسب‌وکار انتخاب کنید.
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {items.map((it, idx) => (
-                    <div
-                      key={`${it.business_id}-${idx}`}
-                      className={`p-3.5 rounded-lg border text-xs space-y-2 ${
-                        it.is_sponsored
-                          ? 'bg-amber-50/60 border-amber-300'
-                          : 'bg-slate-50 border-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="font-bold text-slate-900">
-                          #{idx + 1} — {it.business_name_fa || `کسب‌وکار #${it.business_id}`}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <label className="inline-flex items-center gap-1.5 cursor-pointer font-semibold text-amber-900">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(it.is_sponsored)}
-                              onChange={(e) => {
-                                const checked = e.target.checked ? 1 : 0;
-                                setItems((prev) =>
-                                  prev.map((row, rIdx) =>
-                                    rIdx === idx ? { ...row, is_sponsored: checked } : row
-                                  )
-                                );
-                              }}
-                            />
-                            جایگاه ویژه اسپانسر (پین در صدر لیست)
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setItems((prev) => prev.filter((_, rIdx) => rIdx !== idx))
-                            }
-                            className="text-rose-600 hover:text-rose-800"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        <input
-                          type="text"
-                          value={it.badge_fa || ''}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setItems((prev) =>
-                              prev.map((row, rIdx) =>
-                                rIdx === idx ? { ...row, badge_fa: val } : row
-                              )
-                            );
-                          }}
-                          placeholder="برچسب رتبه (مثلاً: انتخاب اول تحریریه)"
-                          className="px-2.5 py-1.5 bg-white border border-slate-300 rounded"
-                        />
-                        <input
-                          type="text"
-                          value={it.verdict_fa || ''}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setItems((prev) =>
-                              prev.map((row, rIdx) =>
-                                rIdx === idx ? { ...row, verdict_fa: val } : row
-                              )
-                            );
-                          }}
-                          placeholder="جمع‌بندی تحریریه"
-                          className="px-2.5 py-1.5 bg-white border border-slate-300 rounded"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* مدیریت سؤالات متداول FAQPage Schema */}
-            <div className="pt-4 border-t border-slate-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                  <HelpCircle className="w-4 h-4 text-emerald-700" />
-                  سؤالات متداول مقاله (تولید خودکار اسکیمای FAQPage JSON-LD)
-                </h3>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setFaqs((prev) => [
-                      ...prev,
-                      { question_fa: '', answer_fa: '', sort_order: prev.length + 1 },
-                    ])
-                  }
-                  className="text-xs font-semibold text-emerald-700 hover:underline"
-                >
-                  + افزودن سؤال متداول
-                </button>
-              </div>
-
-              {faqs.map((f, idx) => (
-                <div
-                  key={idx}
-                  className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2 text-xs"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <input
-                      type="text"
-                      value={f.question_fa}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setFaqs((prev) =>
-                          prev.map((row, rIdx) =>
-                            rIdx === idx ? { ...row, question_fa: val } : row
-                          )
-                        );
-                      }}
-                      placeholder="سؤال متداول..."
-                      className="flex-1 px-2.5 py-1.5 bg-white border border-slate-300 rounded font-semibold"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setFaqs((prev) => prev.filter((_, rIdx) => rIdx !== idx))}
-                      className="text-rose-600"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <textarea
-                    rows={2}
-                    value={f.answer_fa}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFaqs((prev) =>
-                        prev.map((row, rIdx) => (rIdx === idx ? { ...row, answer_fa: val } : row))
-                      );
-                    }}
-                    placeholder="پاسخ دقیق..."
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded"
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
-              <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                <span className="inline-flex items-center gap-1">
-                  <Code2 className="w-3.5 h-3.5 text-emerald-700" />
-                  Article + ItemList + FAQPage + BreadcrumbList
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-emerald-700" />
-                  نقشه Leaflet خودمیزبان
-                </span>
-              </div>
-              <button
-                type="submit"
-                disabled={saving}
-                className="px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg disabled:opacity-50"
-              >
-                {saving ? 'در حال ذخیره و بازسازی کش...' : 'ذخیره مقاله و بازسازی کش صفحات عمومی'}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
+  return <div className="max-w-6xl mx-auto space-y-5">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div><h1 className="text-xl font-bold text-slate-900">مقاله‌ها</h1><p className="text-sm text-slate-600 mt-1">بنویسید، خصوصی ببینید و پس از بررسی منتشر کنید.</p></div>
+      {mode==='list' ? <button className={primary} disabled={!schemaReady || busy} onClick={()=>openArticle(null)}><Plus size={16}/> مقاله جدید</button> : <button className={secondary} onClick={returnToList}>بازگشت به فهرست</button>}
     </div>
-  );
+    {message && <div role={message.error?'alert':'status'} className={`rounded-lg p-3 text-sm ${message.error?'bg-rose-50 text-rose-800 border border-rose-200':'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>{message.text}</div>}
+    {!schemaReady && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 space-y-3">
+      <p className="font-bold">به‌روزرسانی دیتابیس این نسخه هنوز انجام نشده است.</p>
+      <p>بعد از پشتیبان‌گیری، فقط به‌روزرسانی اختصاصی مقاله و نشانی‌ها را اجرا کنید. این دکمه مایگریشن قدیمی ۰۰۳ را اجرا نمی‌کند و محتوای قبلی را منتشر یا از انتشار خارج نمی‌کند.</p>
+      {isAdmin ? <button className={primary} disabled={busy} onClick={runSchema}>تکمیل به‌روزرسانی مقاله و نشانی‌ها</button> : <p>از مدیر سایت بخواهید این به‌روزرسانی را انجام دهد.</p>}
+    </div>}
+    {mode==='list' ? <>
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        {loading ? <p className="p-6 text-sm text-slate-500">در حال دریافت مقاله‌ها…</p> : articles.length===0 ? <div className="p-8 text-center text-slate-600"><FileText className="mx-auto mb-2"/><p>هنوز مقاله‌ای ثبت نشده است.</p><p className="text-sm mt-1">با «مقاله جدید» شروع کنید.</p></div> :
+          <ul className="divide-y divide-slate-100">{articles.map(a=><li key={a.id} className="p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0"><div className="font-bold break-words">{a.revision?.data.title_fa || a.title_fa}</div><div className="text-xs text-slate-600 mt-1">{statusLabel(a)}</div></div>
+            <div className="flex flex-wrap gap-2"><button className={secondary} disabled={!schemaReady} onClick={()=>openArticle(a)}>ویرایش</button><a className={secondary} href={`/api/v1/articles/preview/${a.id}`} target="_blank" rel="noreferrer"><Eye size={15}/> پیش‌نمایش خصوصی</a>{a.status==='published'&&<a className={secondary} href={`/${a.slug}/`} target="_blank" rel="noreferrer"><ExternalLink size={15}/> نسخه منتشرشده</a>}</div>
+          </li>)}</ul>}
+      </div>
+      <details className="bg-white border border-slate-200 rounded-xl p-4"><summary className="cursor-pointer text-sm font-bold">ساخت پیش‌نویس فهرست کسب‌وکارها (اختیاری)</summary>
+        <p className="text-xs text-slate-500 mt-2">حداکثر ۵۰ کسب‌وکار منتشرشده، به ترتیب نام، اضافه می‌شود. پیش‌نویس را قبل از انتشار بررسی و مرتب کنید.</p>
+        <div className="grid sm:grid-cols-3 gap-3 mt-3"><select aria-label="شهر فهرست" className={input} value={autoCity} onChange={e=>setAutoCity(Number(e.target.value))}>{cities.map(c=><option key={c.id} value={c.id}>{c.name_fa}</option>)}</select><select aria-label="دسته فهرست" className={input} value={autoCategory} onChange={e=>setAutoCategory(Number(e.target.value))}>{categories.map(c=><option key={c.id} value={c.id}>{c.name_fa}</option>)}</select><button className={secondary} disabled={busy||!schemaReady||!autoCity||!autoCategory} onClick={autoBuild}>ساخت و باز کردن پیش‌نویس</button></div>
+      </details>
+    </> : <>
+      <fieldset disabled={busy} className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-5 disabled:opacity-75">
+        <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-bold">{selected ? statusLabel(selected) : 'مقاله جدید · هنوز ذخیره نشده'}</div>{dirty&&<span className="text-xs text-amber-700">تغییرات ذخیره نشده</span>}</div>
+        {selected?.revision?.base_conflict && <div role="alert" className="bg-amber-50 border border-amber-300 text-amber-900 text-sm rounded p-3">نسخه منتشرشده بعد از شروع این ویرایش تغییر کرده است. انتشار این نسخه برای جلوگیری از حذف تغییرات متوقف می‌شود؛ ابتدا دو نسخه را بررسی کنید.</div>}
+        <label className="block text-sm font-bold">عنوان مقاله<input className={`${input} mt-2 text-base`} value={form.title_fa} onChange={e=>change({title_fa:e.target.value})} placeholder="مثلاً راهنمای سفر به رشت" maxLength={255}/></label>
+        <div><div className="flex items-center justify-between gap-2"><label htmlFor="article-body" className="text-sm font-bold">متن مقاله</label><button type="button" className={secondary} onClick={insertHeading}>افزودن تیتر</button></div>
+          <textarea ref={textRef} id="article-body" className={`${input} mt-2 min-h-64 leading-8`} value={form.intro_html} onChange={e=>change({intro_html:e.target.value})} placeholder="متن خود را اینجا بنویسید…"/>
+          <p className="text-xs text-slate-500 mt-1">برای تیتر، دکمه «افزودن تیتر» را بزنید و عنوان را بنویسید. نمایش نهایی را در پیش‌نمایش ببینید.</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 p-4"><div className="font-bold text-sm">تصویر اصلی <span className="font-normal text-slate-500">(اختیاری)</span></div>
+          {form.cover_url && <img src={form.cover_url} alt="تصویر اصلی مقاله" className="w-full max-w-sm h-40 object-cover rounded-lg mt-3"/>}
+          <div className="flex flex-wrap gap-2 mt-3"><label className={`${secondary} cursor-pointer`}><Upload size={15}/> انتخاب تصویر<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={busy} onChange={e=>{void upload(e.target.files?.[0]);e.target.value='';}}/></label>{form.cover_media_id&&<button className={secondary} onClick={()=>change({cover_media_id:null,cover_url:null})}>حذف تصویر</button>}</div>
+        </div>
+        <details className="border border-slate-200 rounded-lg p-4"><summary className="cursor-pointer font-bold text-sm">تنظیمات بیشتر و فهرست کسب‌وکارها <span className="font-normal text-slate-500">(اختیاری)</span></summary>
+          <div className="space-y-5 mt-4"><div className="grid sm:grid-cols-2 gap-3">
+            <label className="text-sm">شهر<select className={`${input} mt-1`} value={form.city_id||0} onChange={e=>{change({city_id:Number(e.target.value)||null});setPage(1);}}><option value="0">بدون شهر</option>{cities.map(c=><option key={c.id} value={c.id}>{c.name_fa}</option>)}</select></label>
+            <label className="text-sm">دسته<select className={`${input} mt-1`} value={form.category_id||0} onChange={e=>{change({category_id:Number(e.target.value)||null});setPage(1);}}><option value="0">بدون دسته</option>{categories.map(c=><option key={c.id} value={c.id}>{c.name_fa}</option>)}</select></label>
+            <label className="text-sm">نشانی لاتین <span className="text-slate-500">(خالی = خودکار)</span><input dir="ltr" className={`${input} mt-1`} value={form.slug} onChange={e=>change({slug:e.target.value})} placeholder="article-address"/></label>
+            <label className="text-sm">عنوان در موتور جست‌وجو<input className={`${input} mt-1`} value={form.meta_title||''} onChange={e=>change({meta_title:e.target.value})} maxLength={255}/></label>
+          </div>
+          <label className="block text-sm">توضیح کوتاه در موتور جست‌وجو<textarea className={`${input} mt-1`} rows={2} value={form.meta_description||''} onChange={e=>change({meta_description:e.target.value})} maxLength={320}/></label>
+          <label className="block text-sm">توضیحات تکمیلی<textarea className={`${input} mt-1`} rows={3} value={form.methodology_html} onChange={e=>change({methodology_html:e.target.value})}/></label>
+          <div className="border-t border-slate-200 pt-4"><div className="font-bold text-sm">کسب‌وکارهای داخل مقاله ({form.items.length})</div>
+            <p className="text-xs text-slate-500 mt-1">فقط کسب‌وکارهای منتشرشده در سایت نمایش داده می‌شوند. ترتیب را با پیکان‌ها عوض کنید.</p>
+            {form.items.map((item,index)=><div key={item.business_id} className="border rounded-lg p-3 mt-3 space-y-2"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm">{index+1}. {item.business_name_fa || `کسب‌وکار #${item.business_id}`}</strong><div className="flex gap-1"><button aria-label="انتقال به بالا" className={secondary} disabled={index===0} onClick={()=>moveItem(index,-1)}><ArrowUp size={14}/></button><button aria-label="انتقال به پایین" className={secondary} disabled={index===form.items.length-1} onClick={()=>moveItem(index,1)}><ArrowDown size={14}/></button><button aria-label="حذف کسب‌وکار" className={secondary} onClick={()=>change({items:form.items.filter((_,i)=>i!==index)})}><Trash2 size={14}/></button></div></div>
+              <label className="block text-xs">توضیح اختصاصی<textarea className={`${input} mt-1`} rows={2} value={item.custom_desc_html||''} onChange={e=>updateItem(index,{custom_desc_html:e.target.value})}/></label>
+              <details><summary className="text-xs cursor-pointer text-slate-600">جزئیات بیشتر این گزینه</summary><div className="grid sm:grid-cols-2 gap-2 mt-2"><label className="text-xs">برچسب<input className={`${input} mt-1`} value={item.badge_fa||''} onChange={e=>updateItem(index,{badge_fa:e.target.value})}/></label><label className="text-xs">جمع‌بندی<input className={`${input} mt-1`} value={item.verdict_fa||''} onChange={e=>updateItem(index,{verdict_fa:e.target.value})}/></label></div><label className="flex items-center gap-2 mt-2 text-xs"><input type="checkbox" checked={!!Number(item.is_sponsored)} onChange={e=>updateItem(index,{is_sponsored:e.target.checked?1:0})}/> جایگاه تبلیغاتی</label>{!!Number(item.is_sponsored)&&<div className="grid sm:grid-cols-3 gap-2 mt-2"><label className="text-xs">برچسب تبلیغ<input className={`${input} mt-1`} value={item.sponsor_label||''} onChange={e=>updateItem(index,{sponsor_label:e.target.value})}/></label><label className="text-xs">شروع<input type="datetime-local" className={`${input} mt-1`} value={(item.sponsor_start||'').replace(' ','T').slice(0,16)} onChange={e=>updateItem(index,{sponsor_start:e.target.value||null})}/></label><label className="text-xs">پایان<input type="datetime-local" className={`${input} mt-1`} value={(item.sponsor_end||'').replace(' ','T').slice(0,16)} onChange={e=>updateItem(index,{sponsor_end:e.target.value||null})}/></label></div>}</details>
+            </div>)}
+            <button className={`${secondary} mt-3`} onClick={()=>setPickerOpen(v=>!v)}><Plus size={14}/> {pickerOpen?'بستن جست‌وجو':'افزودن کسب‌وکار'}</button>
+            {pickerOpen&&<div className="mt-3 p-3 bg-slate-50 rounded-lg"><input className={input} placeholder="جست‌وجوی کسب‌وکار منتشرشده" value={query} onChange={e=>{setQuery(e.target.value);setPage(1);}}/>{pickerError&&<p role="alert" className="text-rose-700 text-xs mt-2">{pickerError}</p>}<ul className="divide-y divide-slate-200 mt-2">{picker.businesses.map(b=><li key={b.id} className="flex justify-between items-center gap-2 py-2 text-sm"><span>{b.name} <small className="text-slate-500">{b.city_name}</small></span><button className={secondary} disabled={form.items.some(i=>Number(i.business_id)===Number(b.id))} onClick={()=>addBusiness(b)}>افزودن</button></li>)}</ul><div className="flex items-center gap-3 text-xs mt-2"><button className={secondary} disabled={page<=1} onClick={()=>setPage(p=>p-1)}>قبلی</button><span>صفحه {page} · {picker.total} نتیجه</span><button className={secondary} disabled={page*picker.per_page>=picker.total} onClick={()=>setPage(p=>p+1)}>بعدی</button></div></div>}
+          </div>
+          <div className="border-t border-slate-200 pt-4"><div className="font-bold text-sm">پرسش‌های متداول</div>{form.faqs.map((faq,index)=><div key={index} className="border rounded-lg p-3 mt-2 space-y-2"><input aria-label="پرسش" placeholder="پرسش" className={input} value={faq.question_fa} onChange={e=>updateFaq(index,{question_fa:e.target.value})}/><textarea aria-label="پاسخ" placeholder="پاسخ" className={input} value={faq.answer_fa} onChange={e=>updateFaq(index,{answer_fa:e.target.value})}/><button className={secondary} onClick={()=>change({faqs:form.faqs.filter((_,i)=>i!==index)})}>حذف پرسش</button></div>)}<button className={`${secondary} mt-2`} onClick={()=>change({faqs:[...form.faqs,{question_fa:'',answer_fa:'',sort_order:form.faqs.length+1}]})}><Plus size={14}/> افزودن پرسش</button></div>
+          </div>
+        </details>
+      </fieldset>
+      <div className="flex flex-wrap gap-2 sticky bottom-0 bg-slate-50/95 border-t border-slate-200 p-3 rounded-lg">
+        <button className={secondary} disabled={busy||!schemaReady} onClick={()=>void save('draft')}><Save size={16}/> ذخیره پیش‌نویس</button>
+        <button className={secondary} disabled={busy||!schemaReady} onClick={()=>void preview()}><Eye size={16}/> پیش‌نمایش خصوصی</button>
+        <button className={primary} disabled={busy||!schemaReady} onClick={()=>void publish()}>{isAdmin?'انتشار مقاله':'ارسال برای بررسی مدیر'}</button>
+        {selected?.status==='published'&&<a className={secondary} href={`/${selected.slug}/`} target="_blank" rel="noreferrer"><ExternalLink size={15}/> نسخه منتشرشده</a>}
+        {selected?.revision?.status==='review' && isAdmin && <button className={secondary} onClick={onGoReview}>رفتن به صف بررسی</button>}
+      </div>
+      <p className="text-xs text-slate-500">پیش‌نمایش با حساب پنل باز می‌شود و عمومی نیست. پیش‌نمایشِ تغییراتِ ذخیره‌نشده ابتدا آن‌ها را به صورت پیش‌نویس ذخیره می‌کند.</p>
+    </>}
+  </div>;
 };

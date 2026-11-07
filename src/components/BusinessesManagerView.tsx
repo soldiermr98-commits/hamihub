@@ -313,7 +313,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500 text-xs">
-                  <th className="py-3 px-3 text-right font-semibold">نام و مسیر (/b/slug/)</th>
+                  <th className="py-3 px-3 text-right font-semibold">نام و مسیر (شهر / کسب‌وکار)</th>
                   <th className="py-3 px-3 text-right font-semibold">شهر · محله · دسته</th>
                   <th className="py-3 px-3 text-right font-semibold">وضعیت و Tier</th>
                   <th className="py-3 px-3 text-right font-semibold">چک‌لیست غیرمسدودکننده</th>
@@ -326,7 +326,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                     <td className="py-3.5 px-3">
                       <div className="font-semibold text-slate-900">{biz.name}</div>
                       <div className="font-mono text-xs text-slate-500 mt-0.5" dir="ltr">
-                        /b/{biz.slug}/
+                        /{biz.city_slug || 'city'}/{biz.slug}/
                       </div>
                     </td>
                     <td className="py-3.5 px-3 text-xs text-slate-600">
@@ -484,7 +484,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                 <div>
                   <div className="flex items-center justify-between">
                     <label htmlFor="biz_field_slug" className="block text-xs font-semibold text-slate-800">
-                      اسلاگ لاتین (مسیر: <code className="font-mono">/b/{slug || '...'}/</code>)
+                      اسلاگ لاتین (مسیر: <code className="font-mono">/{cities.find(c=>Number(c.id)===Number(cityId))?.slug || 'city'}/{slug || '...'}/</code>)
                     </label>
                     <button
                       type="button"

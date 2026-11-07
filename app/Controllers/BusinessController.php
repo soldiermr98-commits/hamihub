@@ -9,6 +9,7 @@ use App\Core\Csrf;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
+use App\Services\BusinessUrlService;
 use App\Services\MediaService;
 use App\Services\SlugService;
 use Throwable;
@@ -39,6 +40,12 @@ final class BusinessController
         $where = ['1=1']; $params = [];
         $city = (int)($_GET['city_id'] ?? 0);
         if ($city > 0) { $where[] = 'b.city_id=:city'; $params['city']=$city; }
+        $category = (int)($_GET['category_id'] ?? 0);
+        if ($category > 0) { $where[] = 'b.category_id=:category'; $params['category']=$category; }
+        $status = (string)($_GET['status'] ?? '');
+        if (in_array($status, ['draft', 'pending_review', 'published', 'hidden', 'rejected'], true)) {
+            $where[] = 'b.status=:status'; $params['status']=$status;
+        }
         $search = trim((string)($_GET['q'] ?? ''));
         if ($search !== '') {
             $search = mb_substr($search, 0, 120);
@@ -49,7 +56,7 @@ final class BusinessController
         $total = (int)(DB::fetchOne("SELECT COUNT(*) AS cnt FROM businesses b WHERE {$whereSql}", $params)['cnt'] ?? 0);
         $rows = DB::fetchAll(
             "SELECT b.*,
-                    c.name_fa AS city_name,
+                    c.name_fa AS city_name, c.slug AS city_slug,
                     cat.name_fa AS category_name,
                     n.name_fa AS neighborhood_name,
                     m.file_path_480 AS cover_thumb_url,
@@ -135,7 +142,7 @@ final class BusinessController
         }
 
         if (trim((string) ($business['short_desc'] ?? '')) === '') {
-            $warnings[] = 'توضیح کوتاه خالی است (آماده تکمیل با AI)';
+            $warnings[] = 'توضیح کوتاه وارد نشده است';
         }
 
         return $warnings;
@@ -179,7 +186,8 @@ final class BusinessController
             ], 422);
         }
 
-        if (!DB::fetchOne('SELECT id FROM cities WHERE id=:id', ['id'=>$cityId]) || !DB::fetchOne('SELECT id FROM categories WHERE id=:id', ['id'=>$categoryId])) {
+        $selectedCity = DB::fetchOne('SELECT id,slug FROM cities WHERE id=:id', ['id'=>$cityId]);
+        if (!$selectedCity || !DB::fetchOne('SELECT id FROM categories WHERE id=:id', ['id'=>$categoryId])) {
             Response::json(['ok'=>false,'error'=>'شهر یا دسته‌بندی یافت نشد.'],422);
         }
         $websiteInput = trim((string) $request->input('website', ''));
@@ -239,6 +247,16 @@ final class BusinessController
         $pdo->beginTransaction();
 
         if ($id > 0) {
+            $previous = DB::fetchOne('SELECT b.slug,b.city_id,c.slug AS city_slug FROM businesses b INNER JOIN cities c ON c.id=b.city_id WHERE b.id=:id FOR UPDATE', ['id'=>$id]);
+            if (!$previous) { $pdo->rollBack(); Response::json(['ok'=>false,'error'=>'کسب‌وکار یافت نشد.'], 404); }
+            if ((string)$previous['slug'] !== $uniqueSlug || (int)$previous['city_id'] !== $cityId) {
+                try {
+                    BusinessUrlService::remember($id, (string)$previous['city_slug'], (string)$previous['slug']);
+                } catch (\RuntimeException $e) {
+                    $pdo->rollBack();
+                    Response::json(['ok'=>false,'error'=>$e->getMessage()], 409);
+                }
+            }
             DB::query(
                 "UPDATE businesses
                  SET name = :name,
@@ -301,7 +319,7 @@ final class BusinessController
                 ]
             );
             $bizId = DB::lastInsertId();
-            $msg = "کسب‌وکار «{$name}» با اسلاگ «/b/{$uniqueSlug}/» ذخیره شد.";
+            $msg = "کسب‌وکار «{$name}» با نشانی «" . BusinessUrlService::path((string)$selectedCity['slug'], $uniqueSlug) . "» ذخیره شد.";
         }
 
         // ذخیره راه‌های ارتباطی (تلفن ثابت، موبایل، اینستاگرام، واتساپ، وب‌سایت)

@@ -75,7 +75,7 @@ final class MediaService
         $origHeight = imagesy($srcImage);
 
         if ($origWidth < 100 || $origHeight < 100) {
-            imagedestroy($srcImage);
+            unset($srcImage);
             throw new RuntimeException('ابعاد تصویر بسیار کوچک است (حداقل ۱۰۰×۱۰۰ پیکسل الزامی است).');
         }
 
@@ -84,7 +84,7 @@ final class MediaService
         $uploadDir = $base . '/public_html/uploads/' . $subDir;
 
         if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
-            imagedestroy($srcImage);
+            unset($srcImage);
             throw new RuntimeException('امکان ساخت پوشه آپلود در public_html/uploads وجود ندارد. دسترسی 755 پوشه را بررسی کنید.');
         }
 
@@ -125,7 +125,9 @@ final class MediaService
                 imagejpeg($canvas, $absPath, 85);
             }
 
-            imagedestroy($canvas);
+            // GD images are objects on PHP 8; releasing the reference avoids
+            // deprecated imagedestroy() output corrupting JSON on PHP 8.5.
+            unset($canvas);
             $generatedPaths[$targetW] = $relPath;
 
             if ($targetW === 800) {
@@ -135,7 +137,7 @@ final class MediaService
             }
         }
 
-        imagedestroy($srcImage);
+        unset($srcImage);
 
         DB::query(
             "INSERT INTO media (file_path_480, file_path_800, file_path_1200, mime_type, width, height, size_bytes, alt_text, created_at)
