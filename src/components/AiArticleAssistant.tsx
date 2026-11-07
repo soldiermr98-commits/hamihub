@@ -45,7 +45,7 @@ export const AiArticleAssistant:React.FC<Props> = ({title,currentText,csrfToken,
   return <section className="rounded-xl border border-blue-200 bg-blue-50/40 p-4" aria-label="دستیار نوشتن مقاله">
     <button type="button" className="flex items-center gap-2 font-bold text-sm text-blue-900" aria-expanded={open} onClick={()=>setOpen(v=>!v)}><Sparkles size={17}/> نوشتن با هوش مصنوعی <span className="font-normal text-xs">(اختیاری)</span></button>
     {open&&<div className="space-y-3 mt-4">
-      <p className="text-xs leading-6 text-slate-700">اولویت فهرست: Gemini، سپس Groq و OpenRouter. هیچ جابه‌جایی یا فراخوانی خودکار انجام نمی‌شود. فقط عنوان و دو کادر زیر به سرویس انتخاب‌شده ارسال می‌شوند، نه کل مقاله یا بانک کسب‌وکارها.</p>
+      <p className="text-xs leading-6 text-slate-700">سرویس‌های آماده در فهرست نمایش داده می‌شوند؛ هیچ جابه‌جایی یا فراخوانی خودکار انجام نمی‌شود. فقط عنوان و دو کادر زیر به سرویس انتخاب‌شده ارسال می‌شوند، نه کل مقاله یا بانک کسب‌وکارها.</p>
       <p className="text-xs leading-6 text-amber-900">رایگان بودن به حساب، مدل، سهمیه و منطقه بستگی دارد و تضمین‌شده نیست؛ قبل از ارسال، صورتحساب حساب خود را بررسی کنید. متن ممکن است اشتباه باشد و همه اطلاعات و حقوق تصاویر باید انسانی بررسی شوند.</p>
       {loading&&<p className="text-sm">در حال بررسی تنظیمات…</p>}
       {error&&<p role="alert" className="text-sm text-rose-800">{error}</p>}

@@ -10,9 +10,14 @@ if (!preg_match('/^hhx_test_[a-z0-9_]+$/',(string)($db['database']??'')) || !in_
 define('BASE_PATH',dirname(__DIR__));
 require BASE_PATH.'/app/Core/Config.php'; \App\Core\Config::load($configFile);
 require BASE_PATH.'/app/Core/Bootstrap.php'; \App\Core\Bootstrap::init(BASE_PATH);
-$row=\App\Core\DB::fetchOne("SELECT v FROM settings WHERE k='ai_provider_v1_gemini'");
-$value=(string)($row['v']??'');
-if ($value==='' || str_contains($value,'synthetic-http-key') || str_contains($value,'synthetic-replacement-key')) throw new RuntimeException('Key is missing or stored as plaintext.');
-$state=json_decode($value,true);
-if (!is_array($state) || !is_array($state['secret']??null) || empty($state['secret']['nonce']) || empty($state['secret']['ciphertext']) || empty($state['secret']['tag'])) throw new RuntimeException('Encrypted record is incomplete.');
-echo "PASS: real test DB contains encrypted provider settings, not the synthetic plaintext key.\n";
+foreach (['gemini','nvidia'] as $id) {
+    $row=\App\Core\DB::fetchOne('SELECT v FROM settings WHERE k=:k',['k'=>'ai_provider_v1_'.$id]);
+    if ($id==='nvidia' && $row===null) continue; // first inspection occurs before NVIDIA is saved
+    $value=(string)($row['v']??'');
+    foreach (['synthetic-http-key','synthetic-replacement-key','synthetic-nvidia-key','synthetic-nvidia-replacement'] as $key) {
+        if ($value==='' || str_contains($value,$key)) throw new RuntimeException('Key is missing or stored as plaintext.');
+    }
+    $state=json_decode($value,true);
+    if (!is_array($state) || !is_array($state['secret']??null) || empty($state['secret']['nonce']) || empty($state['secret']['ciphertext']) || empty($state['secret']['tag'])) throw new RuntimeException('Encrypted record is incomplete.');
+}
+echo "PASS: real test DB contains encrypted provider settings, not synthetic plaintext keys.\n";

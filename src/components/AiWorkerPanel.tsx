@@ -51,8 +51,16 @@ function ProviderCard({provider,csrfToken,schemaReady,onReload}:{provider:AiMana
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="text-sm">کلید API <input aria-label={`کلید API ${provider.label}`} type="password" dir="ltr" maxLength={512} autoComplete="new-password" spellCheck={false} className={`${input} mt-1`} value={key}
         placeholder={provider.key_configured?'خالی = حفظ کلید فعلی':'کلید API'} onChange={e=>{setKey(e.target.value);if(e.target.value && !provider.key_configured)setEnabled(true);}} /></label>
-      <label className="text-sm">مدل <input aria-label={`مدل ${provider.label}`} dir="ltr" autoComplete="off" spellCheck={false} className={`${input} mt-1`} value={model} onChange={e=>setModel(e.target.value)}/></label>
+      <label className="text-sm">شناسه مدل (قابل ویرایش) <input aria-label={`مدل ${provider.label}`} dir="ltr" maxLength={120} autoComplete="off" spellCheck={false} className={`${input} mt-1`} value={model} onChange={e=>setModel(e.target.value)}/></label>
     </div>
+    {(provider.suggested_models?.length ?? 0)>0&&<label className="block text-sm">مدل‌های پیشنهادی
+      <select aria-label={`مدل پیشنهادی ${provider.label}`} className={`${input} mt-1`} dir="ltr"
+        value={provider.suggested_models?.some(item=>item.id===model)?model:''} onChange={e=>{if(e.target.value)setModel(e.target.value);}}>
+        <option value="" disabled>انتخاب از فهرست یا وارد کردن شناسه دلخواه</option>
+        {provider.suggested_models?.map(item=><option key={item.id} value={item.id}>{item.id}{item.note?` — ${item.note}`:''}</option>)}
+      </select>
+    </label>}
+    <p className="text-xs text-slate-600">انتخاب از فهرست فقط شناسه بالا را تغییر می‌دهد؛ برای اعمال، تنظیمات را ذخیره کنید. شناسه مدل دلخواه نیز قابل وارد کردن است.</p>
     {provider.id==='openrouter'&&<p className="text-xs text-slate-600">در OpenRouter فقط <code dir="ltr">openrouter/free</code> یا مدل‌های دارای پسوند <code dir="ltr">:free</code> پذیرفته می‌شوند.</p>}
     <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/><span>این سرویس برای نویسنده فعال باشد</span></label>
     <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/><span>طرح، سهمیه و احتمال هزینه این حساب را بررسی کرده‌ام.</span></label>

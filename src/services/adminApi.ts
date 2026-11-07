@@ -532,9 +532,12 @@ export async function logoutAdmin(csrfToken:string): Promise<any> { return actio
 export async function runWebMigrations(csrfToken:string): Promise<any> { return action('/api/v1/system/migrate', {}, csrfToken); }
 export async function updateFeatureSchema(csrfToken:string): Promise<any> { return action('/api/v1/system/update-feature-schema', {}, csrfToken); }
 export interface AiProviderStatus { id:string; label:string; model:string; available:boolean }
+export interface AiModelSuggestion { id:string; note:string }
 export interface AiManagedProvider extends AiProviderStatus {
   enabled:boolean; free_tier_confirmed:boolean; key_configured:boolean;
   source:'none'|'file'|'panel'; version:number; error:string;
+  // Optional for compatibility with a previously deployed backend during an update.
+  default_model?:string; suggested_models?:AiModelSuggestion[];
 }
 export async function fetchAiProviders(): Promise<{ok:boolean;schema_ready:boolean;providers:AiProviderStatus[]}> {
   return request('/api/v1/ai/article/providers', {cache:'no-store'});

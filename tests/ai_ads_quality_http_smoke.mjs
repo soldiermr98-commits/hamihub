@@ -24,7 +24,7 @@ r=await editor.request('GET','/api/v1/ai/article/providers');assert.equal(r.stat
 r=await editor.request('POST','/api/v1/system/update-feature-schema',{});assert.equal(r.status,403);
 r=await admin.request('POST','/api/v1/system/update-feature-schema',{});assert.equal(r.status,200,r.text);assert.equal(r.json.migration_result.total_applied,1);
 r=await admin.request('POST','/api/v1/system/update-feature-schema',{});assert.equal(r.status,200,r.text);assert.equal(r.json.migration_result.total_applied,0);
-r=await editor.request('GET','/api/v1/ai/article/providers');assert.equal(r.json.schema_ready,true);assert.deepEqual(r.json.providers.map(x=>x.id),['gemini','groq','openrouter']);assert(r.json.providers.every(x=>!x.available));
+r=await editor.request('GET','/api/v1/ai/article/providers');assert.equal(r.json.schema_ready,true);assert.deepEqual(r.json.providers.map(x=>x.id),['gemini','groq','openrouter','nvidia']);assert(r.json.providers.every(x=>!x.available));
 r=await editor.request('POST','/api/v1/ai/article/generate',{provider:'gemini',title:'آزمایش',confirm_send:false,confirm_quota:false});assert.equal(r.status,422);
 r=await editor.request('POST','/api/v1/ai/article/generate',{provider:'gemini',title:'آزمایش',confirm_send:true,confirm_quota:true});assert.equal(r.status,422);assert(!r.text.includes('secret'));
 r=await guest.request('GET','/api/v1/advertising');assert.equal(r.status,401);

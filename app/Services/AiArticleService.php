@@ -42,14 +42,26 @@ final class GeminiArticleProvider implements ArticleTextProvider
 
 final class ChatArticleProvider implements ArticleTextProvider
 {
-    public function __construct(private readonly string $url) {}
+    /** All options and the destination come from the server's fixed registry, never the browser. */
+    public function __construct(
+        private readonly string $url,
+        private readonly string $limitField = 'max_tokens',
+        private readonly array $modelOptions = []
+    ) {}
     public function request(string $model, string $apiKey, string $prompt): array
     {
+        $body = [
+            'model'=>$model, 'messages'=>[['role'=>'user','content'=>$prompt]],
+            'temperature'=>0.4, $this->limitField=>2048,
+            // Some providers default to SSE; the response parser expects one JSON object.
+            'stream'=>false,
+        ];
+        // Apply documented options only to the exact model they are known to support.
+        foreach ($this->modelOptions[$model] ?? [] as $name=>$value) $body[$name] = $value;
         return [
             'url'=>$this->url,
             'headers'=>['Content-Type: application/json', 'Authorization: Bearer ' . $apiKey],
-            'body'=>['model'=>$model, 'messages'=>[['role'=>'user','content'=>$prompt]],
-                'temperature'=>0.4, 'max_tokens'=>2048],
+            'body'=>$body,
         ];
     }
     public function text(array $response): string
@@ -61,27 +73,75 @@ final class ChatArticleProvider implements ArticleTextProvider
 
 final class AiArticleService
 {
+    /**
+     * Provider destinations and model-specific options are code-owned. Suggestions
+     * are not an allowlist: admins can enter another supported model ID. Add a
+     * compatible provider here without duplicating its catalog in the frontend.
+     */
+    private const REGISTRY = [
+        'gemini'=>[
+            'label'=>'Gemini', 'default_model'=>'gemini-3.5-flash-lite', 'protocol'=>'gemini',
+            'suggested_models'=>[['id'=>'gemini-3.5-flash-lite', 'note'=>'پیش‌فرض']],
+        ],
+        'groq'=>[
+            'label'=>'Groq', 'default_model'=>'openai/gpt-oss-120b', 'protocol'=>'chat',
+            'url'=>'https://api.groq.com/openai/v1/chat/completions', 'limit_field'=>'max_completion_tokens',
+            'suggested_models'=>[
+                ['id'=>'openai/gpt-oss-120b', 'note'=>'پیش‌فرض'],
+                ['id'=>'qwen/qwen3.8-27b', 'note'=>'آزمایشی؛ ممکن است تغییر کند'],
+            ],
+            'model_options'=>[
+                // GPT-OSS always reasons; low effort and a short prompt help the bounded test return a final answer.
+                'openai/gpt-oss-120b'=>['temperature'=>0.6, 'reasoning_effort'=>'low', 'include_reasoning'=>false],
+                // For article writing, use Qwen's documented non-thinking mode.
+                'qwen/qwen3.8-27b'=>['temperature'=>0.7, 'reasoning_effort'=>'none', 'reasoning_format'=>'hidden'],
+            ],
+        ],
+        'openrouter'=>[
+            'label'=>'OpenRouter', 'default_model'=>'openrouter/free', 'protocol'=>'chat',
+            'url'=>'https://openrouter.ai/api/v1/chat/completions',
+            'suggested_models'=>[['id'=>'openrouter/free', 'note'=>'پیش‌فرض']],
+        ],
+        'nvidia'=>[
+            'label'=>'NVIDIA', 'default_model'=>'nvidia/nemotron-3.5-lightning-30b-a3b', 'protocol'=>'chat',
+            'url'=>'https://integrate.api.nvidia.com/v1/chat/completions',
+            'suggested_models'=>[['id'=>'nvidia/nemotron-3.5-lightning-30b-a3b', 'note'=>'پیش‌فرض']],
+            'model_options'=>[
+                // This model otherwise spends the shared output budget on thinking before answering.
+                'nvidia/nemotron-3.5-lightning-30b-a3b'=>[
+                    'temperature'=>1.0, 'chat_template_kwargs'=>['enable_thinking'=>false],
+                ],
+            ],
+        ],
+    ];
+
     /** @var array<string, array{label:string,adapter:ArticleTextProvider}> */
     private array $providers;
 
-    /** The fixed registry is also used by the admin UI; browser input never selects a URL. */
+    /** Only non-secret model metadata is exposed to the admin settings UI. */
     public static function catalog(): array
     {
-        return [
-            'gemini'=>['label'=>'Gemini', 'default_model'=>'gemini-3.5-flash-lite'],
-            'groq'=>['label'=>'Groq', 'default_model'=>'llama-3.1-8b-instant'],
-            'openrouter'=>['label'=>'OpenRouter', 'default_model'=>'openrouter/free'],
-        ];
+        $catalog = [];
+        foreach (self::REGISTRY as $id=>$provider) {
+            $catalog[$id] = [
+                'label'=>$provider['label'], 'default_model'=>$provider['default_model'],
+                'suggested_models'=>$provider['suggested_models'],
+            ];
+        }
+        return $catalog;
     }
 
     public function __construct(private readonly array $config)
     {
-        $catalog = self::catalog();
-        $this->providers = [
-            'gemini'=>['label'=>$catalog['gemini']['label'], 'adapter'=>new GeminiArticleProvider()],
-            'groq'=>['label'=>$catalog['groq']['label'], 'adapter'=>new ChatArticleProvider('https://api.groq.com/openai/v1/chat/completions')],
-            'openrouter'=>['label'=>$catalog['openrouter']['label'], 'adapter'=>new ChatArticleProvider('https://openrouter.ai/api/v1/chat/completions')],
-        ];
+        $this->providers = [];
+        foreach (self::REGISTRY as $id=>$provider) {
+            $adapter = match ($provider['protocol']) {
+                'gemini' => new GeminiArticleProvider(),
+                'chat' => new ChatArticleProvider($provider['url'], $provider['limit_field'] ?? 'max_tokens', $provider['model_options'] ?? []),
+                default => throw new RuntimeException('پروتکل سرویس هوش مصنوعی معتبر نیست.'),
+            };
+            $this->providers[$id] = ['label'=>$provider['label'], 'adapter'=>$adapter];
+        }
     }
 
     public function status(): array
@@ -135,12 +195,14 @@ final class AiArticleService
     {
         $prepared = $this->prepare($id, 'آزمایش اتصال', 'فقط واژه سلام را بنویس.', '');
         if ($id === 'gemini') {
-            // Gemini 3 Flash-Lite uses some output tokens for thinking, even for simple requests.
-            // A short test prompt with a bounded but less restrictive limit avoids false empty responses.
+            // Some models use output tokens for thinking, even for short tests.
             $prepared['request']['body']['contents'] = [['role'=>'user', 'parts'=>[['text'=>'Reply with OK.']]]];
             $prepared['request']['body']['generationConfig']['maxOutputTokens'] = 256;
         } else {
-            $prepared['request']['body']['max_tokens'] = 64;
+            $prepared['request']['body']['messages'] = [['role'=>'user', 'content'=>'Reply with OK.']];
+            // Groq documents max_completion_tokens; other chat adapters use max_tokens.
+            $field = array_key_exists('max_completion_tokens', $prepared['request']['body']) ? 'max_completion_tokens' : 'max_tokens';
+            $prepared['request']['body'][$field] = 256;
         }
         return $prepared;
     }
@@ -155,11 +217,18 @@ final class AiArticleService
         if ($status < 200 || $status >= 300) {
             throw new RuntimeException(self::providerError((string)($prepared['id'] ?? ''), $status, (string)$result['body']));
         }
+        if ($status === 202) {
+            // This integration performs one synchronous request, not provider-specific polling.
+            throw new RuntimeException('سرویس درخواست را در صف قرار داد (HTTP 202)، اما پاسخ نهایی در این درخواست دریافت نشد.');
+        }
         $decoded = json_decode((string)$result['body'], true);
         if (!is_array($decoded)) throw new RuntimeException('پاسخ سرویس هوش مصنوعی قابل خواندن نبود.');
         $text = trim($prepared['adapter']->text($decoded));
         if ($text === '' && ($prepared['id'] ?? '') === 'gemini' && ($decoded['candidates'][0]['finishReason'] ?? '') === 'MAX_TOKENS') {
             throw new RuntimeException('سرویس پاسخ داد، اما خروجی پیش از تولید متن به سقف توکن رسید (MAX_TOKENS).');
+        }
+        if ($text === '' && ($decoded['choices'][0]['finish_reason'] ?? '') === 'length') {
+            throw new RuntimeException('سرویس پاسخ داد، اما پیش از تولید متن نهایی به سقف توکن رسید (length). مدل یا تنظیمات آن را بررسی کنید.');
         }
         if ($text === '') throw new RuntimeException('سرویس متن قابل استفاده‌ای برنگرداند؛ ممکن است خروجی مسدود شده باشد.');
         return mb_substr($text, 0, 18000);
@@ -188,6 +257,8 @@ final class AiArticleService
                 401, 403 => 'سرویس اجازه دسترسی نداد؛ کلید، محدودیت‌های آن، منطقه و تنظیمات حساب را بررسی کنید.',
                 402 => 'سرویس وضعیت پرداخت یا اعتبار حساب را رد کرد؛ طرح و موجودی حساب را بررسی کنید.',
                 404 => 'مدل یا نشانی آن برای این حساب پیدا نشد؛ نام دقیق مدل و دسترسی پروژه را بررسی کنید.',
+                410 => 'مدل یا نشانی دیگر در دسترس نیست؛ شناسه به‌روز را در پنل ارائه‌دهنده بررسی کنید.',
+                422 => 'سرویس درخواست را نپذیرفت؛ سازگاری مدل و پارامترهای آن را بررسی کنید.',
                 429 => 'سهمیه یا محدودیت این سرویس تمام شده است؛ سهمیه را بررسی کنید یا بعداً تلاش کنید.',
                 500, 502, 503, 504 => 'سرویس یا مسیر ارتباطی موقتاً خطا داد؛ کمی بعد دوباره بررسی کنید.',
                 default => 'سرویس پاسخ موفق نداد؛ تنظیمات مدل، حساب و وضعیت سرویس را بررسی کنید.',
