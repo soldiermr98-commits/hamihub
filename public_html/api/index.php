@@ -41,6 +41,7 @@ $router->post('/api/v1/cache/flush', [AuthController::class, 'flushCache']);
 $router->post('/api/v1/system/migrate', [AuthController::class, 'runMigrations']);
 $router->post('/api/v1/system/update-article-schema', [AuthController::class, 'updateArticleSchema']);
 $router->post('/api/v1/system/update-feature-schema', [AuthController::class, 'updateFeatureSchema']);
+$router->post('/api/v1/system/update-advertising-schema', [AuthController::class, 'updateAdvertisingSchema']);
 
 // ۲. مسیرهای CRUD شهر، دسته، بسته دسته، کسب‌وکار و رسانه WebP (S1)
 $router->get('/api/v1/cities', [CityController::class, 'index']);
@@ -99,6 +100,7 @@ $router->post('/api/v1/advertising/banner', [AdvertisingController::class, 'save
 $router->post('/api/v1/advertising/banner/delete', [AdvertisingController::class, 'deleteBanner']);
 $router->post('/api/v1/advertising/inquiry', [AdvertisingController::class, 'updateInquiry']);
 $router->post('/api/v1/public/advertising-inquiry', [AdvertisingController::class, 'submitInquiry']);
+$router->post('/api/v1/public/banner-event', [AdvertisingController::class, 'trackBanner']);
 
 // The old batch/worker mutation routes stay disabled; this new path is manual and draft-only.
 $router->get('/api/v1/ai/article/providers', [AiArticleController::class, 'status']);

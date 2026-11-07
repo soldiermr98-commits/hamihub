@@ -483,6 +483,9 @@ export interface SponsoredPlacementItem {
   business_slug: string;
   article_title: string;
   article_slug: string;
+  article_status: string;
+  business_status: string;
+  display_status: 'active' | 'upcoming' | 'ended' | 'article_unpublished' | 'business_unpublished';
   city_name: string;
 }
 

@@ -134,6 +134,20 @@ final class AuthController
         }
     }
 
+    /** Apply the reporting/contract update without running legacy migrations. */
+    public static function updateAdvertisingSchema(Request $request): void
+    {
+        Csrf::verifyOrFail($request);
+        Auth::requireRole(['admin']);
+        try {
+            $result = Migrator::runAdvertisingUpdate();
+            Response::json(['ok'=>true, 'migration_result'=>$result, 'message'=>'جدول‌های گزارش بنر و قرارداد آماده است؛ محتوای قبلی تغییر نکرد.']);
+        } catch (Throwable $e) {
+            error_log('Advertising schema update failed: ' . $e->getMessage());
+            Response::json(['ok'=>false, 'error'=>'به‌روزرسانی انجام نشد؛ ابتدا پیش‌نیازها و گزارش سرور را بررسی کنید.'], 409);
+        }
+    }
+
     /**
      * اجرای افزایشی مایگریشن‌های جدید دیتابیس از داخل پنل ادمین (مخصوص هاست اشتراکی بدون SSH)
      * POST /api/v1/system/migrate

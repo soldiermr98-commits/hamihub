@@ -1567,8 +1567,8 @@ final class PublicSiteController
         $sponsoredItems = DB::fetchAll(
             "SELECT ai.id, ai.article_id, ai.business_id, ai.position, ai.sponsor_label,
                     ai.sponsor_start, ai.sponsor_end,
-                    b.name AS business_name, b.slug AS business_slug,
-                    a.title AS article_title, a.slug AS article_slug,
+                    b.name AS business_name, b.slug AS business_slug, b.status AS business_status,
+                    a.title AS article_title, a.slug AS article_slug, a.status AS article_status,
                     c.name_fa AS city_name
              FROM article_items ai
              INNER JOIN businesses b ON b.id = ai.business_id
@@ -1577,6 +1577,13 @@ final class PublicSiteController
              WHERE ai.is_sponsored = 1
              ORDER BY ai.id DESC"
         );
+        // Use the same PHP/site-local clock and boundaries as the public article.
+        // article_items contains the published/current snapshot, not a private edit.
+        $sponsorNow = date('Y-m-d H:i:s');
+        foreach ($sponsoredItems as &$item) {
+            $item['display_status'] = \App\Services\SponsorshipStatus::classify($item, $sponsorNow);
+        }
+        unset($item);
 
         $claimsCount = (int)(DB::fetchOne("SELECT COUNT(*) AS c FROM claims WHERE status = 'pending'")['c'] ?? 0);
         $reportsCount = (int)(DB::fetchOne("SELECT COUNT(*) AS c FROM reports WHERE status = 'pending'")['c'] ?? 0);
