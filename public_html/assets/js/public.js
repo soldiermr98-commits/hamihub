@@ -125,8 +125,8 @@
 
     ev.preventDefault();
     var msgEl = form.querySelector('[data-hx-form-msg]');
-    var endpoint =
-      formType === 'claim' ? '/api/v1/public/claim' : '/api/v1/public/report';
+    var endpoint = formType === 'claim' ? '/api/v1/public/claim' :
+      formType === 'advertising' ? '/api/v1/public/advertising-inquiry' : '/api/v1/public/report';
     var fd = new FormData(form);
     var body = {};
     fd.forEach(function (val, key) {
@@ -138,12 +138,21 @@
       msgEl.textContent = 'در حال ارسال به صندوق بازبینی...';
     }
 
-    fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    })
-      .then(function (r) {
+    var submit = form.querySelector('button[type="submit"]');
+    if (submit && submit.disabled) return;
+    if (submit) submit.disabled = true;
+    // Cached pages must never contain a session-specific CSRF token. Obtain one
+    // for this browser immediately before sending an advertising inquiry.
+    var token = formType === 'advertising' ? fetch('/api/v1/auth/me', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { return r.json(); }).then(function (res) {
+        if (!res.csrf_token) throw new Error('Missing CSRF token');
+        return res.csrf_token;
+      }) : Promise.resolve('');
+    token.then(function (csrf) {
+      var headers = { 'Content-Type': 'application/json' };
+      if (csrf) { headers['X-CSRF-Token'] = csrf; body._csrf = csrf; }
+      return fetch(endpoint, { method: 'POST', credentials: 'same-origin', headers: headers, body: JSON.stringify(body) });
+    }).then(function (r) {
         return r.json();
       })
       .then(function (res) {
@@ -160,6 +169,6 @@
           msgEl.style.color = '#b91c1c';
           msgEl.textContent = 'خطا در ارتباط با سرور.';
         }
-      });
+      }).finally(function () { if (submit) submit.disabled = false; });
   });
 })();

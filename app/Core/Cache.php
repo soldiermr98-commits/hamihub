@@ -62,8 +62,12 @@ final class Cache
         }
 
         $content = file_get_contents($filePath);
-        // Ignore pages generated before the current template and sponsorship-window logic.
-        if (!is_string($content) || !str_contains($content, 'public.css?v=s9.1')) return null;
+        // Ignore old templates and expire a cached banner exactly at its next
+        // start/end boundary, even when host cron has not run.
+        if (!is_string($content) || !str_contains($content, 'public.css?v=s10.0')) return null;
+        if (!preg_match('/<!-- hhx-ad-until:(\d+) -->/', $content, $marker)) return null;
+        $until = (int)$marker[1];
+        if ($until > 0 && time() >= $until) return null;
         return $content;
     }
 

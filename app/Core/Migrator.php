@@ -86,6 +86,32 @@ final class Migrator
         ];
     }
 
+    /** Apply only the additive AI/advertising/review tables, never legacy migrations. */
+    public static function runFeatureUpdate(): array
+    {
+        $pdo = DB::connection();
+        foreach (['users','businesses','business_contacts','business_photos','media','cities','categories','login_attempts'] as $table) {
+            if (DB::fetchOne("SHOW TABLES LIKE '{$table}'") === null) {
+                throw new RuntimeException('پیش‌نیاز دیتابیس «' . $table . '» موجود نیست. ابتدا وضعیت نسخه قبلی را بررسی کنید.');
+            }
+        }
+        $pdo->exec("CREATE TABLE IF NOT EXISTS schema_migrations (
+            migration VARCHAR(190) NOT NULL, executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (migration)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $file = '007_ai_advertising_quality.sql';
+        if (DB::fetchOne('SELECT migration FROM schema_migrations WHERE migration=:m', ['m'=>$file])) {
+            return ['ok'=>true, 'applied'=>[], 'skipped'=>[$file], 'total_applied'=>0];
+        }
+        $base = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
+        $sql = @file_get_contents($base . '/database/migrations/' . $file);
+        if (!is_string($sql) || trim($sql) === '') throw new RuntimeException('فایل به‌روزرسانی دیتابیس یافت نشد.');
+        $pdo->exec($sql);
+        DB::query('INSERT IGNORE INTO schema_migrations (migration,executed_at) VALUES (:m,NOW())', ['m'=>$file]);
+        Cache::flushAll();
+        return ['ok'=>true, 'applied'=>[$file], 'skipped'=>[], 'total_applied'=>1];
+    }
+
     /** Apply only the non-destructive editor/URL migration, never older migrations. */
     public static function runArticleUpdate(): array
     {

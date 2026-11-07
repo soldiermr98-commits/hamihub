@@ -35,7 +35,10 @@ php -S 127.0.0.1:8091 -t public_html tests/article_fixture_router.php
 export HHX_TEST_URL=http://127.0.0.1:8091
 node tests/article_city_http_smoke.mjs
 # پس از آزمون HTTP و اعمال مایگریشن ۰۰۶ روی همان دیتابیس آزمایشی:
+node tests/ai_ads_quality_http_smoke.mjs  # یک بار، پیش از نصب مایگریشن ۰۰۷ روی دیتابیس آزمایشی
 node tests/sponsorship_cache_smoke.mjs
+php tests/ai_advertising_unit_smoke.php
+npm run test:ai-ui
 php tests/sponsorship_time_boundary_smoke.php
 php tests/sponsorship_cache_version_smoke.php
 php tests/article_revision_conflict_smoke.php

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ExternalLink, Eye, FileText, Plus, Save, Trash2, Upload } from 'lucide-react';
+import { AiArticleAssistant } from './AiArticleAssistant';
 import {
   ArticleBizRow, ArticleData, ArticleFaqRow, ArticleItem, BusinessItem, CategoryItem, CityItem,
   autoBuildCityCategoryArticle, fetchArticleBusinesses, fetchArticlesList, saveArticleItem,
@@ -188,6 +189,7 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
         <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-bold">{selected ? statusLabel(selected) : 'مقاله جدید · هنوز ذخیره نشده'}</div>{dirty&&<span className="text-xs text-amber-700">تغییرات ذخیره نشده</span>}</div>
         {selected?.revision?.base_conflict && <div role="alert" className="bg-amber-50 border border-amber-300 text-amber-900 text-sm rounded p-3">نسخه منتشرشده بعد از شروع این ویرایش تغییر کرده است. انتشار این نسخه برای جلوگیری از حذف تغییرات متوقف می‌شود؛ ابتدا دو نسخه را بررسی کنید.</div>}
         <label className="block text-sm font-bold">عنوان مقاله<input className={`${input} mt-2 text-base`} value={form.title_fa} onChange={e=>change({title_fa:e.target.value})} placeholder="مثلاً راهنمای سفر به رشت" maxLength={255}/></label>
+        <AiArticleAssistant title={form.title_fa} currentText={form.intro_html} csrfToken={csrfToken} onInsert={text=>change({intro_html:text})}/>
         <div><div className="flex items-center justify-between gap-2"><label htmlFor="article-body" className="text-sm font-bold">متن مقاله</label><button type="button" className={secondary} onClick={insertHeading}>افزودن تیتر</button></div>
           <textarea ref={textRef} id="article-body" className={`${input} mt-2 min-h-64 leading-8`} value={form.intro_html} onChange={e=>change({intro_html:e.target.value})} placeholder="متن خود را اینجا بنویسید…"/>
           <p className="text-xs text-slate-500 mt-1">برای تیتر، دکمه «افزودن تیتر» را بزنید و عنوان را بنویسید. نمایش نهایی را در پیش‌نمایش ببینید.</p>

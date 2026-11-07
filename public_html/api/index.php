@@ -9,6 +9,8 @@ declare(strict_types=1);
 if (!defined('BASE_PATH')) define('BASE_PATH', dirname(__DIR__, 2));
 require_once BASE_PATH . '/app/Core/Bootstrap.php';
 
+use App\Controllers\AdvertisingController;
+use App\Controllers\AiArticleController;
 use App\Controllers\AiWorkerController;
 use App\Controllers\ApifyController;
 use App\Controllers\ArticleController;
@@ -37,6 +39,7 @@ $router->post('/api/v1/auth/logout', [AuthController::class, 'logout']);
 $router->post('/api/v1/cache/flush', [AuthController::class, 'flushCache']);
 $router->post('/api/v1/system/migrate', [AuthController::class, 'runMigrations']);
 $router->post('/api/v1/system/update-article-schema', [AuthController::class, 'updateArticleSchema']);
+$router->post('/api/v1/system/update-feature-schema', [AuthController::class, 'updateFeatureSchema']);
 
 // ۲. مسیرهای CRUD شهر، دسته، بسته دسته، کسب‌وکار و رسانه WebP (S1)
 $router->get('/api/v1/cities', [CityController::class, 'index']);
@@ -50,6 +53,7 @@ $router->post('/api/v1/category-packs', [CategoryController::class, 'storeOrUpda
 $router->get('/api/v1/businesses', [BusinessController::class, 'index']);
 $router->post('/api/v1/businesses', [BusinessController::class, 'storeOrUpdate']);
 $router->post('/api/v1/businesses/promotion', [BusinessController::class, 'setPromotion']);
+$router->post('/api/v1/businesses/data-review', [BusinessController::class, 'recordDataReview']);
 $router->post('/api/v1/import/json/prepare', [ManualImportController::class, 'prepare']);
 $router->post('/api/v1/import/json/preview', [ManualImportController::class, 'preview']);
 $router->post('/api/v1/import/json/apply', [ManualImportController::class, 'apply']);
@@ -87,6 +91,17 @@ $router->get('/api/v1/articles/preview/{id}', [PublicSiteController::class, 'art
 $router->post('/api/v1/articles', [ArticleController::class, 'storeOrUpdate']);
 $router->post('/api/v1/articles/auto-build', [ArticleController::class, 'autoBuild']);
 $router->post('/api/v1/events/track', [PublicSiteController::class, 'trackEvent']);
+
+// Independent banner inventory and advertiser inquiries (admin-only management).
+$router->get('/api/v1/advertising', [AdvertisingController::class, 'index']);
+$router->post('/api/v1/advertising/banner', [AdvertisingController::class, 'saveBanner']);
+$router->post('/api/v1/advertising/banner/delete', [AdvertisingController::class, 'deleteBanner']);
+$router->post('/api/v1/advertising/inquiry', [AdvertisingController::class, 'updateInquiry']);
+$router->post('/api/v1/public/advertising-inquiry', [AdvertisingController::class, 'submitInquiry']);
+
+// The old batch/worker mutation routes stay disabled; this new path is manual and draft-only.
+$router->get('/api/v1/ai/article/providers', [AiArticleController::class, 'status']);
+$router->post('/api/v1/ai/article/generate', [AiArticleController::class, 'generate']);
 
 // ۶. مسیرهای صف کارهای هوش مصنوعی بدون توهم و ورکر راه دور (مرحله S5)
 $router->get('/api/v1/ai/tasks', [AiWorkerController::class, 'index']);

@@ -28,5 +28,16 @@ return [
         // Private token belongs only in config.local.php on the host. Never paste it in chat.
         'apify' => ['api_token' => ''],
     ],
+    // Disabled until the site owner checks each account's plan, billing, model,
+    // region and free quota. API keys belong ONLY in config.local.php on the host.
+    'ai' => [
+        'hourly_user_limit' => 5,
+        'daily_site_limit' => 30,
+        'providers' => [
+            'gemini' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'gemini-2.5-flash-lite'],
+            'groq' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'llama-3.1-8b-instant'],
+            'openrouter' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'openrouter/free'],
+        ],
+    ],
     'reserved_slugs' => ['admin','api','assets','uploads','cache','city','b','sitemap','robots','install','check','storage'],
 ];

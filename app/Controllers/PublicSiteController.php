@@ -10,6 +10,7 @@ use App\Core\Csrf;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
+use App\Services\AdvertisingService;
 use App\Services\ArticleService;
 use App\Services\BusinessUrlService;
 use App\Services\Normalizer;
@@ -227,6 +228,7 @@ final class PublicSiteController
             'canonical'   => $baseUrl . '/',
             'og_type'     => 'website',
             'schemas'     => $schemas,
+            'ad_placement'=> 'home',
             'body'        => $bodyHtml,
         ]);
 
@@ -566,6 +568,9 @@ final class PublicSiteController
             'canonical'   => $canonical,
             'og_type'     => 'place',
             'schemas'     => [$localBizSchema, $breadcrumbSchema],
+            'ad_placement'=> 'business',
+            'ad_city_id'  => (int)$biz['city_id'],
+            'ad_category_id' => (int)$biz['category_id'],
             'body'        => $bodyHtml,
         ]);
 
@@ -691,6 +696,8 @@ final class PublicSiteController
             'canonical'   => $canonical,
             'og_type'     => 'website',
             'schemas'     => $schemas,
+            'ad_placement'=> 'city',
+            'ad_city_id'  => (int)$city['id'],
             'body'        => $bodyHtml,
         ]);
 
@@ -822,6 +829,9 @@ final class PublicSiteController
             'canonical'   => $canonical,
             'og_type'     => 'website',
             'schemas'     => $schemas,
+            'ad_placement'=> 'category',
+            'ad_city_id'  => (int)$city['id'],
+            'ad_category_id' => (int)$category['id'],
             'body'        => $bodyHtml,
         ]);
 
@@ -1244,6 +1254,9 @@ final class PublicSiteController
             'canonical'   => $canonical,
             'og_type'     => 'article',
             'schemas'     => $schemas,
+            'ad_placement'=> 'article',
+            'ad_city_id'  => !empty($article['city_id']) ? (int)$article['city_id'] : null,
+            'ad_category_id' => !empty($article['category_id']) ? (int)$article['category_id'] : null,
             'body'        => $bodyHtml,
         ]);
 
@@ -1787,6 +1800,8 @@ final class PublicSiteController
         $schemas = (array)($data['schemas'] ?? []);
         $body = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)($data['body'] ?? ''));
         $baseUrl = self::baseUrl();
+        $ad = AdvertisingService::placement((string)($data['ad_placement'] ?? ''), $data['ad_city_id'] ?? null, $data['ad_category_id'] ?? null);
+        $advertisingReady = AdvertisingService::schemaReady();
 
         ob_start();
         ?>
@@ -1815,7 +1830,8 @@ final class PublicSiteController
     <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s9.1">
+    <link rel="stylesheet" href="/assets/css/public.css?v=s10.0">
+    <!-- hhx-ad-until:<?= (int)$ad['until'] ?> -->
     <?php foreach ($schemas as $schema):
         $schemaJson = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT));
     ?>
@@ -1843,6 +1859,7 @@ final class PublicSiteController
         </div>
     </header>
 
+    <?= $ad['html'] ?>
     <?= $body ?>
 
     <footer class="hx-footer">
@@ -1854,6 +1871,22 @@ final class PublicSiteController
                 </div>
             </div>
             <div>بخشی از داده‌ها از <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">مشارکت‌کنندگان OpenStreetMap</a> تحت مجوز ODbL است.</div>
+            <?php if ($advertisingReady): ?>
+            <details class="hx-ad-contact" id="advertise">
+                <summary>درخواست تبلیغات در حامی‌هاب</summary>
+                <p>برای بررسی جایگاه و بنر، درخواست خود را بفرستید. نام، شماره تماس و پیام فقط برای پیگیری درخواست در پنل مدیر نگهداری می‌شود.</p>
+                <form data-hx-public-form="advertising" action="/api/v1/public/advertising-inquiry" method="post">
+                    <label>نام <input name="name" required maxlength="150" autocomplete="name"></label>
+                    <label>شماره تماس <input name="phone" type="tel" required maxlength="32" autocomplete="tel" dir="ltr"></label>
+                    <label>پیام (اختیاری) <textarea name="message" maxlength="1000" rows="3"></textarea></label>
+                    <label class="hx-ad-consent"><input type="checkbox" name="consent" required> با ثبت اطلاعات بالا برای پیگیری درخواست تبلیغات موافقم.</label>
+                    <div class="hx-ad-honeypot" aria-hidden="true"><label>Website <input name="website_hp" tabindex="-1" autocomplete="off"></label></div>
+                    <button type="submit" class="hx-btn">ارسال درخواست تبلیغات</button>
+                    <p data-hx-form-msg role="status" aria-live="polite"></p>
+                    <noscript>برای ارسال امن فرم، جاوااسکریپت را فعال کنید.</noscript>
+                </form>
+            </details>
+            <?php endif; ?>
             <div style="display:flex;gap:1.15rem;">
                 <a href="/sitemap.xml">نقشه سایت (Sitemap)</a>
                 <a href="/robots.txt">Robots.txt</a>
@@ -1861,7 +1894,7 @@ final class PublicSiteController
             </div>
         </div>
     </footer>
-    <script src="/assets/js/public.js?v=s7.0" defer></script>
+    <script src="/assets/js/public.js?v=s10.0" defer></script>
 </body>
 </html>
         <?php

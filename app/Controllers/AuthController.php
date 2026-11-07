@@ -25,6 +25,8 @@ final class AuthController
     {
         Auth::startSessionIfNeeded();
         $user = Auth::user();
+        // This endpoint includes a session-specific CSRF token; never cache it.
+        header('Cache-Control: private, no-store, max-age=0');
 
         Response::json([
             'ok' => true,
@@ -115,6 +117,20 @@ final class AuthController
         } catch (Throwable $e) {
             error_log('Article schema update failed: ' . $e->getMessage());
             Response::json(['ok'=>false,'error'=>'به‌روزرسانی انجام نشد: ' . $e->getMessage()], 409);
+        }
+    }
+
+    /** Apply the additive AI/advertising/review migration only. */
+    public static function updateFeatureSchema(Request $request): void
+    {
+        Csrf::verifyOrFail($request);
+        Auth::requireRole(['admin']);
+        try {
+            $result = Migrator::runFeatureUpdate();
+            Response::json(['ok'=>true, 'migration_result'=>$result, 'message'=>'به‌روزرسانی هوش مصنوعی، تبلیغات و بازبینی داده آماده است؛ محتوای قبلی تغییر نکرد.']);
+        } catch (Throwable $e) {
+            error_log('Feature schema update failed: ' . $e->getMessage());
+            Response::json(['ok'=>false, 'error'=>'به‌روزرسانی انجام نشد؛ پیش‌نیازها و گزارش سرور را بررسی کنید.'], 409);
         }
     }
 

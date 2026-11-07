@@ -8,11 +8,13 @@ define('BASE_PATH', $root);
 require_once dirname(__DIR__) . '/app/Core/Cache.php';
 use App\Core\Cache;
 try {
-    if (!Cache::putPage('/old-version', '<link href="/assets/css/public.css?v=s9.0">')) throw new RuntimeException('Could not write old fixture.');
+    if (!Cache::putPage('/old-version', '<link href="/assets/css/public.css?v=s9.1">')) throw new RuntimeException('Could not write old fixture.');
     if (Cache::getPage('/old-version') !== null) throw new RuntimeException('Outdated cached page was served.');
-    if (!Cache::putPage('/new-version', '<link href="/assets/css/public.css?v=s9.1">')) throw new RuntimeException('Could not write current fixture.');
+    if (!Cache::putPage('/new-version', '<link href="/assets/css/public.css?v=s10.0"><!-- hhx-ad-until:0 -->')) throw new RuntimeException('Could not write current fixture.');
     if (Cache::getPage('/new-version') === null) throw new RuntimeException('Current cached page was ignored.');
-    echo "PASS: the sponsorship update ignores old cached pages and accepts the new cache version.\n";
+    if (!Cache::putPage('/expired', '<link href="/assets/css/public.css?v=s10.0"><!-- hhx-ad-until:' . (time() - 1) . ' -->')) throw new RuntimeException('Could not write expired fixture.');
+    if (Cache::getPage('/expired') !== null) throw new RuntimeException('A banner transition did not expire the cached page.');
+    echo "PASS: old cached pages are ignored and banner schedule boundaries expire cached pages.\n";
 } finally {
     Cache::flushAll();
     @rmdir($root . '/public_html/cache/pages');

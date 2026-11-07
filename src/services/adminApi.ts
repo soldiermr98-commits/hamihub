@@ -86,6 +86,10 @@ export interface BusinessItem {
   neighborhood_name?: string;
   contacts: BusinessContactItem[];
   warnings: string[];
+  review_current?: boolean;
+  review_hash?: string | null;
+  review_source_note?: string | null;
+  reviewed_at?: string | null;
   updated_at: string;
 }
 
@@ -526,11 +530,28 @@ export async function loginAdmin(params: {username:string;password:string;csrfTo
 }
 export async function logoutAdmin(csrfToken:string): Promise<any> { return action('/api/v1/auth/logout', {}, csrfToken); }
 export async function runWebMigrations(csrfToken:string): Promise<any> { return action('/api/v1/system/migrate', {}, csrfToken); }
+export async function updateFeatureSchema(csrfToken:string): Promise<any> { return action('/api/v1/system/update-feature-schema', {}, csrfToken); }
+export interface AiProviderStatus { id:string; label:string; model:string; available:boolean }
+export async function fetchAiProviders(): Promise<{ok:boolean;schema_ready:boolean;providers:AiProviderStatus[]}> {
+  return request('/api/v1/ai/article/providers', {cache:'no-store'});
+}
+export async function generateAiArticle(payload:{provider:string;title:string;brief:string;facts:string;confirm_send:boolean;confirm_quota:boolean}, csrf:string): Promise<{ok:boolean;text?:string;provider?:string;model?:string;error?:string}> {
+  return action('/api/v1/ai/article/generate',payload,csrf);
+}
+export interface AdBanner { id:number; version:number; title:string; alt_text:string; media_id:number; image_url:string|null; target_url:string; placement:string; city_id:number|null; category_id:number|null; starts_at:string|null; ends_at:string|null; active:number; priority:number }
+export interface AdInquiry { id:number; name:string; phone:string; message:string|null; status:'new'|'handled'; created_at:string }
+export async function fetchAdvertising(): Promise<{ok:boolean;schema_ready:boolean;placements:Record<string,string>;banners:AdBanner[];inquiries:AdInquiry[]}> { return request('/api/v1/advertising',{cache:'no-store'}); }
+export async function saveAdBanner(payload:unknown,csrf:string):Promise<any> { return action('/api/v1/advertising/banner',payload,csrf); }
+export async function deleteAdBanner(id:number,version:number,csrf:string):Promise<any> { return action('/api/v1/advertising/banner/delete',{id,version},csrf); }
+export async function updateAdInquiry(id:number,operation:'new'|'handled'|'delete',csrf:string):Promise<any> { return action('/api/v1/advertising/inquiry',{id,operation},csrf); }
 export async function fetchCitiesAndNeighborhoods(): Promise<{cities:CityItem[];neighborhoods:NeighborhoodItem[]}> { return request('/api/v1/cities'); }
 export async function fetchCategoriesAndPacks(): Promise<{categories:CategoryItem[];packs:CategoryPackItem[]}> { return request('/api/v1/categories'); }
 export async function fetchBusinessesList(): Promise<BusinessItem[]> { return (await request('/api/v1/businesses')).businesses; }
-export async function fetchBusinessesPage(page:number, cityId:number, query:string): Promise<{businesses:BusinessItem[];total:number;page:number;per_page:number}> {
-  return request('/api/v1/businesses?' + new URLSearchParams({page:String(page),city_id:String(cityId),q:query}));
+export async function fetchBusinessesPage(page:number, cityId:number, query:string, quality=''): Promise<{businesses:BusinessItem[];total:number;page:number;per_page:number;data_review_schema_ready:boolean}> {
+  return request('/api/v1/businesses?' + new URLSearchParams({page:String(page),city_id:String(cityId),q:query,quality}));
+}
+export async function recordBusinessDataReview(payload:{business_id:number;review_hash:string;source_note:string;confirmed:boolean},csrf:string):Promise<any> {
+  return action('/api/v1/businesses/data-review',payload,csrf);
 }
 export async function setBusinessPromotion(businessId:number, active:boolean, csrf:string): Promise<any> {
   return action('/api/v1/businesses/promotion', {business_id:businessId,active}, csrf);

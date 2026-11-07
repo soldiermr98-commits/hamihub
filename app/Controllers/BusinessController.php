@@ -9,6 +9,7 @@ use App\Core\Csrf;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
+use App\Services\BusinessDataReviewService;
 use App\Services\BusinessUrlService;
 use App\Services\MediaService;
 use App\Services\SlugService;
@@ -52,24 +53,37 @@ final class BusinessController
             $where[] = '(b.name LIKE :q1 OR b.slug LIKE :q2 OR b.address LIKE :q3)';
             $params += ['q1'=>'%' . $search . '%','q2'=>'%' . $search . '%','q3'=>'%' . $search . '%'];
         }
+        $reviewReady = BusinessDataReviewService::schemaReady();
+        $reviewJoin = $reviewReady ? 'LEFT JOIN business_data_reviews dr ON dr.business_id=b.id' : '';
+        $hash = BusinessDataReviewService::hashExpression();
+        $missing = BusinessDataReviewService::missing();
+        $quality = (string)($_GET['quality'] ?? '');
+        if (isset($missing[$quality])) $where[] = '(' . $missing[$quality] . ')';
+        elseif ($quality === 'incomplete') $where[] = '(' . implode(' OR ', $missing) . ')';
+        elseif ($quality === 'unreviewed' && $reviewReady) $where[] = '(dr.business_id IS NULL OR dr.data_hash <> ' . $hash . ')';
         $whereSql = implode(' AND ', $where);
-        $total = (int)(DB::fetchOne("SELECT COUNT(*) AS cnt FROM businesses b WHERE {$whereSql}", $params)['cnt'] ?? 0);
+        $total = (int)(DB::fetchOne("SELECT COUNT(*) AS cnt FROM businesses b {$reviewJoin} WHERE {$whereSql}", $params)['cnt'] ?? 0);
+        $photoId = BusinessDataReviewService::effectivePhotoId();
+        $reviewSelect = $reviewReady ? ", {$hash} AS review_hash, dr.data_hash AS reviewed_hash, dr.source_note AS review_source_note, dr.reviewed_at" : ", NULL AS review_hash, NULL AS reviewed_hash, NULL AS review_source_note, NULL AS reviewed_at";
+        $score = implode(' + ', array_map(static fn(string $condition): string => '(' . $condition . ')', $missing));
+        $order = $quality !== '' ? "(b.status='published') DESC, ({$score}) DESC, b.updated_at DESC, b.id DESC" : 'b.updated_at DESC, b.id DESC';
         $rows = DB::fetchAll(
             "SELECT b.*,
                     c.name_fa AS city_name, c.slug AS city_slug,
                     cat.name_fa AS category_name,
                     n.name_fa AS neighborhood_name,
-                    m.file_path_480 AS cover_thumb_url,
+                    m.id AS effective_cover_media_id, m.file_path_480 AS cover_thumb_url,
                     m.file_path_800 AS cover_medium_url,
-                    COALESCE(bp.active,0) AS promoted
+                    COALESCE(bp.active,0) AS promoted {$reviewSelect}
              FROM businesses b
              LEFT JOIN cities c ON c.id = b.city_id
              LEFT JOIN categories cat ON cat.id = b.category_id
              LEFT JOIN neighborhoods n ON n.id = b.neighborhood_id
-             LEFT JOIN media m ON m.id = b.cover_media_id
+             LEFT JOIN media m ON m.id = {$photoId}
              LEFT JOIN business_promotions bp ON bp.business_id = b.id
+             {$reviewJoin}
              WHERE {$whereSql}
-             ORDER BY b.updated_at DESC, b.id DESC
+             ORDER BY {$order}
              LIMIT {$limit} OFFSET {$offset}", $params
         );
 
@@ -86,6 +100,7 @@ final class BusinessController
             $contacts = $contactsByBiz[$bizId] ?? [];
             $row['contacts'] = $contacts;
             $row['warnings'] = self::buildNonBlockingWarnings($row, $contacts);
+            $row['review_current'] = $reviewReady && !empty($row['reviewed_hash']) && hash_equals((string)$row['reviewed_hash'], (string)$row['review_hash']);
         }
         unset($row);
 
@@ -95,6 +110,7 @@ final class BusinessController
             'total' => $total,
             'page' => $page,
             'per_page' => $limit,
+            'data_review_schema_ready' => $reviewReady,
         ]);
     }
 
@@ -118,8 +134,13 @@ final class BusinessController
     {
         $warnings = [];
 
-        if (empty($business['cover_media_id'])) {
+        $hasPhoto = array_key_exists('effective_cover_media_id', $business)
+            ? !empty($business['effective_cover_media_id']) : !empty($business['cover_media_id']);
+        if (!$hasPhoto) {
             $warnings[] = 'بدون عکس (تصویر پیش‌فرض دسته نمایش داده می‌شود)';
+        }
+        if (array_key_exists('category_name', $business) && empty($business['category_name'])) {
+            $warnings[] = 'دسته‌بندی پیدا نشد';
         }
 
         $hasPhone = false;
@@ -146,6 +167,46 @@ final class BusinessController
         }
 
         return $warnings;
+    }
+
+    /** A review is an explicit human attestation about this exact data snapshot. */
+    public static function recordDataReview(Request $request): void
+    {
+        $user = Auth::requireRole(['admin', 'editor']);
+        Csrf::verifyOrFail($request);
+        if (!BusinessDataReviewService::schemaReady()) Response::json(['ok'=>false, 'error'=>'به‌روزرسانی بخش بازبینی هنوز نصب نشده است.'], 409);
+        $id = (int)$request->input('business_id', 0);
+        $noteInput = $request->input('source_note', '');
+        $note = is_string($noteInput) ? trim($noteInput) : '';
+        $expectedInput = $request->input('review_hash', '');
+        $expected = is_string($expectedInput) ? $expectedInput : '';
+        if ($id <= 0 || mb_strlen($note) < 8 || mb_strlen($note) > 1000 || !preg_match('/\A[a-f0-9]{64}\z/', $expected) || $request->input('confirmed') !== true) {
+            Response::json(['ok'=>false, 'error'=>'منبع معتبر، وضعیت مجوز تصویر و تأیید بازبینی انسانی را وارد کنید.'], 422);
+        }
+        $hash = BusinessDataReviewService::hashExpression();
+        $phone = BusinessDataReviewService::phone();
+        $photo = BusinessDataReviewService::imagePath();
+        $pdo = DB::connection(); $pdo->beginTransaction();
+        try {
+            $row = DB::fetchOne("SELECT b.id,b.name,b.address,b.short_desc,c.id AS city_found,cat.id AS category_found,{$phone} AS public_phone,{$photo} AS photo_path,{$hash} AS current_hash
+                FROM businesses b LEFT JOIN cities c ON c.id=b.city_id LEFT JOIN categories cat ON cat.id=b.category_id WHERE b.id=:id FOR UPDATE", ['id'=>$id]);
+            if (!$row) { $pdo->rollBack(); Response::json(['ok'=>false, 'error'=>'کسب‌وکار پیدا نشد.'], 404); }
+            if (!hash_equals((string)$row['current_hash'], $expected)) { $pdo->rollBack(); Response::json(['ok'=>false, 'error'=>'اطلاعات تغییر کرده است؛ فهرست را تازه‌سازی و دوباره بازبینی کنید.'], 409); }
+            $image = (string)$row['photo_path'];
+            if (trim((string)$row['name']) === '' || empty($row['city_found']) || empty($row['category_found'])
+                || trim((string)$row['address']) === '' || trim((string)$row['short_desc']) === ''
+                || SlugService::normalizePhone((string)$row['public_phone']) === ''
+                || !\App\Services\AdvertisingService::validImagePath($image) || !is_file(BASE_PATH . '/public_html' . $image)) {
+                $pdo->rollBack(); Response::json(['ok'=>false, 'error'=>'پیش از ثبت بازبینی، عکس قابل نمایش، توضیح، شماره معتبر، شهر، دسته و آدرس را کامل کنید.'], 422);
+            }
+            DB::query('INSERT INTO business_data_reviews (business_id,source_note,data_hash,reviewed_by,reviewed_at) VALUES (:id,:note,:hash,:user,NOW()) ON DUPLICATE KEY UPDATE source_note=VALUES(source_note),data_hash=VALUES(data_hash),reviewed_by=VALUES(reviewed_by),reviewed_at=NOW()',
+                ['id'=>$id,'note'=>$note,'hash'=>$row['current_hash'],'user'=>(int)$user['id']]);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            Response::json(['ok'=>false, 'error'=>'ثبت بازبینی ناموفق بود؛ دوباره تلاش کنید.'], 500);
+        }
+        Response::json(['ok'=>true, 'message'=>'بازبینی انسانی برای همین نسخه از اطلاعات ثبت شد؛ تغییر داده‌ها نیاز به بازبینی دوباره دارد.']);
     }
 
     /**
