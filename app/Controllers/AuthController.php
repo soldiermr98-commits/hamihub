@@ -7,6 +7,7 @@ use App\Core\Auth;
 use App\Core\Cache;
 use App\Core\Config;
 use App\Core\Csrf;
+use App\Core\FinanceMigrationConflict;
 use App\Core\Migrator;
 use App\Core\Request;
 use App\Core\Response;
@@ -142,6 +143,8 @@ final class AuthController
         try {
             $result = Migrator::runAdvertisingUpdate();
             Response::json(['ok'=>true, 'migration_result'=>$result, 'message'=>'جدول‌های گزارش بنر و قرارداد آماده است؛ محتوای قبلی تغییر نکرد.']);
+        } catch (FinanceMigrationConflict $e) {
+            Response::json(['ok'=>false, 'error'=>$e->getMessage()], 409);
         } catch (Throwable $e) {
             error_log('Advertising schema update failed: ' . $e->getMessage());
             Response::json(['ok'=>false, 'error'=>'به‌روزرسانی انجام نشد؛ ابتدا پیش‌نیازها و گزارش سرور را بررسی کنید.'], 409);

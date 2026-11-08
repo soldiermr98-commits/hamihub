@@ -15,6 +15,11 @@ const admin=new Client(),editor=new Client(),guest=new Client();await admin.logi
 let r=await admin.request('POST','/api/v1/system/update-feature-schema',{});assert.equal(r.status,200,r.text);
 r=await admin.request('POST','/api/v1/system/update-advertising-schema',{});assert.equal(r.status,200,r.text);
 assert.equal((await guest.request('GET','/api/v1/advertising/finance')).status,401);assert.equal((await editor.request('GET','/api/v1/advertising/finance')).status,403);
+// The incomplete online implementation must not be reachable by accident.
+assert.equal((await admin.request('GET','/api/v1/advertising/gateways')).status,404);
+assert.equal((await admin.request('POST','/api/v1/advertising/payments/online',{})).status,404);
+assert.equal((await guest.request('GET','/api/v1/public/advertising-payment/'+key())).status,404);
+assert.equal((await guest.request('GET','/api/v1/public/advertising-payment/callback/'+key())).status,404);
 const input={request_key:key(),title:'قرارداد ساختگی',client_name:'مشتری ساختگی',client_phone:'',banner_id:0,starts_at:'2026-11-01',ends_at:'2026-12-01',amount_toman:'۱۰۰۰۰۰',notes:'فقط آزمایش'};
 assert.equal((await editor.request('POST','/api/v1/advertising/contracts',input)).status,403);
 assert.equal((await admin.request('POST','/api/v1/advertising/contracts',{...input,amount_toman:1.5})).status,422);

@@ -1,4 +1,4 @@
--- DRAFT / NOT READY FOR PRODUCTION: gateway flows, UI and concurrency tests are incomplete.
+-- Online payment routes remain disabled; provider sandbox and host validation are still required.
 -- Additive finance tables for an explicit, administrator-controlled update.
 -- Does not alter publication, advertisements, provider defaults, or old data.
 -- No gateway credentials or payment attempts are created by this migration.

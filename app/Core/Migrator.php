@@ -68,6 +68,7 @@ final class Migrator
                 throw new RuntimeException("فایل مایگریشن خالی یا غیرقابل خواندن است: {$fileName}");
             }
 
+            if ($fileName === '010_advertising_receipt_uniqueness.sql') self::assertNoActiveReceiptDuplicates();
             $pdo->exec($sql);
             DB::query(
                 "INSERT INTO schema_migrations (migration, executed_at) VALUES (:m, NOW())",
@@ -112,6 +113,18 @@ final class Migrator
         return ['ok'=>true, 'applied'=>[$file], 'skipped'=>[], 'total_applied'=>1];
     }
 
+    /** Refuse to bless an already over-credited ledger without human accounting review. */
+    private static function assertNoActiveReceiptDuplicates(): void
+    {
+        $duplicate = DB::fetchOne("SELECT reference FROM (
+            SELECT reference COLLATE utf8mb4_unicode_ci AS reference FROM advertising_manual_payments WHERE status='recorded'
+            UNION ALL
+            SELECT verified_reference COLLATE utf8mb4_unicode_ci AS reference FROM advertising_online_payments
+              WHERE mode='live' AND state IN ('verified','reconciled') AND verified_reference IS NOT NULL AND verified_reference<>''
+        ) AS active_receipts GROUP BY reference HAVING COUNT(*) > 1 LIMIT 1");
+        if ($duplicate) throw new FinanceMigrationConflict('رسید تکراری در سوابق مالی فعال پیدا شد؛ به‌روزرسانی متوقف شد. پیش از ادامه، با پشتیبان و بررسی حسابداری مستقل تعارض را رفع کنید.');
+    }
+
     /** Apply only the additive banner-reporting and manual-contract tables. */
     public static function runAdvertisingUpdate(): array
     {
@@ -125,7 +138,7 @@ final class Migrator
             migration VARCHAR(190) NOT NULL, executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (migration)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-        $files = ['008_advertising_reporting_contracts.sql', '009_advertising_finance.sql'];
+        $files = ['008_advertising_reporting_contracts.sql', '009_advertising_finance.sql', '010_advertising_receipt_uniqueness.sql'];
         $base = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
         $applied = []; $skipped = [];
         foreach ($files as $file) {
@@ -135,6 +148,7 @@ final class Migrator
             }
             $sql = @file_get_contents($base . '/database/migrations/' . $file);
             if (!is_string($sql) || trim($sql) === '') throw new RuntimeException('فایل به‌روزرسانی دیتابیس یافت نشد.');
+            if ($file === '010_advertising_receipt_uniqueness.sql') self::assertNoActiveReceiptDuplicates();
             $pdo->exec($sql); // Each statement is repeatable after an interrupted update.
             DB::query('INSERT IGNORE INTO schema_migrations (migration,executed_at) VALUES (:m,NOW())', ['m'=>$file]);
             $applied[] = $file;

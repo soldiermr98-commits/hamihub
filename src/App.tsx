@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { LayoutDashboard, Inbox, MapPin, Store, FileText, FileJson, Megaphone, Settings, LogOut } from 'lucide-react';
 import { AdminUser, CategoryItem, CategoryPackItem, CityItem, NeighborhoodItem,
-  fetchAuthMe, loginAdmin, logoutAdmin, fetchCategoriesAndPacks, fetchCitiesAndNeighborhoods, runWebMigrations } from './services/adminApi';
+  fetchAuthMe, loginAdmin, logoutAdmin, fetchCategoriesAndPacks, fetchCitiesAndNeighborhoods, runWebMigrations,
+  FINANCE_PENDING_STORAGE_KEY } from './services/adminApi';
 import { CitiesAndCategoriesView } from './components/CitiesAndCategoriesView';
 import { BusinessesManagerView } from './components/BusinessesManagerView';
 import { ReviewQueueView } from './components/ReviewQueueView';
@@ -55,7 +56,15 @@ export default function App() {
     catch(e){setError(e instanceof Error?e.message:'خطای ارتباط با سرور');}finally{setLoading(false);} })(); },[refresh]);
   const login=async(e:React.FormEvent)=>{e.preventDefault();setError('');const a=await loginAdmin({username,password,csrfToken:csrf});
     if(!a.ok){setError(a.error);return;}setUser(a.user);setCsrf(a.csrf_token);setPassword('');await refresh();};
-  const logout=async()=>{if(route==='articles' && articleDirty && !window.confirm('تغییرات مقاله ذخیره نشده‌اند. خارج شوید؟')) return; const r=await logoutAdmin(csrf);if(!r.ok){setError(r.error);return;}setArticleDirty(false);setUser(null);setCsrf(r.csrf_token);};
+  const logout=async()=>{
+    if(route==='articles' && articleDirty && !window.confirm('تغییرات مقاله ذخیره نشده‌اند. خارج شوید؟')) return;
+    let pendingFinance=false;
+    try {pendingFinance=window.sessionStorage.getItem(FINANCE_PENDING_STORAGE_KEY)!==null;} catch { /* storage may be disabled */ }
+    if(pendingFinance&&!window.confirm('نتیجه یک درخواست مالی نامشخص است. با خروج، اطلاعات بازیابی این زبانه حذف می‌شود؛ پیش از ثبت دوباره حتماً دفتر قراردادها را مستقل بررسی کنید. خارج می‌شوید؟'))return;
+    const r=await logoutAdmin(csrf);if(!r.ok){setError(r.error);return;}
+    try {window.sessionStorage.removeItem(FINANCE_PENDING_STORAGE_KEY);} catch { /* no accessible browser storage */ }
+    setArticleDirty(false);setUser(null);setCsrf(r.csrf_token);
+  };
   return <div dir="rtl" className="min-h-screen bg-slate-50 text-slate-900">
     <header className="bg-[#050B1E] text-white px-6 py-4 flex justify-between items-center gap-4"><a href="/" className="font-bold">حامی‌هاب گیلان</a>{user&&<button onClick={logout} className="text-sm flex gap-2 items-center"><LogOut className="w-4 h-4"/> خروج ({user.username})</button>}</header>
     {loading?<div className="p-10 text-center">در حال ارتباط با سرور…</div>:!user?<main className="max-w-md mx-auto p-6 mt-10 bg-white rounded-xl border border-slate-200">
