@@ -1,0 +1,2 @@
+bbf407799b24440346b7fc509e4717d2b318efbf7a822517cfd22bbd89bf3634  hamihub-update-after-v2026.11.07.5-rc1.zip
+5b9eb0e0e44c6eed48ebe29fcf404c4c921fd4d354b9accbb813a8bfd6984330  BASELINE-SHA256.txt
