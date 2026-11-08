@@ -1,5 +1,5 @@
--- WORK IN PROGRESS: reporting UI, contract operations and payment integrations
--- are not complete. Do not deploy this draft migration to production.
+-- Online payment integrations remain disabled; host and accounting validation
+-- are required before using the reporting and manual ledger in production.
 -- Additive, repeatable and independent of old migrations; no existing content is changed.
 CREATE TABLE IF NOT EXISTS advertising_banner_daily (
     banner_id INT UNSIGNED NOT NULL,

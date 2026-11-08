@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ImagePlus, Plus, Trash2 } from 'lucide-react';
+import { AdvertisingFinancePanel } from './AdvertisingFinancePanel';
 import { AdBanner, AdInquiry, CategoryItem, CityItem, deleteAdBanner, fetchAdvertising, saveAdBanner, updateAdInquiry, updateAdvertisingSchema, updateFeatureSchema, uploadMediaWebp } from '../services/adminApi';
 
 const input='w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
@@ -23,7 +24,7 @@ export const AdvertisingView:React.FC<{csrfToken:string;cities:CityItem[];catego
     setBusy(true);const r=await updateFeatureSchema(csrfToken);setBusy(false);setMessage({error:!r.ok,text:r.message||r.error});if(r.ok)await load();
   };
   const installReporting=async()=>{
-    if(!window.confirm('از دیتابیس و فایل‌ها پشتیبان گرفته‌اید؟ فقط جدول‌های گزارش و قرارداد ساخته می‌شوند؛ مهاجرت قدیمی ۰۰۳ اجرا نمی‌شود.'))return;
+    if(!window.confirm('آیا پشتیبان قابل بازیابی دارید و ثبت مالی هنگام به‌روزرسانی متوقف است؟ جدول‌های گزارش و قرارداد و قفل یکتایی رسید آماده می‌شوند؛ مهاجرت قدیمی ۰۰۳ اجرا نمی‌شود.'))return;
     setBusy(true);const r=await updateAdvertisingSchema(csrfToken);setBusy(false);setMessage({error:!r.ok,text:r.message||r.error});if(r.ok)await load();
   };
   const upload=async(file?:File)=>{if(!file)return;setBusy(true);const r=await uploadMediaWebp(file,form?.alt_text || form?.title || 'بنر تبلیغاتی',csrfToken);setBusy(false);
@@ -61,6 +62,7 @@ export const AdvertisingView:React.FC<{csrfToken:string;cities:CityItem[];catego
         {banners.length===0?<p className="text-sm text-slate-500">هنوز بنری ثبت نشده است.</p>:<ul className="divide-y">{banners.map(b=><li key={b.id} className="py-3 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3">{b.image_url&&<img src={b.image_url} alt="" className="w-24 h-14 object-contain rounded border"/>}<div><strong className="text-sm">{b.title}</strong><p className="text-xs text-slate-600 mt-1">{placements[b.placement]||b.placement} · {Number(b.active)?'فعال':'غیرفعال'} · اولویت {b.priority}</p>{reportingReady&&<p className="text-xs text-slate-700 mt-2">۳۰ روز اخیر: {Number(b.views_30||0).toLocaleString('fa-IR')} نمایش · {Number(b.clicks_30||0).toLocaleString('fa-IR')} کلیک · نرخ کلیک {Number(b.views_30)>0 ? `${(100*Number(b.clicks_30)/Number(b.views_30)).toLocaleString('fa-IR',{maximumFractionDigits:1})}٪` : '—'}<br/>کل از زمان فعال‌سازی آمار: {Number(b.views_total||0).toLocaleString('fa-IR')} نمایش · {Number(b.clicks_total||0).toLocaleString('fa-IR')} کلیک</p>}</div></div><div className="flex gap-2"><button type="button" className={btn} onClick={()=>edit(b)}>ویرایش بنر</button><button type="button" className={btn} disabled={busy} onClick={()=>void remove(b)}><Trash2 size={14}/> حذف</button></div></li>)}</ul>}
         <p className="text-xs text-slate-500 leading-6">حداکثر ۲۰۰ بنر اخیر نمایش داده می‌شود. آمار پس از آماده‌سازی شروع می‌شود؛ نمایش یعنی تصویر بارگذاری‌شده وارد محدوده صفحه شده است. تعداد یکتا نیست، با مسدودکننده‌ها کم می‌شود و ممکن است با ربات/بازخوانی زیاد شود؛ مبنای صورتحساب یا اثبات بازدید واقعی نیست. حذف بنر آمار آن را نیز حذف می‌کند.</p>
       </section>
+      <AdvertisingFinancePanel csrfToken={csrfToken} banners={banners} onSchemaUpdated={()=>void load()}/>
       <section className="bg-white border rounded-xl p-5 space-y-4"><h2 className="font-bold">درخواست‌های تبلیغات</h2><p className="text-xs text-slate-600">اطلاعات ارسالی فقط در دسترس مدیر است. پس از پایان پیگیری، اطلاعات غیرلازم را حذف کنید؛ حداکثر ۱۰۰ درخواست اخیر نمایش داده می‌شود.</p>
         {inquiries.length===0?<p className="text-sm text-slate-500">درخواستی ثبت نشده است.</p>:<ul className="divide-y">{inquiries.map(i=><li key={i.id} className="py-3 space-y-2"><div className="flex flex-wrap justify-between gap-2"><div><strong>{i.name}</strong> · <span dir="ltr">{i.phone}</span> · <span className="text-xs">{i.status==='new'?'جدید':'پیگیری‌شده'} · {i.created_at}</span></div><div className="flex gap-2"><button type="button" className={btn} disabled={busy} onClick={()=>void inquiry(i,i.status==='new'?'handled':'new')}>{i.status==='new'?'ثبت به‌عنوان پیگیری‌شده':'بازگرداندن به جدید'}</button><button type="button" className={btn} disabled={busy} onClick={()=>void inquiry(i,'delete')}>حذف اطلاعات</button></div></div>{i.message&&<p className="text-sm whitespace-pre-wrap">{i.message}</p>}</li>)}</ul>}
       </section>

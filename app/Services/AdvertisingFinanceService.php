@@ -18,10 +18,11 @@ final class AdvertisingFinanceService
     {
         if (!AdvertisingReportingService::schemaReady()) return false;
         try {
-            foreach (['advertising_contract_requests','advertising_receipt_claims','advertising_contract_status_log','advertising_gateway_settings','advertising_gateway_settings_log','advertising_online_payments','advertising_online_audit'] as $table) {
+            foreach (['advertising_contract_requests','advertising_receipt_claims','advertising_receipt_unique','advertising_contract_status_log','advertising_gateway_settings','advertising_gateway_settings_log','advertising_online_payments','advertising_online_audit'] as $table) {
                 if (DB::fetchOne('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=:t', ['t'=>$table]) === null) return false;
             }
-            return true;
+            // A partially-created table is not a completed, conflict-checked backfill.
+            return DB::fetchOne('SELECT migration FROM schema_migrations WHERE migration=:m', ['m'=>'010_advertising_receipt_uniqueness.sql']) !== null;
         } catch (Throwable $e) { return false; }
     }
 
@@ -94,6 +95,10 @@ final class AdvertisingFinanceService
         }
         $hash = hash('sha256', ($sandbox ? 'sandbox:' : 'live:') . mb_strtolower($reference, 'UTF-8'));
         try {
+            // The collated unique index serializes equivalent references even
+            // across different contracts and representations (e.g. 123/۱۲۳).
+            DB::query('INSERT INTO advertising_receipt_unique (namespace,reference,payment_kind,payment_id,contract_id) VALUES (:scope,:ref,:kind,:payment,:contract)', ['scope'=>$sandbox?'sandbox':'live','ref'=>$reference,'kind'=>$kind,'payment'=>$paymentId,'contract'=>$contractId]);
+            // Retain the original hash claim for older exact-reference records.
             DB::query('INSERT INTO advertising_receipt_claims (reference_hash,payment_kind,payment_id,contract_id) VALUES (:hash,:kind,:payment,:contract)', ['hash'=>$hash,'kind'=>$kind,'payment'=>$paymentId,'contract'=>$contractId]);
         } catch (\PDOException $e) {
             if ((string)$e->getCode() === '23000') throw new DomainException('این مرجع پرداخت قبلاً ثبت شده است.', 409);

@@ -1,4 +1,6 @@
-// WIP backend-only smoke test; guarded loopback server and disposable DB only.
+// Backend reporting smoke test; guarded loopback server and disposable DB only.
+// HHX_TEST_MEDIA_ID may select an existing synthetic fixture image when GD is unavailable;
+// in that mode this test does not exercise media upload.
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 const base=process.env.HHX_TEST_URL||'', nonce=process.env.HHX_TEST_NONCE||'', password=process.env.HHX_TEST_PASSWORD||'';
@@ -21,9 +23,14 @@ r=await editor.request('POST','/api/v1/system/update-advertising-schema',{});ass
 r=await admin.request('POST','/api/v1/system/update-advertising-schema',{});assert.equal(r.status,200,r.text);
 r=await admin.request('POST','/api/v1/system/update-advertising-schema',{});assert.equal(r.status,200,r.text);assert.equal(r.json.migration_result.total_applied,0);
 assert.equal((await admin.request('GET','/api/v1/advertising')).json.reporting_schema_ready,true);
-const fd=new FormData();fd.set('image',new Blob([await readFile('public_html/assets/img/favicon.png')],{type:'image/png'}),'fixture.png');fd.set('alt_text','بنر ساختگی');
-r=await admin.request('POST','/api/v1/media/upload',fd,true);assert.equal(r.status,200,r.text);
-const payload={title:'گزارش ساختگی',alt_text:'بنر ساختگی',media_id:Number(r.json.media.id),target_url:'/fixture/',placement:'home',city_id:0,category_id:0,starts_at:'',ends_at:'',active:true,priority:0};
+let mediaId;
+if(process.env.HHX_TEST_MEDIA_ID){
+  assert.match(process.env.HHX_TEST_MEDIA_ID,/^[1-9][0-9]*$/);mediaId=Number(process.env.HHX_TEST_MEDIA_ID);
+} else {
+  const fd=new FormData();fd.set('image',new Blob([await readFile('public_html/assets/img/favicon.png')],{type:'image/png'}),'fixture.png');fd.set('alt_text','بنر ساختگی');
+  r=await admin.request('POST','/api/v1/media/upload',fd,true);assert.equal(r.status,200,r.text);mediaId=Number(r.json.media.id);
+}
+const payload={title:'گزارش ساختگی',alt_text:'بنر ساختگی',media_id:mediaId,target_url:'/fixture/',placement:'home',city_id:0,category_id:0,starts_at:'',ends_at:'',active:true,priority:0};
 r=await admin.request('POST','/api/v1/advertising/banner',payload);assert.equal(r.status,200,r.text);const id=Number(r.json.id);
 const banner=async()=>(await admin.request('GET','/api/v1/advertising')).json.banners.find(b=>Number(b.id)===id);
 assert.equal(Number((await banner()).views_total),0);
@@ -33,5 +40,6 @@ r=await guest.request('POST','/api/v1/public/banner-event',{banner_id:id,event:'
 let b=await banner();r=await admin.request('POST','/api/v1/advertising/banner',{...payload,id,version:Number(b.version),active:false});assert.equal(r.status,200,r.text);
 r=await guest.request('POST','/api/v1/public/banner-event',{banner_id:id,event:'view'});assert.equal(r.status,204);b=await banner();assert.equal(Number(b.views_total),1,'inactive banners cannot increment');
 r=await admin.request('POST','/api/v1/advertising/banner/delete',{id,version:Number(b.version)});assert.equal(r.status,200,r.text);assert.equal(await banner(),undefined);
-console.log('PASS: WIP targeted reporting migration is repeatable/admin-only; direct synthetic events count only active banners.');
-console.log('WIP: public beacons and reporting UI are not browser-tested; online gateways are not enabled or tested.');
+console.log('PASS: targeted reporting migration is repeatable/admin-only; direct synthetic events count only active banners.');
+if(process.env.HHX_TEST_MEDIA_ID)console.log('NOTE: preseeded synthetic media was used; this run did not test uploads.');
+console.log('NOTE: this HTTP test does not contact gateways or validate behavior on the real host.');

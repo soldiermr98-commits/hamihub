@@ -23,6 +23,10 @@ final class PaymentGatewayClient
     }
 
     private static function validOrder(string $order): bool { return (bool)preg_match('/\A[A-Za-z0-9_-]{1,48}\z/', $order); }
+    private static function scalarString(mixed $value): string
+    {
+        return is_int($value) || is_string($value) ? (string)$value : '';
+    }
     private static function validCallback(string $callback): bool
     {
         $p = parse_url($callback);
@@ -64,7 +68,7 @@ final class PaymentGatewayClient
     {
         $body = $response['body'] ?? null; $http = $response['http'] ?? 0;
         if (!is_array($body) || !is_int($http)) throw new RuntimeException('پاسخ درگاه قابل تأیید نیست.');
-        if ($provider === 'zibal' && $http === 200 && (string)($body['result'] ?? '') === '100') $id = (string)($body['trackId'] ?? '');
+        if ($provider === 'zibal' && $http === 200 && self::scalarString($body['result'] ?? null) === '100') $id = self::scalarString($body['trackId'] ?? null);
         elseif ($provider === 'aqayepardakht' && $http === 200 && ($body['status'] ?? '') === 'success') $id = is_string($body['transid'] ?? null) ? $body['transid'] : '';
         elseif ($provider === 'idpay' && $http === 201) $id = is_string($body['id'] ?? null) ? $body['id'] : '';
         else throw new RuntimeException('درگاه ایجاد تراکنش را تأیید نکرد.');
@@ -100,21 +104,21 @@ final class PaymentGatewayClient
         $body = $response['body'] ?? null; $http = $response['http'] ?? 0;
         if (!is_array($body) || !is_int($http)) return ['verified'=>false,'error'=>'invalid_response'];
         if ($provider === 'zibal') {
-            if ((string)($body['result'] ?? '') === '201') return ['verified'=>false,'error'=>'already_verified'];
-            if ($http !== 200 || (string)($body['result'] ?? '') !== '100' || (string)($body['status'] ?? '') !== '1') return ['verified'=>false,'error'=>'unconfirmed'];
-            if (!self::integerEquals($body['amount'] ?? null, $toman*10) || (string)($body['orderId'] ?? '') !== $order) return ['verified'=>false,'error'=>'amount_or_order_mismatch'];
+            if (self::scalarString($body['result'] ?? null) === '201') return ['verified'=>false,'error'=>'already_verified'];
+            if ($http !== 200 || self::scalarString($body['result'] ?? null) !== '100' || self::scalarString($body['status'] ?? null) !== '1') return ['verified'=>false,'error'=>'unconfirmed'];
+            if (!self::integerEquals($body['amount'] ?? null, $toman*10) || self::scalarString($body['orderId'] ?? null) !== $order) return ['verified'=>false,'error'=>'amount_or_order_mismatch'];
             $ref = self::reference($body['refNumber'] ?? null);
             return $ref !== '' ? ['verified'=>true,'reference'=>$ref] : ['verified'=>false,'error'=>'missing_reference'];
         }
         if ($provider === 'aqayepardakht') {
-            if ((string)($body['code'] ?? '') === '2') return ['verified'=>false,'error'=>'already_verified'];
-            if ($http === 200 && ($body['status'] ?? '') === 'success' && (string)($body['code'] ?? '') === '1') return ['verified'=>true,'reference'=>$id];
+            if (self::scalarString($body['code'] ?? null) === '2') return ['verified'=>false,'error'=>'already_verified'];
+            if ($http === 200 && ($body['status'] ?? '') === 'success' && self::scalarString($body['code'] ?? null) === '1') return ['verified'=>true,'reference'=>$id];
             return ['verified'=>false,'error'=>'unconfirmed'];
         }
         if ($provider === 'idpay') {
-            if ((string)($body['status'] ?? '') === '101') return ['verified'=>false,'error'=>'already_verified'];
-            if ($http !== 200 || (string)($body['status'] ?? '') !== '100') return ['verified'=>false,'error'=>'unconfirmed'];
-            if ((string)($body['id'] ?? '') !== $id || (string)($body['order_id'] ?? '') !== $order || !self::integerEquals($body['amount'] ?? null, $toman*10)) return ['verified'=>false,'error'=>'amount_or_order_mismatch'];
+            if (self::scalarString($body['status'] ?? null) === '101') return ['verified'=>false,'error'=>'already_verified'];
+            if ($http !== 200 || self::scalarString($body['status'] ?? null) !== '100') return ['verified'=>false,'error'=>'unconfirmed'];
+            if (self::scalarString($body['id'] ?? null) !== $id || self::scalarString($body['order_id'] ?? null) !== $order || !self::integerEquals($body['amount'] ?? null, $toman*10)) return ['verified'=>false,'error'=>'amount_or_order_mismatch'];
             $ref = self::reference($body['track_id'] ?? null);
             return $ref !== '' ? ['verified'=>true,'reference'=>$ref] : ['verified'=>false,'error'=>'missing_reference'];
         }

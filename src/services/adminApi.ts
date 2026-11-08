@@ -567,6 +567,51 @@ export async function updateAdvertisingSchema(csrf:string):Promise<any> { return
 export async function saveAdBanner(payload:unknown,csrf:string):Promise<any> { return action('/api/v1/advertising/banner',payload,csrf); }
 export async function deleteAdBanner(id:number,version:number,csrf:string):Promise<any> { return action('/api/v1/advertising/banner/delete',{id,version},csrf); }
 export async function updateAdInquiry(id:number,operation:'new'|'handled'|'delete',csrf:string):Promise<any> { return action('/api/v1/advertising/inquiry',{id,operation},csrf); }
+
+// PDO may serialize integer columns as strings. All ledger amounts remain integer toman.
+export const FINANCE_PENDING_STORAGE_KEY='hhx.advertising.finance.pending.v1';
+type DbInteger = number | string;
+export interface AdContract {
+  id:DbInteger; version:DbInteger; title:string; client_name:string; client_phone:string|null;
+  banner_id:DbInteger|null; banner_title:string|null; starts_at:string|null; ends_at:string|null;
+  amount_toman:DbInteger; manual_paid:DbInteger; online_paid:DbInteger; paid_toman:DbInteger; remaining_toman:DbInteger;
+  status:'active'|'completed'|'cancelled'; notes:string|null; created_by:DbInteger; created_at:string;
+}
+export interface AdManualPayment {
+  id:DbInteger; contract_id:DbInteger; amount_toman:DbInteger; method:'bank_transfer'|'cash'|'other';
+  reference:string; notes:string|null; status:'recorded'|'voided'; recorded_by:DbInteger; recorded_at:string;
+  voided_by:DbInteger|null; voided_at:string|null; void_reason:string|null;
+}
+export interface AdContractStatusLog {
+  id:DbInteger; contract_id:DbInteger; old_status:string; new_status:string; reason:string; changed_by:DbInteger; changed_at:string;
+}
+export interface AdOnlinePaymentSummary {
+  id:DbInteger; contract_id:DbInteger; provider:string; mode:'live'|'sandbox'; state:string; amount_toman:DbInteger;
+  order_id:string; provider_id:string|null; verified_reference:string|null; last_error_code:string|null; created_at:string;
+}
+export interface AdFinanceData {
+  ok:boolean; schema_ready:boolean; contracts:AdContract[]; manual_payments:AdManualPayment[];
+  online_payments:AdOnlinePaymentSummary[]; status_log:AdContractStatusLog[];
+}
+export interface FinanceMutationResult { ok:boolean; message?:string; error?:string; ambiguous?:boolean }
+export async function fetchAdvertisingFinance():Promise<AdFinanceData> {
+  return request('/api/v1/advertising/finance',{cache:'no-store'});
+}
+/** Transport failures, timeouts, rate limits and 5xx may have occurred after commit. */
+export async function financeMutation(path:string, payload:unknown, csrf:string):Promise<FinanceMutationResult> {
+  try {
+    const response=await fetch(path,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(payload)});
+    const isJson=(response.headers.get('content-type')||'').includes('application/json');
+    if (!isJson) return {ok:false,ambiguous:true,error:'پاسخ قابل اطمینان نبود؛ ممکن است درخواست ثبت شده باشد.'};
+    const data=await response.json();
+    if(response.ok&&data.ok===true) return {ok:true,message:typeof data.message==='string'?data.message:'عملیات ثبت شد.'};
+    // Do not treat gateway/proxy timeouts or rate limits as proof the server rolled back.
+    const definite=[400,401,403,404,409,413,422].includes(response.status)&&data?.ok===false;
+    return {ok:false,ambiguous:!definite,error:typeof data.error==='string'?data.error:'نتیجه درخواست نامشخص است.'};
+  } catch {
+    return {ok:false,ambiguous:true,error:'ارتباط قطع شد؛ ممکن است درخواست ثبت شده باشد.'};
+  }
+}
 export async function fetchCitiesAndNeighborhoods(): Promise<{cities:CityItem[];neighborhoods:NeighborhoodItem[]}> { return request('/api/v1/cities'); }
 export async function fetchCategoriesAndPacks(): Promise<{categories:CategoryItem[];packs:CategoryPackItem[]}> { return request('/api/v1/categories'); }
 export async function fetchBusinessesList(): Promise<BusinessItem[]> { return (await request('/api/v1/businesses')).businesses; }
