@@ -76,9 +76,56 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', trackPageView);
   else trackPageView();
 
+  // Anonymous, approximate banner counters. A view is counted once for an
+  // element when its image has loaded and intersects the visible viewport;
+  // reloads and bots can count again. They are not unique or billing evidence.
+  function trackBanner(id, type) {
+    if (!navigator.sendBeacon || !/^[1-9][0-9]*$/.test(id)) return;
+    try { navigator.sendBeacon('/api/v1/public/banner-event', JSON.stringify({ banner_id: Number(id), event: type })); } catch (e) {}
+  }
+
+  function initBannerViews() {
+    var banners = Array.prototype.slice.call(document.querySelectorAll('[data-hx-banner-id]'));
+    if (!banners.length) return;
+    var observer = null;
+    function visible(element) {
+      var rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+    }
+    function check(element) {
+      if (element.getAttribute('data-hx-banner-viewed') === '1' || document.visibilityState === 'hidden' || !visible(element)) return;
+      var image = element.querySelector('img');
+      if (!image || !image.complete || !image.naturalWidth) return;
+      element.setAttribute('data-hx-banner-viewed', '1');
+      if (observer) observer.unobserve(element);
+      trackBanner(element.getAttribute('data-hx-banner-id') || '', 'view');
+    }
+    function checkAll() { banners.forEach(check); }
+    if ('IntersectionObserver' in window) {
+      observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) { if (entry.isIntersecting) check(entry.target); });
+      });
+      banners.forEach(function (element) { observer.observe(element); });
+    } else {
+      window.addEventListener('scroll', checkAll, { passive: true });
+      window.addEventListener('resize', checkAll);
+    }
+    banners.forEach(function (element) {
+      var image = element.querySelector('img');
+      if (image) image.addEventListener('load', function () { check(element); });
+    });
+    document.addEventListener('visibilitychange', checkAll);
+    checkAll();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initBannerViews);
+  else initBannerViews();
+
   document.addEventListener('click', function (ev) {
     var target = ev.target;
     if (!target || !target.closest) return;
+
+    var ad = target.closest('[data-hx-banner-id]');
+    if (ad) trackBanner(ad.getAttribute('data-hx-banner-id') || '', 'click');
 
     var toggleBtn = target.closest('[data-hx-toggle-form]');
     if (toggleBtn) {
@@ -115,6 +162,13 @@
         navigator.sendBeacon('/api/v1/events/track', payload);
       } catch (e) {}
     }
+  });
+
+  document.addEventListener('auxclick', function (ev) {
+    var target = ev.target;
+    if (ev.button !== 1 || !target || !target.closest) return;
+    var ad = target.closest('[data-hx-banner-id]');
+    if (ad) trackBanner(ad.getAttribute('data-hx-banner-id') || '', 'click');
   });
 
   document.addEventListener('submit', function (ev) {

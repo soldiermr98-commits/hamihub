@@ -125,17 +125,22 @@ final class Migrator
             migration VARCHAR(190) NOT NULL, executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (migration)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-        $file = '008_advertising_reporting_contracts.sql';
-        if (DB::fetchOne('SELECT migration FROM schema_migrations WHERE migration=:m', ['m'=>$file])) {
-            return ['ok'=>true, 'applied'=>[], 'skipped'=>[$file], 'total_applied'=>0];
-        }
+        $files = ['008_advertising_reporting_contracts.sql', '009_advertising_finance.sql'];
         $base = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
-        $sql = @file_get_contents($base . '/database/migrations/' . $file);
-        if (!is_string($sql) || trim($sql) === '') throw new RuntimeException('فایل به‌روزرسانی دیتابیس یافت نشد.');
-        $pdo->exec($sql);
-        DB::query('INSERT IGNORE INTO schema_migrations (migration,executed_at) VALUES (:m,NOW())', ['m'=>$file]);
-        Cache::flushAll();
-        return ['ok'=>true, 'applied'=>[$file], 'skipped'=>[], 'total_applied'=>1];
+        $applied = []; $skipped = [];
+        foreach ($files as $file) {
+            if (DB::fetchOne('SELECT migration FROM schema_migrations WHERE migration=:m', ['m'=>$file])) {
+                $skipped[] = $file;
+                continue;
+            }
+            $sql = @file_get_contents($base . '/database/migrations/' . $file);
+            if (!is_string($sql) || trim($sql) === '') throw new RuntimeException('فایل به‌روزرسانی دیتابیس یافت نشد.');
+            $pdo->exec($sql); // Each statement is repeatable after an interrupted update.
+            DB::query('INSERT IGNORE INTO schema_migrations (migration,executed_at) VALUES (:m,NOW())', ['m'=>$file]);
+            $applied[] = $file;
+        }
+        if ($applied) Cache::flushAll();
+        return ['ok'=>true, 'applied'=>$applied, 'skipped'=>$skipped, 'total_applied'=>count($applied)];
     }
 
     /** Apply only the non-destructive editor/URL migration, never older migrations. */
