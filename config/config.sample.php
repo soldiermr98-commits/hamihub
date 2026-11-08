@@ -41,5 +41,9 @@ return [
             'nvidia' => ['enabled'=>false, 'free_tier_confirmed'=>false, 'api_key'=>'', 'model'=>'nvidia/nemotron-3.5-lightning-30b-a3b'],
         ],
     ],
+    // Experimental sandbox only. Leave off on production until the provider
+    // sandbox, HTTPS, callback domain, logs and accounting workflow are reviewed.
+    // This flag never enables live payments; gateway keys are managed in the admin panel.
+    'advertising_payments' => ['experimental_sandbox' => false],
     'reserved_slugs' => ['admin','api','assets','uploads','cache','city','b','sitemap','robots','install','check','storage'],
 ];

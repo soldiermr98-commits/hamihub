@@ -19,9 +19,11 @@ const pause=()=>new Promise(r=>setTimeout(r,0));const root=createRoot(document.g
 try {
   await act(async()=>{root.render(<App/>);await pause();await pause();});
   const logout=[...document.querySelectorAll('button')].find(b=>b.textContent?.includes('خروج')) as HTMLButtonElement;assert(logout);
-  dom.window.sessionStorage.setItem('hhx.advertising.finance.pending.v1',JSON.stringify({kind:'contract',payload:{client_name:'private fixture'}}));
+  dom.window.sessionStorage.setItem('hhx.advertising.gateway.pending.v1','1');
   dom.window.confirm=()=>{confirmations++;return false;};await act(async()=>{logout.click();await pause();});
-  assert.equal(confirmations,1);assert.equal(logouts,0);assert(dom.window.sessionStorage.length===1);
+  assert.equal(confirmations,1);assert.equal(logouts,0);assert.equal(dom.window.sessionStorage.getItem('hhx.advertising.gateway.pending.v1'),'1');
+  dom.window.sessionStorage.setItem('hhx.advertising.finance.pending.v1',JSON.stringify({kind:'contract',payload:{client_name:'private fixture'}}));
+  await act(async()=>{logout.click();await pause();});assert.equal(confirmations,2);assert.equal(logouts,0);
   dom.window.confirm=()=>{confirmations++;return true;};await act(async()=>{logout.click();await pause();});
   assert.equal(logouts,1);assert.equal(dom.window.sessionStorage.length,0,'sensitive retry snapshot must not survive an explicit logout');
   console.log('PASS: logout warns before discarding unresolved finance request and clears its sensitive same-tab snapshot.');

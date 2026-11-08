@@ -63,7 +63,7 @@ $sender=static function(array $spec) use (&$createCount,&$verifyCount,&$requests
     if($info['provider']==='aqayepardakht')return ['http'=>200,'body'=>['status'=>'success','code'=>'1']];
     return ['http'=>200,'body'=>['status'=>100,'id'=>$id,'order_id'=>$info['order'],'amount'=>$info['amount'],'track_id'=>$info['reference']]];
 };
-$service=new Online($settings,new Client($sender));
+$service=new Online($settings,new Client($sender),false); // local fake sender, exercise dormant live accounting
 
 // Sandbox snapshot remains immutable even if the provider is disabled afterward.
 $c=contract();[$token,$payload,$created]=fixtureLink($service,$c,'zibal');$id=(int)$created['id'];
@@ -95,37 +95,47 @@ check($service->callback($t,['trackId'=>$pid,'success'=>'1'])==='verified'&&Fina
 check($service->callback($t,['trackId'=>$pid,'success'=>'1'])==='verified'&&Finance::paidAmount($c3)===30000,'fake live callback replay');
 $c4=contract();mustReject(static fn()=>Finance::recordManual(['contract_id'=>$c4,'amount_toman'=>'1000','method'=>'bank_transfer','reference'=>$ref,'notes'=>'','request_key'=>fixtureKey(),'confirmed'=>true],1),'online reference cannot be reused as manual');
 
+// Experimental HTTP handlers construct the service in sandbox-only mode.
+// Even a pre-existing live setting/link must be rejected before transport or mutation.
+$limited=new Online($settings,new Client($sender));$liveFixture=contract();[$liveToken,$livePayload,$liveLink]=fixtureLink($service,$liveFixture,'zibal');$before=$createCount+$verifyCount;
+mustReject(static fn()=>$limited->createLink($livePayload,1),'sandbox cannot replay live link');
+mustReject(static fn()=>$limited->checkout($liveToken),'sandbox cannot start existing live link');
+mustReject(static fn()=>$limited->callback($liveToken,['trackId'=>'1','success'=>'1']),'sandbox cannot process live callback');
+mustReject(static fn()=>Online::resolve(['payment_id'=>(int)$liveLink['id'],'contract_id'=>$liveFixture,'resolution'=>'cancel_link','reason'=>'دلیل آزمایشی برای لغو','confirmed'=>true],1),'sandbox default cannot resolve live attempt');
+$liveNew=contract();mustReject(static fn()=>fixtureLink($limited,$liveNew,'zibal'),'sandbox cannot create with live snapshot');
+check($createCount+$verifyCount===$before && row((int)$liveLink['id'])['state']==='link_ready','blocked live calls make no provider requests or state changes');
+
 // Mismatch and timeout never auto-retry and block further mutations until explicit investigation.
 $c5=contract();[$t,,$result]=fixtureLink($service,$c5,'zibal');$service->checkout($t);$p=row((int)$result['id']);$pid=$p['provider_id'];$scenario='mismatch';
 check($service->callback($t,['trackId'=>$pid,'success'=>'1'])==='uncertain' && Finance::paidAmount($c5)===0,'amount mismatch unresolved');
 mustReject(static fn()=>Finance::recordManual(['contract_id'=>$c5,'amount_toman'=>'1000','method'=>'cash','reference'=>'fixture-blocked-'.fixtureKey(),'notes'=>'','request_key'=>fixtureKey(),'confirmed'=>true],1),'unresolved blocks manual');
-mustReject(static fn()=>Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c5,'resolution'=>'not_paid','reason'=>'بررسی مستقل درگاه انجام شد','confirmed'=>true],1),'reconciliation requires explicit attestations');
-Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c5,'resolution'=>'not_paid','reason'=>'بررسی مستقل درگاه انجام شد','confirmed'=>true,'checked_provider'=>true,'no_future_charge_confirmed'=>true],1);
+mustReject(static fn()=>Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c5,'resolution'=>'not_paid','reason'=>'بررسی مستقل درگاه انجام شد','confirmed'=>true],1,false),'reconciliation requires explicit attestations');
+Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c5,'resolution'=>'not_paid','reason'=>'بررسی مستقل درگاه انجام شد','confirmed'=>true,'checked_provider'=>true,'no_future_charge_confirmed'=>true],1,false);
 check(row((int)$result['id'])['state']==='cancelled','audited not-paid assertion');
 
 $scenario='success';$c6=contract();[$t,,$result]=fixtureLink($service,$c6,'zibal');$service->checkout($t);$p=row((int)$result['id']);$scenario='already';
 check($service->callback($t,['trackId'=>$p['provider_id'],'success'=>'1'])==='uncertain','previously verified result needs review');
-Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c6,'resolution'=>'paid','reason'=>'بررسی مستقل شماره پیگیری','reference'=>'audit'.bin2hex(random_bytes(8)),'confirmed'=>true,'checked_provider'=>true,'no_future_charge_confirmed'=>true],1);
+Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c6,'resolution'=>'paid','reason'=>'بررسی مستقل شماره پیگیری','reference'=>'audit'.bin2hex(random_bytes(8)),'confirmed'=>true,'checked_provider'=>true,'no_future_charge_confirmed'=>true],1,false);
 check(row((int)$result['id'])['state']==='reconciled'&&Finance::paidAmount($c6)===20000,'human assertion distinguished from gateway verify');
-mustReject(static fn()=>Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c6,'resolution'=>'paid','reason'=>'بررسی مستقل شماره پیگیری','reference'=>'another-ref','confirmed'=>true,'checked_provider'=>true,'no_future_charge_confirmed'=>true],1),'cannot reconcile twice');
+mustReject(static fn()=>Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c6,'resolution'=>'paid','reason'=>'بررسی مستقل شماره پیگیری','reference'=>'another-ref','confirmed'=>true,'checked_provider'=>true,'no_future_charge_confirmed'=>true],1,false),'cannot reconcile twice');
 
 $scenario='success';$c7=contract();[$t,,$result]=fixtureLink($service,$c7,'zibal');$scenario='create_timeout';
 mustReject(static fn()=>$service->checkout($t),'ambiguous creation');$before=$createCount;
 mustReject(static fn()=>$service->checkout($t),'no new session after timeout');check($createCount===$before&&row((int)$result['id'])['state']==='uncertain','no automatic retry after timeout');
-Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c7,'resolution'=>'not_paid','reason'=>'بررسی درگاه و عدم پرداخت','confirmed'=>true,'checked_provider'=>true,'no_future_charge_confirmed'=>true],1);
+Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c7,'resolution'=>'not_paid','reason'=>'بررسی درگاه و عدم پرداخت','confirmed'=>true,'checked_provider'=>true,'no_future_charge_confirmed'=>true],1,false);
 $manual=Finance::recordManual(['contract_id'=>$c7,'amount_toman'=>'1000','method'=>'cash','reference'=>'manual'.fixtureKey(),'notes'=>'','request_key'=>fixtureKey(),'confirmed'=>true],1);
 check($manual['status']==='recorded','manual allowed only after reconciliation');
 
 $scenario='success';$c9=contract();[$t,,$result]=fixtureLink($service,$c9,'zibal');$service->checkout($t);$p=row((int)$result['id']);$scenario='verify_timeout';
 check($service->callback($t,['trackId'=>$p['provider_id'],'success'=>'1'])==='uncertain' && Finance::paidAmount($c9)===0,'verification timeout remains unresolved');
 $before=$verifyCount;check($service->callback($t,['trackId'=>$p['provider_id'],'success'=>'1'])==='unconfirmed'&&$verifyCount===$before,'ambiguous verification never retried automatically');
-Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c9,'resolution'=>'not_paid','reason'=>'بررسی درگاه و عدم پرداخت','confirmed'=>true,'checked_provider'=>true,'no_future_charge_confirmed'=>true],1);
+Online::resolve(['payment_id'=>(int)$result['id'],'contract_id'=>$c9,'resolution'=>'not_paid','reason'=>'بررسی درگاه و عدم پرداخت','confirmed'=>true,'checked_provider'=>true,'no_future_charge_confirmed'=>true],1,false);
 
 // A never-started expired capability is the only attempt auto-cancelled.
 $scenario='success';$c8=contract();[$t,,$result]=fixtureLink($service,$c8,'zibal');DB::query('UPDATE advertising_online_payments SET expires_at=DATE_SUB(NOW(), INTERVAL 1 MINUTE) WHERE id=:id',['id'=>$result['id']]);
 [$t2,,$new]=fixtureLink($service,$c8,'zibal');check(row((int)$result['id'])['state']==='cancelled'&&row((int)$new['id'])['state']==='link_ready','expired unused link audited before new one');
 $audit=DB::fetchOne("SELECT id FROM advertising_online_audit WHERE payment_id=:id AND reason='link_expired'",['id'=>$result['id']]);check($audit!==null,'expiry audit');
-Online::resolve(['payment_id'=>(int)$new['id'],'contract_id'=>$c8,'resolution'=>'cancel_link','reason'=>'لغو لینک استفاده نشده','confirmed'=>true],1);
+Online::resolve(['payment_id'=>(int)$new['id'],'contract_id'=>$c8,'resolution'=>'cancel_link','reason'=>'لغو لینک استفاده نشده','confirmed'=>true],1,false);
 check(row((int)$new['id'])['state']==='cancelled','explicit cancel of unused link');
 
 echo "PASS: synthetic encrypted snapshots, mocked gateways, callback forgery/replay, live-vs-sandbox accounting, mismatch/timeout/reconciliation, receipt uniqueness and expiry. No network.\n";

@@ -22,7 +22,7 @@ try {
         $settings->save('zibal','live','fake-concurrency-merchant',$version??0,true,1);
         $one=$create();$two=$create();$three=$create();$four=$create();$five=$create();$six=$create();$seven=$create();$eight=$create();$token=$key();
         $client=new Gateway(static fn(array $spec):array=>['http'=>200,'body'=>['result'=>100,'trackId'=>random_int(1000000000000,9999999999999)]]);
-        $service=new Online($settings,$client);
+        $service=new Online($settings,$client,false);
         $p=$service->createLink(['contract_id'=>$four,'amount_toman'=>'30000','provider'=>'zibal','hours'=>24,'version'=>1,'request_key'=>$key(),'link_token'=>$token,'confirmed'=>true],1);
         $service->checkout($token);
         $r=DB::fetchOne('SELECT provider_id,order_id FROM advertising_online_payments WHERE id=:id',['id'=>$p['id']]);
@@ -36,14 +36,14 @@ try {
         echo json_encode(['ok'=>true,'result'=>$result]);exit;
     }
     if($action==='link'){
-        $service=new Online($settings,new Gateway(static function():array {throw new RuntimeException('Unexpected network');}));
+        $service=new Online($settings,new Gateway(static function():array {throw new RuntimeException('Unexpected network');}),false);
         $result=$service->createLink(['contract_id'=>$input['contract'],'amount_toman'=>'60000','provider'=>'zibal','hours'=>24,'version'=>1,'request_key'=>$input['key'],'link_token'=>$input['token'],'confirmed'=>true],1);
         echo json_encode(['ok'=>true,'result'=>$result]);exit;
     }
     if($action==='callback'){
         $provider=(string)$input['provider_id'];$order=(string)$input['order_id'];
         $client=new Gateway(static function(array $spec) use($order):array {usleep(500000);return ['http'=>200,'body'=>['result'=>100,'status'=>1,'amount'=>300000,'orderId'=>$order,'refNumber'=>'ref-'.$order]];});
-        $service=new Online($settings,$client);$state=$service->callback($input['token'],['trackId'=>$provider,'success'=>'1']);
+        $service=new Online($settings,$client,false);$state=$service->callback($input['token'],['trackId'=>$provider,'success'=>'1']);
         echo json_encode(['ok'=>true,'state'=>$state]);exit;
     }
     if($action==='inspect'){
