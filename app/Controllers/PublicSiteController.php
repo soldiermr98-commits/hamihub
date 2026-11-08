@@ -1901,7 +1901,7 @@ final class PublicSiteController
             </div>
         </div>
     </footer>
-    <script src="/assets/js/public.js?v=s10.0" defer></script>
+    <script src="/assets/js/public.js?v=s11.0" defer></script>
 </body>
 </html>
         <?php

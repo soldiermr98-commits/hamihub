@@ -560,9 +560,10 @@ export async function testAiProvider(provider:string,csrf:string):Promise<{ok:bo
 export async function generateAiArticle(payload:{provider:string;title:string;brief:string;facts:string;confirm_send:boolean;confirm_quota:boolean}, csrf:string): Promise<{ok:boolean;text?:string;provider?:string;model?:string;error?:string}> {
   return action('/api/v1/ai/article/generate',payload,csrf);
 }
-export interface AdBanner { id:number; version:number; title:string; alt_text:string; media_id:number; image_url:string|null; target_url:string; placement:string; city_id:number|null; category_id:number|null; starts_at:string|null; ends_at:string|null; active:number; priority:number }
+export interface AdBanner { id:number; version:number; title:string; alt_text:string; media_id:number; image_url:string|null; target_url:string; placement:string; city_id:number|null; category_id:number|null; starts_at:string|null; ends_at:string|null; active:number; priority:number; views_total:number|null; clicks_total:number|null; views_30:number|null; clicks_30:number|null }
 export interface AdInquiry { id:number; name:string; phone:string; message:string|null; status:'new'|'handled'; created_at:string }
-export async function fetchAdvertising(): Promise<{ok:boolean;schema_ready:boolean;placements:Record<string,string>;banners:AdBanner[];inquiries:AdInquiry[]}> { return request('/api/v1/advertising',{cache:'no-store'}); }
+export async function fetchAdvertising(): Promise<{ok:boolean;schema_ready:boolean;reporting_schema_ready:boolean;placements:Record<string,string>;banners:AdBanner[];inquiries:AdInquiry[]}> { return request('/api/v1/advertising',{cache:'no-store'}); }
+export async function updateAdvertisingSchema(csrf:string):Promise<any> { return action('/api/v1/system/update-advertising-schema',{},csrf); }
 export async function saveAdBanner(payload:unknown,csrf:string):Promise<any> { return action('/api/v1/advertising/banner',payload,csrf); }
 export async function deleteAdBanner(id:number,version:number,csrf:string):Promise<any> { return action('/api/v1/advertising/banner/delete',{id,version},csrf); }
 export async function updateAdInquiry(id:number,operation:'new'|'handled'|'delete',csrf:string):Promise<any> { return action('/api/v1/advertising/inquiry',{id,operation},csrf); }

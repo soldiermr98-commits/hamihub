@@ -75,7 +75,7 @@ final class AdvertisingService
             return ['html'=>'', 'until'=>$until];
         }
         $html = '<aside class="hx-ad-wrap hx-container" aria-label="تبلیغات"><span class="hx-ad-label">تبلیغ</span>'
-            . '<a class="hx-ad-banner" href="' . Response::e((string)$banner['target_url']) . '" target="_blank" rel="sponsored noopener noreferrer">'
+            . '<a class="hx-ad-banner" data-hx-banner-id="' . (int)$banner['id'] . '" href="' . Response::e((string)$banner['target_url']) . '" target="_blank" rel="sponsored noopener noreferrer">'
             . '<img src="' . Response::e((string)$banner['file_path_1200']) . '" alt="' . Response::e((string)$banner['alt_text'])
             . '" loading="lazy" decoding="async" width="' . max(1,(int)$banner['width']) . '" height="' . max(1,(int)$banner['height']) . '">'
             . '</a></aside>';

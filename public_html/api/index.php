@@ -10,6 +10,7 @@ if (!defined('BASE_PATH')) define('BASE_PATH', dirname(__DIR__, 2));
 require_once BASE_PATH . '/app/Core/Bootstrap.php';
 
 use App\Controllers\AdvertisingController;
+use App\Controllers\AdvertisingFinanceController;
 use App\Controllers\AiArticleController;
 use App\Controllers\AiProviderController;
 use App\Controllers\AiWorkerController;
@@ -101,6 +102,13 @@ $router->post('/api/v1/advertising/banner/delete', [AdvertisingController::class
 $router->post('/api/v1/advertising/inquiry', [AdvertisingController::class, 'updateInquiry']);
 $router->post('/api/v1/public/advertising-inquiry', [AdvertisingController::class, 'submitInquiry']);
 $router->post('/api/v1/public/banner-event', [AdvertisingController::class, 'trackBanner']);
+$router->get('/api/v1/advertising/finance', [AdvertisingFinanceController::class, 'index']);
+$router->post('/api/v1/advertising/contracts', [AdvertisingFinanceController::class, 'create']);
+$router->post('/api/v1/advertising/contracts/status', [AdvertisingFinanceController::class, 'status']);
+$router->post('/api/v1/advertising/payments/manual', [AdvertisingFinanceController::class, 'recordManual']);
+$router->post('/api/v1/advertising/payments/manual/void', [AdvertisingFinanceController::class, 'voidManual']);
+// Online gateway/checkout routes are deliberately NOT registered in this draft.
+// They must stay unreachable until protocol, reconciliation and concurrency tests pass.
 
 // The old batch/worker mutation routes stay disabled; this new path is manual and draft-only.
 $router->get('/api/v1/ai/article/providers', [AiArticleController::class, 'status']);

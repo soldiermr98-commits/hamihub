@@ -34,4 +34,4 @@ let b=await banner();r=await admin.request('POST','/api/v1/advertising/banner',{
 r=await guest.request('POST','/api/v1/public/banner-event',{banner_id:id,event:'view'});assert.equal(r.status,204);b=await banner();assert.equal(Number(b.views_total),1,'inactive banners cannot increment');
 r=await admin.request('POST','/api/v1/advertising/banner/delete',{id,version:Number(b.version)});assert.equal(r.status,200,r.text);assert.equal(await banner(),undefined);
 console.log('PASS: WIP targeted reporting migration is repeatable/admin-only; direct synthetic events count only active banners.');
-console.log('WIP: no public beacon instrumentation, reporting UI, contract operations, or online gateway is tested or complete.');
+console.log('WIP: public beacons and reporting UI are not browser-tested; online gateways are not enabled or tested.');
