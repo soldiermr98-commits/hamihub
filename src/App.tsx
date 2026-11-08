@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { LayoutDashboard, Inbox, MapPin, Store, FileText, FileJson, Megaphone, Settings, LogOut } from 'lucide-react';
 import { AdminUser, CategoryItem, CategoryPackItem, CityItem, NeighborhoodItem,
   fetchAuthMe, loginAdmin, logoutAdmin, fetchCategoriesAndPacks, fetchCitiesAndNeighborhoods, runWebMigrations,
-  FINANCE_PENDING_STORAGE_KEY } from './services/adminApi';
+  FINANCE_PENDING_STORAGE_KEY, GATEWAY_PENDING_STORAGE_KEY } from './services/adminApi';
 import { CitiesAndCategoriesView } from './components/CitiesAndCategoriesView';
 import { BusinessesManagerView } from './components/BusinessesManagerView';
 import { ReviewQueueView } from './components/ReviewQueueView';
@@ -59,10 +59,10 @@ export default function App() {
   const logout=async()=>{
     if(route==='articles' && articleDirty && !window.confirm('تغییرات مقاله ذخیره نشده‌اند. خارج شوید؟')) return;
     let pendingFinance=false;
-    try {pendingFinance=window.sessionStorage.getItem(FINANCE_PENDING_STORAGE_KEY)!==null;} catch { /* storage may be disabled */ }
-    if(pendingFinance&&!window.confirm('نتیجه یک درخواست مالی نامشخص است. با خروج، اطلاعات بازیابی این زبانه حذف می‌شود؛ پیش از ثبت دوباره حتماً دفتر قراردادها را مستقل بررسی کنید. خارج می‌شوید؟'))return;
+    try {pendingFinance=window.sessionStorage.getItem(FINANCE_PENDING_STORAGE_KEY)!==null||window.sessionStorage.getItem(GATEWAY_PENDING_STORAGE_KEY)!==null;} catch { /* storage may be disabled */ }
+    if(pendingFinance&&!window.confirm('نتیجه یک درخواست مالی یا تنظیم درگاه نیاز به پیگیری دارد. با خروج، اطلاعات بازیابی این زبانه حذف می‌شود؛ پیش از درخواست دوباره وضعیت را مستقل بررسی کنید. خارج می‌شوید؟'))return;
     const r=await logoutAdmin(csrf);if(!r.ok){setError(r.error);return;}
-    try {window.sessionStorage.removeItem(FINANCE_PENDING_STORAGE_KEY);} catch { /* no accessible browser storage */ }
+    try {window.sessionStorage.removeItem(FINANCE_PENDING_STORAGE_KEY);window.sessionStorage.removeItem(GATEWAY_PENDING_STORAGE_KEY);} catch { /* no accessible browser storage */ }
     setArticleDirty(false);setUser(null);setCsrf(r.csrf_token);
   };
   return <div dir="rtl" className="min-h-screen bg-slate-50 text-slate-900">

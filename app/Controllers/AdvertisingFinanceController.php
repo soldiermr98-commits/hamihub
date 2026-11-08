@@ -6,6 +6,7 @@ namespace App\Controllers;
 use App\Core\Auth;
 use App\Core\Csrf;
 use App\Core\PaymentSecurity;
+use App\Core\PaymentSandbox;
 use App\Core\Request;
 use App\Core\Response;
 use App\Services\AdvertisingFinanceService;
@@ -47,8 +48,8 @@ final class AdvertisingFinanceController
     public static function index(Request $request): void
     {
         self::authorize($request, false);
-        if (!AdvertisingFinanceService::schemaReady()) Response::json(['ok'=>true,'schema_ready'=>false,'contracts'=>[],'manual_payments'=>[],'online_payments'=>[],'status_log'=>[],'online_audit'=>[]]);
-        self::run(static fn()=>['schema_ready'=>true] + AdvertisingFinanceService::listing());
+        if (!AdvertisingFinanceService::schemaReady()) Response::json(['ok'=>true,'schema_ready'=>false,'online_sandbox_enabled'=>PaymentSandbox::enabled(),'contracts'=>[],'manual_payments'=>[],'online_payments'=>[],'status_log'=>[],'online_audit'=>[]]);
+        self::run(static fn()=>['schema_ready'=>true,'online_sandbox_enabled'=>PaymentSandbox::enabled()] + AdvertisingFinanceService::listing());
     }
 
     public static function create(Request $request): void

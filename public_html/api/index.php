@@ -22,10 +22,13 @@ use App\Controllers\CategoryController;
 use App\Controllers\CityController;
 use App\Controllers\CollectorController;
 use App\Controllers\ManualImportController;
+use App\Controllers\PaymentGatewayController;
+use App\Controllers\PublicPaymentController;
 use App\Controllers\PublicSiteController;
 use App\Controllers\ReviewQueueController;
 use App\Core\Bootstrap;
 use App\Core\Cache;
+use App\Core\PaymentSandbox;
 use App\Core\Request;
 use App\Core\Router;
 
@@ -107,8 +110,18 @@ $router->post('/api/v1/advertising/contracts', [AdvertisingFinanceController::cl
 $router->post('/api/v1/advertising/contracts/status', [AdvertisingFinanceController::class, 'status']);
 $router->post('/api/v1/advertising/payments/manual', [AdvertisingFinanceController::class, 'recordManual']);
 $router->post('/api/v1/advertising/payments/manual/void', [AdvertisingFinanceController::class, 'voidManual']);
-// Online gateway/checkout routes are deliberately NOT registered in this draft.
-// They must stay unreachable until protocol, reconciliation and concurrency tests pass.
+// Explicit, disabled-by-default sandbox experiment. These handlers and the
+// underlying service reject live settings/attempts even when the switch is on.
+if (PaymentSandbox::enabled()) {
+    $router->get('/api/v1/advertising/gateways', [PaymentGatewayController::class, 'index']);
+    $router->post('/api/v1/advertising/gateways/save', [PaymentGatewayController::class, 'save']);
+    $router->post('/api/v1/advertising/payments/online', [PaymentGatewayController::class, 'createLink']);
+    $router->post('/api/v1/advertising/payments/online/resolve', [PaymentGatewayController::class, 'resolve']);
+    $router->get('/api/v1/public/advertising-payment/{token}', [PublicPaymentController::class, 'view']);
+    $router->post('/api/v1/public/advertising-payment/{token}', [PublicPaymentController::class, 'start']);
+    $router->get('/api/v1/public/advertising-payment/callback/{token}', [PublicPaymentController::class, 'callback']);
+    $router->post('/api/v1/public/advertising-payment/callback/{token}', [PublicPaymentController::class, 'callback']);
+}
 
 // The old batch/worker mutation routes stay disabled; this new path is manual and draft-only.
 $router->get('/api/v1/ai/article/providers', [AiArticleController::class, 'status']);

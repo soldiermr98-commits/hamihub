@@ -570,6 +570,7 @@ export async function updateAdInquiry(id:number,operation:'new'|'handled'|'delet
 
 // PDO may serialize integer columns as strings. All ledger amounts remain integer toman.
 export const FINANCE_PENDING_STORAGE_KEY='hhx.advertising.finance.pending.v1';
+export const GATEWAY_PENDING_STORAGE_KEY='hhx.advertising.gateway.pending.v1';
 type DbInteger = number | string;
 export interface AdContract {
   id:DbInteger; version:DbInteger; title:string; client_name:string; client_phone:string|null;
@@ -589,11 +590,25 @@ export interface AdOnlinePaymentSummary {
   id:DbInteger; contract_id:DbInteger; provider:string; mode:'live'|'sandbox'; state:string; amount_toman:DbInteger;
   order_id:string; provider_id:string|null; verified_reference:string|null; last_error_code:string|null; created_at:string;
 }
-export interface AdFinanceData {
-  ok:boolean; schema_ready:boolean; contracts:AdContract[]; manual_payments:AdManualPayment[];
-  online_payments:AdOnlinePaymentSummary[]; status_log:AdContractStatusLog[];
+export interface AdOnlineAudit {
+  id:DbInteger; payment_id:DbInteger; old_state:string; new_state:string; reason:string;
+  reference:string|null; changed_by:DbInteger|null; changed_at:string;
 }
-export interface FinanceMutationResult { ok:boolean; message?:string; error?:string; ambiguous?:boolean }
+export interface AdGatewayStatus {
+  id:'zibal'|'aqayepardakht'|'idpay'; label:string; mode:'disabled'|'sandbox'|'live';
+  key_configured:boolean; version:number; error:string;
+}
+export interface AdGatewayLog {
+  provider:string; old_mode:string; new_mode:string; key_action:string; version:DbInteger; changed_by:DbInteger; changed_at:string;
+}
+export interface AdFinanceData {
+  ok:boolean; schema_ready:boolean; online_sandbox_enabled?:boolean; contracts:AdContract[]; manual_payments:AdManualPayment[];
+  online_payments:AdOnlinePaymentSummary[]; status_log:AdContractStatusLog[]; online_audit?:AdOnlineAudit[];
+}
+export interface FinanceMutationResult { ok:boolean; message?:string; error?:string; ambiguous?:boolean; data?:Record<string,unknown> }
+export async function fetchAdvertisingGateways():Promise<{ok:boolean;schema_ready:boolean;providers:AdGatewayStatus[];log:AdGatewayLog[]}> {
+  return request('/api/v1/advertising/gateways',{cache:'no-store'});
+}
 export async function fetchAdvertisingFinance():Promise<AdFinanceData> {
   return request('/api/v1/advertising/finance',{cache:'no-store'});
 }
@@ -604,7 +619,7 @@ export async function financeMutation(path:string, payload:unknown, csrf:string)
     const isJson=(response.headers.get('content-type')||'').includes('application/json');
     if (!isJson) return {ok:false,ambiguous:true,error:'پاسخ قابل اطمینان نبود؛ ممکن است درخواست ثبت شده باشد.'};
     const data=await response.json();
-    if(response.ok&&data.ok===true) return {ok:true,message:typeof data.message==='string'?data.message:'عملیات ثبت شد.'};
+    if(response.ok&&data.ok===true) return {ok:true,message:typeof data.message==='string'?data.message:'عملیات ثبت شد.',data};
     // Do not treat gateway/proxy timeouts or rate limits as proof the server rolled back.
     const definite=[400,401,403,404,409,413,422].includes(response.status)&&data?.ok===false;
     return {ok:false,ambiguous:!definite,error:typeof data.error==='string'?data.error:'نتیجه درخواست نامشخص است.'};

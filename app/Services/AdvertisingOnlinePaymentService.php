@@ -12,7 +12,12 @@ use Throwable;
 /** A link represents one immutable attempt. Uncertain attempts block other ledger changes. */
 final class AdvertisingOnlinePaymentService
 {
-    public function __construct(private PaymentGatewaySettings $settings, private PaymentGatewayClient $gateway) {}
+    public function __construct(private PaymentGatewaySettings $settings, private PaymentGatewayClient $gateway, private bool $sandboxOnly = true) {}
+
+    private static function requireAllowedMode(string $mode, bool $sandboxOnly): void
+    {
+        if ($sandboxOnly && $mode !== 'sandbox') throw new DomainException('فقط تراکنش آزمایشی در این نسخه مجاز است.', 409);
+    }
 
     public static function baseUrl(): string
     {
@@ -69,8 +74,9 @@ final class AdvertisingOnlinePaymentService
         $hash = hash('sha256', $token); $pdo = DB::connection(); $pdo->beginTransaction();
         try {
             $c = AdvertisingFinanceService::lockContract($id);
-            $existing = DB::fetchOne('SELECT id,contract_id,provider,amount_toman,link_hash,link_hours,state FROM advertising_online_payments WHERE request_key=:key', ['key'=>$key]);
+            $existing = DB::fetchOne('SELECT id,contract_id,provider,mode,amount_toman,link_hash,link_hours,state FROM advertising_online_payments WHERE request_key=:key', ['key'=>$key]);
             if ($existing) {
+                self::requireAllowedMode((string)$existing['mode'], $this->sandboxOnly);
                 if ((int)$existing['contract_id'] !== $id || $existing['provider'] !== $provider || (int)$existing['amount_toman'] !== $amount || (int)$existing['link_hours'] !== $hours || !hash_equals($existing['link_hash'], $hash)) throw new DomainException('شناسه درخواست قبلاً برای لینک دیگری استفاده شده است.', 409);
                 $pdo->commit(); return ['id'=>(int)$existing['id'],'state'=>$existing['state'],'url'=>$base . '/api/v1/public/advertising-payment/' . $token,'replayed'=>true];
             }
@@ -78,6 +84,7 @@ final class AdvertisingOnlinePaymentService
             if (AdvertisingFinanceService::hasUnresolved($id)) throw new DomainException('ابتدا لینک یا تراکنش آنلاین باز را تعیین تکلیف کنید.', 409);
             if ($amount > (int)$c['amount_toman'] - AdvertisingFinanceService::paidAmount($id)) throw new DomainException('مبلغ از مانده قرارداد بیشتر است.', 409);
             $snapshot = $this->settings->snapshot($provider); // settings row locked through commit
+            self::requireAllowedMode($snapshot['mode'], $this->sandboxOnly);
             $order = 'ad' . bin2hex(random_bytes(12));
             DB::query("INSERT INTO advertising_online_payments (contract_id,provider,mode,state,amount_toman,request_key,link_hours,link_hash,order_id,settings_version,secret_sealed,created_by,expires_at)
                 VALUES (:contract,:provider,:mode,'link_ready',:amount,:key,:hours,:hash,:order_id,:version,:secret,:user,DATE_ADD(NOW(), INTERVAL :duration HOUR))",
@@ -122,6 +129,7 @@ final class AdvertisingOnlinePaymentService
             AdvertisingFinanceService::expireUnstarted($contract);
             $p = self::lockedPayment($id, $contract);
             if (!$p) throw new DomainException('لینک پرداخت پیدا نشد.', 404);
+            self::requireAllowedMode((string)$p['mode'], $this->sandboxOnly);
             if ($p['state'] === 'pending') {
                 $url = PaymentGatewayClient::startUrl((string)$p['provider'], (string)$p['mode'], (string)$p['provider_id']);
                 $pdo->commit(); return $url;
@@ -170,6 +178,7 @@ final class AdvertisingOnlinePaymentService
             AdvertisingFinanceService::lockContract($contract);
             $p = self::lockedPayment($id, $contract);
             if (!$p) { $pdo->commit(); return 'not_found'; }
+            self::requireAllowedMode((string)$p['mode'], $this->sandboxOnly);
             if (in_array($p['state'], ['verified','reconciled','sandbox_verified','sandbox_reconciled'], true)) { $pdo->commit(); return (string)$p['state']; }
             if ($p['state'] !== 'pending' || !self::callbackMatches($p, $input)) { $pdo->commit(); return 'unconfirmed'; }
             DB::query("UPDATE advertising_online_payments SET state='verifying',updated_at=NOW() WHERE id=:id", ['id'=>$id]);
@@ -203,7 +212,7 @@ final class AdvertisingOnlinePaymentService
     }
 
     /** Administrative assertion after out-of-band provider investigation; never presented as automatic verification. */
-    public static function resolve(array $data, int $userId): void
+    public static function resolve(array $data, int $userId, bool $sandboxOnly = true): void
     {
         $id = AdvertisingFinanceService::id($data['payment_id'] ?? null);
         $contract = AdvertisingFinanceService::id($data['contract_id'] ?? null);
@@ -220,6 +229,7 @@ final class AdvertisingOnlinePaymentService
         try {
             $c = AdvertisingFinanceService::lockContract($contract); $p = self::lockedPayment($id, $contract);
             if (!$p) throw new DomainException('تراکنش یافت نشد.', 409);
+            self::requireAllowedMode((string)$p['mode'], $sandboxOnly);
             $old = (string)$p['state'];
             if ($resolution === 'cancel_link') {
                 if ($old !== 'link_ready') throw new DomainException('فقط لینک شروع‌نشده را می‌توان بدون بررسی درگاه لغو کرد.', 409);

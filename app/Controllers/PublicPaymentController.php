@@ -5,6 +5,7 @@ namespace App\Controllers;
 
 use App\Core\Csrf;
 use App\Core\PaymentSecurity;
+use App\Core\PaymentSandbox;
 use App\Core\Request;
 use App\Core\Response;
 use App\Services\AdvertisingFinanceService;
@@ -20,16 +21,25 @@ final class PublicPaymentController
     {
         header('Cache-Control: private, no-store, max-age=0');
         header('X-Robots-Tag: noindex, nofollow, noarchive');
+        if (!PaymentSandbox::enabled()) self::page('پرداخت آزمایشی فعال نیست', '<p>این صفحه در دسترس نیست.</p>', 404);
         PaymentSecurity::requireHttps($request, true);
     }
     private static function service(): AdvertisingOnlinePaymentService
     {
-        return new AdvertisingOnlinePaymentService(new PaymentGatewaySettings(BASE_PATH), new PaymentGatewayClient());
+        return new AdvertisingOnlinePaymentService(new PaymentGatewaySettings(BASE_PATH), new PaymentGatewayClient(), true);
     }
     private static function page(string $heading, string $body, int $status = 200): never
     {
-        Response::html('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . Response::e($heading) . ' | حامی‌هاب</title>' .
-            '<style>body{font:16px/1.9 Tahoma,sans-serif;background:#f5f7f7;color:#1c3431;padding:20px}main{max-width:620px;margin:5vh auto;padding:28px;background:white;border:1px solid #d9e5e1;border-radius:18px}h1{font-size:1.4rem}button{border:0;border-radius:10px;background:#176f60;color:#fff;font:inherit;padding:10px 22px;cursor:pointer}.note{background:#fff4d9;padding:12px;border-radius:9px}</style></head><body><main><h1>' . Response::e($heading) . '</h1>' . $body . '<p><a href="/">بازگشت به سایت</a></p></main></body></html>', $status);
+        Response::sendSecurityHeaders(true);
+        // The bearer token is in the URL; never leak it via same-origin Referer.
+        header('Referrer-Policy: no-referrer');
+        header('X-Frame-Options: DENY');
+        header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+        http_response_code($status);
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . Response::e($heading) . ' | حامی‌هاب</title>' .
+            '<style>body{font:16px/1.9 Tahoma,sans-serif;background:#f5f7f7;color:#1c3431;padding:20px}main{max-width:620px;margin:5vh auto;padding:28px;background:white;border:1px solid #d9e5e1;border-radius:18px}h1{font-size:1.4rem}button{border:0;border-radius:10px;background:#176f60;color:#fff;font:inherit;padding:10px 22px;cursor:pointer}.note{background:#fff4d9;padding:12px;border-radius:9px}</style></head><body><main><h1>' . Response::e($heading) . '</h1>' . $body . '<p><a href="/">بازگشت به سایت</a></p></main></body></html>';
+        exit;
     }
     private static function fail(): never
     {
@@ -41,7 +51,7 @@ final class PublicPaymentController
         try {
             if (!AdvertisingFinanceService::schemaReady()) self::fail();
             $token = (string)($params['token'] ?? ''); $p = AdvertisingOnlinePaymentService::publicView($token);
-            if (!$p) self::fail();
+            if (!$p || $p['mode'] !== 'sandbox') self::fail();
             $provider = PaymentGatewaySettings::PROVIDERS[$p['provider']] ?? 'درگاه';
             $body = '<p>قرارداد: <strong>' . Response::e((string)$p['title']) . '</strong></p><p>مبلغ: <strong>' . number_format((int)$p['amount_toman']) . ' تومان</strong></p><p>درگاه: ' . Response::e($provider) . '</p>';
             if ($p['mode'] === 'sandbox') $body .= '<p class="note"><strong>این تراکنش آزمایشی است؛ وجه واقعی دریافت نمی‌شود و مانده واقعی تغییر نمی‌کند.</strong></p>';
