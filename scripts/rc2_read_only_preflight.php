@@ -3,8 +3,10 @@ declare(strict_types=1);
 
 /*
  * Read-only, partial check for the published RC2 candidate and its .5 baseline.
- * Run from CLI only, on an isolated staging copy. This is NOT an installer.
- * It never loads the application, configuration, database or private files.
+ * Run from CLI only. Prefer an isolated copy; a live-site file audit must be
+ * an explicit operator decision. Reading can update filesystem access times.
+ * This is NOT an installer; it never loads the application's configuration,
+ * database, private files or code.
  */
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
@@ -21,7 +23,10 @@ const RC2_ARCHIVE_SHA256 = 'fee0a305fe6475ef9f87f0e382fc790dad342351ed586ee45550
 const RC2_ARCHIVE_SIZE = 235821;
 const RC2_BASELINE_FILES = 80;
 const MAX_BASELINE_MANIFEST_BYTES = 65536;
-const MAX_RUNTIME_FILE_BYTES = 67108864;
+// The 80 pinned baseline files total under 7 MiB; the largest is under 1.5 MiB.
+// Bound live-audit reads even if unexpected files are present or growing.
+const MAX_RUNTIME_FILE_BYTES = 2097152;
+const MAX_TOTAL_RUNTIME_BYTES = 16777216;
 
 function emitReport(array $report, int $exitCode): void
 {
@@ -77,7 +82,7 @@ function parseManifest(string $manifest): ?array
 }
 
 /** Return an issue without printing file content, hashes or the absolute root. */
-function inspectRuntimeFile(string $root, string $relativePath, string $expectedHash): ?string
+function inspectRuntimeFile(string $root, string $relativePath, string $expectedHash, int &$totalRead): ?string
 {
     $parts = explode('/', $relativePath);
     $path = $root;
@@ -96,26 +101,56 @@ function inspectRuntimeFile(string $root, string $relativePath, string $expected
     $prefix = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
     if ($resolved === false || strpos($resolved, $prefix) !== 0 || !is_readable($resolved)) return 'unreadable_or_outside_root';
     $size = @filesize($resolved);
-    if ($size === false || $size > MAX_RUNTIME_FILE_BYTES) return 'unreadable_or_too_large';
-    $actualHash = @hash_file('sha256', $resolved);
-    if (!is_string($actualHash)) return 'unreadable';
-    return hash_equals($expectedHash, $actualHash) ? null : 'different';
+    if ($size === false || $size < 0 || $size > MAX_RUNTIME_FILE_BYTES) return 'unreadable_or_too_large';
+    $budget = min(MAX_RUNTIME_FILE_BYTES, max(0, MAX_TOTAL_RUNTIME_BYTES - $totalRead));
+    if ($size > $budget) return 'audit_read_budget_exceeded';
+
+    // filesize can change concurrently. Bound the read itself rather than only
+    // the initial stat; read at most one extra byte to detect a growing file.
+    $handle = @fopen($resolved, 'rb');
+    if ($handle === false) return 'unreadable';
+    $hash = hash_init('sha256');
+    $read = 0;
+    $issue = null;
+    while (!feof($handle)) {
+        $chunk = @fread($handle, min(65536, $budget + 1 - $read));
+        if ($chunk === false || ($chunk === '' && !feof($handle))) {
+            $issue = 'unreadable';
+            break;
+        }
+        $read += strlen($chunk);
+        if ($read > $budget) {
+            $issue = 'audit_read_budget_exceeded';
+            break;
+        }
+        hash_update($hash, $chunk);
+    }
+    fclose($handle);
+    $totalRead += $read;
+    if ($issue !== null) return $issue;
+    if ($read !== $size) return 'changed_during_read';
+    return hash_equals($expectedHash, hash_final($hash)) ? null : 'different';
 }
 
 if ($argc === 2 && $argv[1] === '--help') {
     echo "Usage: php rc2_read_only_preflight.php SITE_ROOT BASELINE_SHA256.txt RC2.zip\n";
+    echo "   or: php rc2_read_only_preflight.php --baseline-only SITE_ROOT BASELINE_SHA256.txt\n";
     echo "CLI-only, read-only partial check. A matching report is NOT permission to deploy.\n";
     exit(0);
 }
 if ($argc !== 4) {
-    fwrite(STDERR, "Expected SITE_ROOT, BASELINE_SHA256.txt and RC2.zip. Use --help.\n");
+    fwrite(STDERR, "Expected SITE_ROOT, BASELINE_SHA256.txt and RC2.zip, or --baseline-only SITE_ROOT BASELINE_SHA256.txt. Use --help.\n");
     exit(64);
 }
+$baselineOnly = $argv[1] === '--baseline-only';
+$rootInput = $baselineOnly ? $argv[2] : $argv[1];
+$manifestInput = $baselineOnly ? $argv[3] : $argv[2];
+$archiveInput = $baselineOnly ? null : $argv[3];
 if (!function_exists('json_encode') || !defined('JSON_PRETTY_PRINT')) {
     fwrite(STDERR, "The CLI JSON extension is required; no site files were read.\n");
     exit(69);
 }
-foreach (['hash', 'hash_file', 'hash_equals'] as $requiredFunction) {
+foreach (['hash', 'hash_file', 'hash_equals', 'hash_init', 'hash_update', 'hash_final'] as $requiredFunction) {
     if (!function_exists($requiredFunction)) {
         fwrite(STDERR, "The CLI hash functions are required; no site files were read.\n");
         exit(69);
@@ -125,7 +160,8 @@ foreach (['hash', 'hash_file', 'hash_equals'] as $requiredFunction) {
 $report = [
     'tool' => 'rc2-read-only-preflight-v1',
     'decision' => 'STOP',
-    'archive_verified' => false,
+    // null means not checked, not a failed verification.
+    'archive_verified' => $baselineOnly ? null : false,
     'baseline_manifest_verified' => false,
     'baseline' => null,
     'cli_environment' => cliEnvironment(),
@@ -138,9 +174,9 @@ $report = [
         'cron, external services, payments and real hosting',
     ],
 ];
+if ($baselineOnly) $report['not_checked'][] = 'RC2 archive integrity (baseline-only mode)';
 
-// Resolve only the root directory first, then require both artifacts outside it.
-$rootInput = $argv[1];
+// Resolve only the root directory first, then require artifacts outside it.
 $rootArgument = rtrim($rootInput, DIRECTORY_SEPARATOR);
 if ($rootArgument === '') $rootArgument = DIRECTORY_SEPARATOR;
 $root = $rootInput !== '' && strpos($rootInput, '://') === false && !is_link($rootArgument)
@@ -150,8 +186,9 @@ if ($root === false || $root === DIRECTORY_SEPARATOR || !is_dir($root)) {
     emitReport($report, 2);
 }
 
-// Verify both published artifacts before reading any site runtime files.
-$manifestFile = localArtifact($argv[2], $root, 'BASELINE-SHA256.txt');
+// Verify the published manifest (and, unless baseline-only, the candidate ZIP)
+// before reading any site runtime files.
+$manifestFile = localArtifact($manifestInput, $root, 'BASELINE-SHA256.txt');
 if ($manifestFile === null || ($manifestSize = @filesize($manifestFile)) === false
     || $manifestSize > MAX_BASELINE_MANIFEST_BYTES) {
     $report['errors'][] = 'baseline_manifest_unavailable';
@@ -169,22 +206,25 @@ if ($entries === null) {
 }
 $report['baseline_manifest_verified'] = true;
 
-$archiveFile = localArtifact($argv[3], $root, 'hamihub-update-after-v2026.11.07.5-rc2.zip');
-if ($archiveFile === null || @filesize($archiveFile) !== RC2_ARCHIVE_SIZE) {
-    $report['errors'][] = 'rc2_archive_unavailable_or_wrong_size';
-    emitReport($report, 2);
+if (!$baselineOnly) {
+    $archiveFile = localArtifact($archiveInput, $root, 'hamihub-update-after-v2026.11.07.5-rc2.zip');
+    if ($archiveFile === null || @filesize($archiveFile) !== RC2_ARCHIVE_SIZE) {
+        $report['errors'][] = 'rc2_archive_unavailable_or_wrong_size';
+        emitReport($report, 2);
+    }
+    $archiveHash = @hash_file('sha256', $archiveFile);
+    if (!is_string($archiveHash) || !hash_equals(RC2_ARCHIVE_SHA256, $archiveHash)) {
+        $report['errors'][] = 'rc2_archive_digest_mismatch';
+        emitReport($report, 2);
+    }
+    $report['archive_verified'] = true;
 }
-$archiveHash = @hash_file('sha256', $archiveFile);
-if (!is_string($archiveHash) || !hash_equals(RC2_ARCHIVE_SHA256, $archiveHash)) {
-    $report['errors'][] = 'rc2_archive_digest_mismatch';
-    emitReport($report, 2);
-}
-$report['archive_verified'] = true;
 
 $matched = 0;
 $issues = [];
+$totalRead = 0;
 foreach ($entries as $path => $expectedHash) {
-    $issue = inspectRuntimeFile($root, $path, $expectedHash);
+    $issue = inspectRuntimeFile($root, $path, $expectedHash, $totalRead);
     if ($issue === null) $matched++;
     else $issues[] = ['path' => $path, 'issue' => $issue];
 }

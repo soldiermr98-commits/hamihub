@@ -30,10 +30,12 @@ jobs:
       - name: Rebuild content and check preservation on synthetic overlays
         run: |
           python3 tests/build_update_candidate_smoke.py
+          python3 tests/build_rc2_directadmin_filecheck_smoke.py
           python3 tests/upgrade_candidate_overlay_smoke.py --candidate rc1
           python3 tests/upgrade_candidate_overlay_smoke.py --candidate rc2
           (cd release-files/after-v2026.11.07.5-rc1 && sha256sum -c SHA256SUMS.txt)
           (cd release-files/after-v2026.11.07.5-rc2 && sha256sum -c SHA256SUMS.txt)
+          (cd release-files/rc2-directadmin-filecheck && sha256sum -c SHA256SUMS.txt)
 
   frontend:
     name: Admin build and synthetic UI
@@ -113,4 +115,6 @@ jobs:
           python3 tests/payment_protocol_isolation_smoke.py
           HHX_ALLOW_TEST_FIXTURES=1 php tests/media_service_synthetic_smoke.php
       - name: RC2 read-only preflight against a synthetic baseline
-        run: python3 tests/rc2_read_only_preflight_smoke.py
+        run: |
+          python3 tests/rc2_read_only_preflight_smoke.py
+          python3 tests/rc2_directadmin_once_smoke.py
