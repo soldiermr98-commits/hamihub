@@ -30,6 +30,10 @@ assert.equal(r.json.rich_editor_available,!noDom,'API must report the capability
 if(!r.json.schema_ready){
   r=await admin.request('POST','/api/v1/system/update-article-schema',{});assert.equal(r.status,200,r.text);
 }
+if(!r.json.article_tags_ready){
+  r=await admin.request('POST','/api/v1/system/update-article-tags-schema',{});assert.equal(r.status,200,r.text);
+  r=await admin.request('GET','/api/v1/articles');assert.equal(r.json.article_tags_ready,true);
+}
 const list=async()=>(await admin.request('GET','/api/v1/articles')).json.articles;
 const slug='fixture-rich-editor-smoke';
 const marker='<!--hhx-rich-v1-->';
@@ -56,22 +60,25 @@ if(noDom){
 assert(!(await list()).some(a=>a.slug===slug),'test slug must be unused in this disposable DB');
 const oldText='متن عمومی قدیمی\n\n## تیتر قبلی\nمتن <strong>بدون قالب</strong>';
 r=await admin.request('POST','/api/v1/articles',{
-  title_fa:'مقاله قالب‌دار آزمایشی',slug,intro_html:oldText,status:'published',
+  title_fa:'مقاله قالب‌دار آزمایشی',slug,intro_html:oldText,status:'published',tags:['سفر','طبیعت'],
   items:[{business_id:1,is_sponsored:0,custom_desc_html:'توضیح عمومی ساختگی'},{business_id:3,is_sponsored:1,sponsor_label:'خصوصی'}],
 });
 assert.equal(r.status,200,r.text);let article=r.json.article;
-assert.equal(article.intro_html,oldText);assert.equal(article.item_display['1'].eligibility,'eligible');
+assert.equal(article.intro_html,oldText);assert.deepEqual(article.tags.map(t=>t.name_fa).sort(),['سفر','طبیعت'].sort());assert.equal(article.item_display['1'].eligibility,'eligible');
 assert.equal(article.item_display['3'].eligibility,'not_published');assert.equal(article.item_display['3'].business_status,'draft');
 r=await guest.request('GET',`/${slug}/`);assert.equal(r.status,200,r.text);
 assert(r.text.includes('متن عمومی قدیمی')&&r.text.includes('توضیح عمومی ساختگی'));
+assert(r.text.includes('موضوع‌های مقاله')&&r.text.includes('سفر')&&r.text.includes('طبیعت'),'published article topic tags must be visible publicly');
 assert(r.text.includes('جدول مقایسه')&&!r.text.includes('کسب‌وکار خصوصی'),'unpublished business must be excluded');
 
 const items=article.items.map(i=>Number(i.business_id)===1?{...i,is_sponsored:1,sponsor_label:'حامی پیش‌نویس'}:i);
 r=await editor.request('POST','/api/v1/articles',{id:article.id,edit_token:article.edit_token,items,status:'draft'});
 assert.equal(r.status,200,r.text);article=r.json.article;
 assert.equal(article.revision.data.intro_html,oldText,'sponsor-only edit must not rewrite legacy content');
+assert.deepEqual(article.revision.data.tags.slice().sort(),['سفر','طبیعت'].sort(),'sponsor-only edit must preserve selected topic tags');
 assert.equal(article.revision.data.items[0].is_sponsored,1);
 r=await guest.request('GET',`/${slug}/`);assert(r.text.includes('متن عمومی قدیمی')&&!r.text.includes('حامی پیش‌نویس'));
+assert(r.text.includes('موضوع‌های مقاله')&&r.text.includes('سفر')&&r.text.includes('طبیعت'),'private sponsor revision must not alter public topic tags');
 r=await editor.request('GET',`/api/v1/articles/preview/${article.id}`);assert.equal(r.status,200,r.text);
 assert(r.text.includes('حامی پیش‌نویس')&&!r.text.includes('کسب‌وکار خصوصی'));
 r=await guest.request('GET',`/api/v1/articles/preview/${article.id}`);assert.equal(r.status,401);assert.match(r.headers.get('cache-control'),/no-store/);
@@ -80,21 +87,25 @@ console.log('PASS: read-only business eligibility and a sponsor-only private rev
 const unsafe=marker+'<h2 style="text-align:center">تیتر فارسی</h2><p onclick="alert(1)">متن قالب‌دار فارسی <strong>پررنگ</strong> '
   +'<a href="https://example.test/path?x=1&amp;y=2">پیوند امن</a> <a href="&#106;avascript:alert(2)">لینک ناسالم</a>'
   +'<script>alert(3)</script><svg onload="alert(4)"></svg></p></div><p>متن پس از تگ نامتوازن</p><ul><li><p>یک</p></li></ul>';
-r=await editor.request('POST','/api/v1/articles',{id:article.id,edit_token:article.edit_token,intro_html:unsafe,status:'review'});
+r=await editor.request('POST','/api/v1/articles',{id:article.id,edit_token:article.edit_token,intro_html:unsafe,tags:['بازبینی خصوصی'],status:'review'});
 assert.equal(r.status,200,r.text);article=r.json.article;
 assert.equal(article.status,'published');assert.equal(article.revision.status,'review');
 const clean=article.revision.data.intro_html;assert(clean.startsWith(marker));
+assert.deepEqual(article.revision.data.tags,['بازبینی خصوصی'],'review revision should carry its own topic tags');
 for(const good of ['تیتر فارسی','<strong>پررنگ</strong>','پیوند امن','متن پس از تگ نامتوازن','<ul>'])assert(clean.includes(good),good);
 for(const bad of ['onclick','javascript:','<script','<svg','alert(3)'])assert(!clean.toLowerCase().includes(bad.toLowerCase()),bad);
 r=await editor.request('GET',`/api/v1/articles/preview/${article.id}`);assert.equal(r.status,200,r.text);
 assert(r.text.includes('<h2 style="text-align: center">تیتر فارسی</h2>')&&r.text.includes('<strong>پررنگ</strong>'));
+assert(r.text.includes('بازبینی خصوصی'),'private preview should render working-copy topic tags');
 assert(!r.text.includes('javascript:alert(2)')&&!r.text.includes('onclick="alert(1)"'));
 r=await guest.request('GET',`/${slug}/`);assert(r.text.includes('متن عمومی قدیمی')&&!r.text.includes('متن قالب‌دار فارسی'));
+assert(r.text.includes('سفر')&&!r.text.includes('بازبینی خصوصی'),'review tag must remain private until approved');
 let q=(await admin.request('GET','/api/v1/review-queue?kind=article&status=pending')).json.items.find(i=>Number(i.target_id)===Number(article.id));assert(q);
 r=await editor.request('POST','/api/v1/review-queue/decide',{ids:[q.id],decision:'approved'});assert.equal(r.status,403);
 r=await admin.request('POST','/api/v1/review-queue/decide',{ids:[q.id],decision:'approved'});assert.equal(r.status,200,r.text);assert.equal(r.json.processed_count,1);
 r=await guest.request('GET',`/${slug}/`);assert.equal(r.status,200,r.text);
 assert(r.text.includes('متن قالب‌دار فارسی')&&r.text.includes('<strong>پررنگ</strong>'));
+assert(r.text.includes('بازبینی خصوصی')&&!r.text.includes('>سفر</span>'),'approval must publish the new tag set');
 assert(!r.text.includes('javascript:alert(2)')&&!r.text.includes('کسب‌وکار خصوصی'));
 article=(await list()).find(a=>a.id===article.id);assert.equal(article.intro_html,clean);
 console.log('PASS: server-side allowlist, private preview, editor review, and admin-only publication of synthetic rich content');

@@ -928,4 +928,5 @@ a:hover {
 .hx-ad-contact label input:not([type="checkbox"]), .hx-ad-contact textarea { display: block; width: 100%; margin-top: .2rem; padding: .55rem; border-radius: 8px; border: 1px solid #bdcbe2; font: inherit; color: #0f172a; background: #fff; }
 .hx-ad-contact label:has(textarea), .hx-ad-contact .hx-ad-consent, .hx-ad-contact [data-hx-form-msg] { grid-column: 1 / -1; }
 .hx-ad-honeypot { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.hx-article-topic-tags span { display: inline-flex; border: 1px solid #cbdced; border-radius: 999px; background: #f2f7fc; color: #24466b; padding: .2rem .65rem; font-size: .75rem; line-height: 1.6; }
 .hx-ad-contact button:disabled { opacity: .6; }

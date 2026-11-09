@@ -921,6 +921,10 @@ final class PublicSiteController
             $cover = ArticleService::schemaReady() ? DB::fetchOne('SELECT m.file_path_800 FROM article_extras x LEFT JOIN media m ON m.id=x.cover_media_id WHERE x.article_id=:id', ['id'=>(int)$article['id']]) : null;
             $coverUrl = (string)($cover['file_path_800'] ?? '');
         }
+        $articleTags = is_array($revision) && is_array($revision['tags'] ?? null)
+            ? array_values(array_map(static fn($tag): array => ['name_fa'=>(string)(is_array($tag) ? ($tag['name_fa'] ?? '') : $tag)], $revision['tags']))
+            : ArticleService::tagsForArticle((int)$article['id']);
+        $articleTags = array_values(array_filter($articleTags, static fn(array $tag): bool => trim((string)($tag['name_fa'] ?? '')) !== ''));
         if (!preg_match('~^/uploads/[a-zA-Z0-9_/-]+\.(?:webp|jpg|jpeg|png)$~iD', $coverUrl)) $coverUrl = '';
 
         $baseUrl = self::baseUrl();
@@ -931,6 +935,7 @@ final class PublicSiteController
             '@type'            => 'Article',
             'headline'         => (string)$article['title'],
             'description'      => (string)($article['meta_description'] ?: $article['title']),
+            'keywords'         => array_values(array_map(static fn(array $tag): string => (string)$tag['name_fa'], $articleTags)),
             'datePublished'    => (string)($article['published_at'] ?: $article['created_at']),
             'dateModified'     => (string)$article['updated_at'],
             'mainEntityOfPage' => $canonical,
@@ -1040,6 +1045,11 @@ final class PublicSiteController
                         <?php if (!empty($article['city_name_fa'])): ?><span class="hx-badge hx-badge-cat"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> <?= self::e($article['city_name_fa']) ?></span><?php endif; ?>
                     </div>
                     <h1><?= self::e($article['title']) ?></h1>
+                    <?php if ($articleTags): ?>
+                        <div class="hx-article-topic-tags" aria-label="موضوع‌های مقاله" style="display:flex;flex-wrap:wrap;gap:.45rem;margin:.75rem 0;">
+                            <?php foreach ($articleTags as $tag): ?><span><?= self::e((string)$tag['name_fa']) ?></span><?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
 
                     <?php if ($coverUrl !== ''): ?>
                         <img src="<?= self::e($coverUrl) ?>" alt="<?= self::e($article['title']) ?>" style="display:block;width:100%;max-height:460px;object-fit:cover;border-radius:16px;margin:1rem 0;" loading="eager">
@@ -1833,7 +1843,7 @@ final class PublicSiteController
     <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s10.1">
+    <link rel="stylesheet" href="/assets/css/public.css?v=s10.2">
     <!-- hhx-ad-until:<?= (int)$ad['until'] ?> -->
     <!-- hhx-sponsor-until:<?= max(0, (int)($data['sponsor_until'] ?? 0)) ?> -->
     <?php foreach ($schemas as $schema):

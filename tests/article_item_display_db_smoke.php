@@ -46,6 +46,14 @@ try {
     $result = ArticleService::save(['title_fa'=>'Synthetic display ' . $suffix,'slug'=>'synthetic-display-' . $suffix,
         'intro_html'=>$oldIntro,'status'=>'published','items'=>array_map(static fn(int $id): array => ['business_id'=>$id], array_values($ids))], $admin);
     $articleId = (int)$result['article_id'];
+    $legacyHashPayload = [
+        DB::fetchOne('SELECT id,title,slug,meta_title,meta_description,category_id,city_id,intro,tips_html,year_label,status,ai_generated,published_at FROM articles WHERE id=:id', ['id'=>$articleId]),
+        DB::fetchAll('SELECT business_id,position,custom_desc,highlights,is_sponsored,sponsor_label,sponsor_start,sponsor_end FROM article_items WHERE article_id=:id ORDER BY position,id', ['id'=>$articleId]),
+        DB::fetchAll('SELECT question,answer,sort FROM article_faqs WHERE article_id=:id ORDER BY sort,id', ['id'=>$articleId]),
+        DB::fetchOne('SELECT cover_media_id FROM article_extras WHERE article_id=:id', ['id'=>$articleId]),
+    ];
+    $expectedLegacyHash = hash('sha256',(string)json_encode($legacyHashPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    verifyDisplay(hash_equals($expectedLegacyHash, ArticleService::liveHash($articleId)), 'untagged articles keep the pre-taxonomy conflict hash');
     // Simulate a legacy dangling article_items reference without changing any other row.
     $missingId = (int)(DB::fetchOne('SELECT MAX(id) AS n FROM businesses')['n'] ?? 0) + 100000;
     DB::query('INSERT INTO article_items (article_id,business_id,position,is_sponsored) VALUES (:article,:business,5,1)',

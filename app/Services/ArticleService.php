@@ -22,6 +22,25 @@ final class ArticleService
             && DB::fetchOne("SHOW TABLES LIKE 'article_url_aliases'") !== null;
     }
 
+    public static function tagsSchemaReady(): bool
+    {
+        static $ready = null;
+        return $ready ??= DB::fetchOne("SHOW TABLES LIKE 'article_tags'") !== null
+            && DB::fetchOne("SHOW TABLES LIKE 'article_tag_links'") !== null;
+    }
+
+    public static function tagCatalog(): array
+    {
+        if (!self::tagsSchemaReady()) return [];
+        return DB::fetchAll('SELECT id,name_fa,slug FROM article_tags ORDER BY name_fa,id');
+    }
+
+    public static function tagsForArticle(int $id): array
+    {
+        if (!self::tagsSchemaReady()) return [];
+        return DB::fetchAll('SELECT t.id,t.name_fa,t.slug FROM article_tag_links l INNER JOIN article_tags t ON t.id=l.tag_id WHERE l.article_id=:id ORDER BY t.name_fa,t.id', ['id'=>$id]);
+    }
+
     public static function requireSchema(): void
     {
         if (!self::schemaReady()) {
@@ -56,6 +75,7 @@ final class ArticleService
         }
         unset($item);
         $faqs = DB::fetchAll('SELECT id,article_id,question AS question_fa,answer AS answer_fa,sort AS sort_order FROM article_faqs WHERE article_id=:id ORDER BY sort,id', ['id'=>$id]);
+        $tags = self::tagsForArticle($id);
 
         $article['title_fa'] = (string)$article['title'];
         $article['subtitle_fa'] = (string)($article['meta_description'] ?? '');
@@ -63,6 +83,7 @@ final class ArticleService
         $article['methodology_html'] = (string)($article['tips_html'] ?? '');
         $article['items'] = $items;
         $article['faqs'] = $faqs;
+        $article['tags'] = $tags;
         $article['cover_media_id'] = null;
         $article['cover_url'] = null;
         $article['revision'] = null;
@@ -126,7 +147,11 @@ final class ArticleService
         $items = DB::fetchAll('SELECT business_id,position,custom_desc,highlights,is_sponsored,sponsor_label,sponsor_start,sponsor_end FROM article_items WHERE article_id=:id ORDER BY position,id', ['id'=>$id]);
         $faqs = DB::fetchAll('SELECT question,answer,sort FROM article_faqs WHERE article_id=:id ORDER BY sort,id', ['id'=>$id]);
         $extra = self::schemaReady() ? DB::fetchOne('SELECT cover_media_id FROM article_extras WHERE article_id=:id', ['id'=>$id]) : null;
-        return hash('sha256', (string)json_encode([$article,$items,$faqs,$extra], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $payload = [$article,$items,$faqs,$extra];
+        $tags = self::tagsForArticle($id);
+        // Keep hashes made before the taxonomy migration valid for untagged articles.
+        if ($tags) $payload[] = $tags;
+        return hash('sha256', (string)json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 
     private static function dataFromArticle(?array $article): array
@@ -137,7 +162,7 @@ final class ArticleService
             'city_id'=>$article['city_id'], 'category_id'=>$article['category_id'],
             'meta_title'=>$article['meta_title'], 'meta_description'=>$article['meta_description'],
             'intro_html'=>$article['intro_html'], 'methodology_html'=>$article['methodology_html'],
-            'cover_media_id'=>$article['cover_media_id'], 'items'=>$article['items'], 'faqs'=>$article['faqs'],
+            'cover_media_id'=>$article['cover_media_id'], 'items'=>$article['items'], 'faqs'=>$article['faqs'], 'tags'=>$article['tags'] ?? [],
         ];
     }
 
@@ -221,6 +246,23 @@ final class ArticleService
             }
             $items[] = $merged;
         }
+        $tags = [];
+        if (self::tagsSchemaReady()) {
+            $rawTags = $value(['tags'], []);
+            if (!is_array($rawTags) || count($rawTags) > 20) throw new InvalidArgumentException('حداکثر ۲۰ برچسب موضوعی برای هر مقاله مجاز است.');
+            $seenTags = [];
+            foreach ($rawTags as $rawTag) {
+                $name = trim((string)(is_array($rawTag) ? ($rawTag['name_fa'] ?? '') : $rawTag));
+                if ($name === '') continue;
+                if (mb_strlen($name) > 50 || preg_match('/[<>\\x00-\\x1F\\x7F]/u', $name)) throw new InvalidArgumentException('نام برچسب باید حداکثر ۵۰ نویسه و بدون نشانهٔ HTML باشد.');
+                $key = mb_strtolower(SlugService::normalizePersianText($name), 'UTF-8');
+                if (isset($seenTags[$key])) continue;
+                $seenTags[$key] = true;
+                $tags[] = $name;
+            }
+        } else {
+            $tags = is_array($previous['tags'] ?? null) ? $previous['tags'] : [];
+        }
         $rawFaqs = $value(['faqs'], []);
         if (!is_array($rawFaqs) || count($rawFaqs) > 100) throw new InvalidArgumentException('فهرست پرسش‌ها نامعتبر است.');
         $faqs = [];
@@ -234,7 +276,7 @@ final class ArticleService
         }
         return ['title_fa'=>$title,'slug'=>$slug,'city_id'=>$cityId,'category_id'=>$categoryId,
             'meta_title'=>$metaTitle,'meta_description'=>$metaDescription,'intro_html'=>$intro,'methodology_html'=>$tips,
-            'cover_media_id'=>$cover,'items'=>$items,'faqs'=>$faqs];
+            'cover_media_id'=>$cover,'items'=>$items,'faqs'=>$faqs,'tags'=>$tags];
     }
 
     /** Save a draft, submit for review, or explicitly publish as an admin. */
@@ -293,6 +335,28 @@ final class ArticleService
         }
     }
 
+    /** Upsert reusable topic labels and replace only this article's tag links. */
+    private static function syncTags(int $articleId, array $names): void
+    {
+        if (!self::tagsSchemaReady()) return;
+        DB::query('DELETE FROM article_tag_links WHERE article_id=:id', ['id'=>$articleId]);
+        foreach ($names as $name) {
+            $tag = DB::fetchOne('SELECT id FROM article_tags WHERE name_fa=:name LIMIT 1', ['name'=>$name]);
+            if (!$tag) {
+                $base = substr(SlugService::suggestSlug($name, 'topic'), 0, 120);
+                for ($suffix=1; $suffix<=100 && !$tag; $suffix++) {
+                    $tail = $suffix === 1 ? '' : '-' . $suffix;
+                    $slug = substr($base, 0, 140 - strlen($tail)) . $tail;
+                    if (DB::fetchOne('SELECT id FROM article_tags WHERE slug=:slug LIMIT 1', ['slug'=>$slug])) continue;
+                    DB::query('INSERT IGNORE INTO article_tags (name_fa,slug) VALUES (:name,:slug)', ['name'=>$name,'slug'=>$slug]);
+                    $tag = DB::fetchOne('SELECT id FROM article_tags WHERE name_fa=:name LIMIT 1', ['name'=>$name]);
+                }
+            }
+            if (!$tag) throw new RuntimeException('ذخیره یکی از برچسب‌های موضوعی ممکن نشد؛ دوباره تلاش کنید.');
+            DB::query('INSERT IGNORE INTO article_tag_links (article_id,tag_id) VALUES (:article,:tag)', ['article'=>$articleId,'tag'=>(int)$tag['id']]);
+        }
+    }
+
     /** Caller owns a transaction and has locked the article row. */
     private static function apply(int $id, array $data, string $status): void
     {
@@ -327,6 +391,7 @@ final class ArticleService
             DB::query('INSERT INTO article_faqs (article_id,question,answer,sort) VALUES (:id,:q,:a,:sort)',
                 ['id'=>$id,'q'=>$faq['question_fa'],'a'=>$faq['answer_fa'],'sort'=>$faq['sort_order']]);
         }
+        self::syncTags($id, is_array($data['tags'] ?? null) ? $data['tags'] : []);
     }
 
     private static function syncReview(int $id, string $status, string $title, int $userId, bool $revision): void
