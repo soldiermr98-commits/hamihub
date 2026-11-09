@@ -59,6 +59,7 @@ $router->post('/api/v1/category-packs', [CategoryController::class, 'storeOrUpda
 
 $router->get('/api/v1/businesses', [BusinessController::class, 'index']);
 $router->post('/api/v1/businesses', [BusinessController::class, 'storeOrUpdate']);
+$router->post('/api/v1/businesses/publish', [BusinessController::class, 'publishSaved']);
 $router->post('/api/v1/businesses/promotion', [BusinessController::class, 'setPromotion']);
 $router->post('/api/v1/businesses/data-review', [BusinessController::class, 'recordDataReview']);
 $router->post('/api/v1/import/json/prepare', [ManualImportController::class, 'prepare']);

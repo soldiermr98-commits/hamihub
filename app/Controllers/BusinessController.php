@@ -122,6 +122,38 @@ final class BusinessController
         ]);
     }
 
+    /** Admin-only, status-only recovery action for a saved business draft. */
+    public static function publishSaved(Request $request): void
+    {
+        $user = Auth::requireRole(['admin']);
+        Csrf::verifyOrFail($request);
+        $id = (int)$request->input('business_id', 0);
+        if ($id <= 0) Response::json(['ok'=>false,'error'=>'شناسه کسب‌وکار معتبر نیست.'], 422);
+
+        $pdo = DB::connection();
+        $pdo->beginTransaction();
+        try {
+            $business = DB::fetchOne('SELECT id FROM businesses WHERE id=:id FOR UPDATE', ['id'=>$id]);
+            if (!$business) {
+                $pdo->rollBack();
+                Response::json(['ok'=>false,'error'=>'کسب‌وکار پیدا نشد.'], 404);
+            }
+            DB::query("UPDATE businesses SET status='published',updated_at=NOW() WHERE id=:id", ['id'=>$id]);
+            DB::query("UPDATE review_queue SET status='approved',decided_by=:user,decided_at=NOW() WHERE kind='business' AND target_id=:id AND status='pending'", ['user'=>(int)$user['id'],'id'=>$id]);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            Response::json(['ok'=>false,'error'=>'انتشار کسب‌وکار ثبت نشد؛ وضعیت فرم تغییری نکرد.'], 500);
+        }
+
+        Cache::flushAll();
+        $saved = DB::fetchOne('SELECT id,status FROM businesses WHERE id=:id', ['id'=>$id]);
+        if (!$saved || $saved['status'] !== 'published') {
+            Response::json(['ok'=>false,'error'=>'سرور انتشار را تأیید نکرد؛ وضعیت فعلی همچنان منتشرنشده است.'], 409);
+        }
+        Response::json(['ok'=>true,'message'=>'کسب‌وکار ذخیره‌شده منتشر شد.','business'=>$saved]);
+    }
+
     public static function setPromotion(Request $request): void
     {
         Auth::requireRole(['admin']);
