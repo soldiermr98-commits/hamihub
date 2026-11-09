@@ -3,8 +3,10 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Core\Cache;
 use App\Core\Config;
 use App\Core\DB;
+use App\Core\WorkerLock;
 use CollectorRemote\Providers\OsmProvider;
 use CollectorRemote\Providers\NeshanProvider;
 use RuntimeException;
@@ -14,6 +16,30 @@ use Throwable;
 final class CollectorRunner
 {
     public static function runNext(?callable $providerFactory = null): array
+    {
+        // Shared with the panel, cron and stale-job recovery. A busy run is
+        // skipped rather than starting another provider request.
+        if (!WorkerLock::acquire('collector')) {
+            return ['ran'=>false, 'status'=>'busy', 'message'=>'یک کار جمع‌آوری در حال اجراست؛ بعداً دوباره تلاش کنید.'];
+        }
+        try {
+            return self::runLocked($providerFactory);
+        } finally {
+            WorkerLock::release('collector');
+        }
+    }
+
+    /** Do not process or finish a job after losing its lock or claim attempt. */
+    private static function assertClaim(int $jobId, int $attempt): void
+    {
+        WorkerLock::assertHeld('collector');
+        $current = DB::fetchOne('SELECT status,attempts FROM collector_jobs WHERE id=:id', ['id'=>$jobId]);
+        if (!$current || $current['status'] !== 'running' || (int)$current['attempts'] !== $attempt) {
+            throw new RuntimeException('مالکیت کار تغییر کرده است؛ نتیجه اجرا نیاز به بررسی دارد.');
+        }
+    }
+
+    private static function runLocked(?callable $providerFactory): array
     {
         $pdo = DB::connection();
         $pdo->beginTransaction();
@@ -38,8 +64,11 @@ final class CollectorRunner
         }
 
         $jobId = (int) $job['id'];
+        $attempt = (int)$job['attempts'] + 1;
         $providerName = (string) $job['provider'];
+        $pipelineAttempted = false;
         try {
+            self::assertClaim($jobId, $attempt);
             $params = json_decode((string) ($job['params_json'] ?? '{}'), true) ?: [];
             $pack = json_decode((string) ($job['pack_queries'] ?? '{}'), true) ?: [];
             $queries = !empty($params['custom_query']) ? [(string) $params['custom_query']] : ($pack[$providerName] ?? []);
@@ -52,9 +81,12 @@ final class CollectorRunner
             if (!$provider instanceof \CollectorRemote\Providers\ProviderInterface) throw new RuntimeException('Provider نامعتبر است.');
             $items = $provider->search(['city_name_fa'=>$job['city_name'],'city_slug'=>$job['city_slug'],
                 'lat'=>$job['city_lat'],'lng'=>$job['city_lng'],'bbox'=>json_decode((string)$job['city_bbox'], true), 'queries'=>$queries]);
+            self::assertClaim($jobId, $attempt);
             $summary = ['found'=>count($items),'inserted'=>0,'duplicates'=>0,'pending_review'=>0,'errors'=>0,'last_error'=>null];
             foreach ($items as $item) {
+                self::assertClaim($jobId, $attempt);
                 try {
+                    $pipelineAttempted = true;
                     $r = PipelineService::processIncomingRecord((int)$job['city_id'], (int)($params['category_id'] ?? 1), $providerName, $item, 'manual');
                     if ($r['is_new']) { $summary['inserted']++; $summary['pending_review']++; }
                     else $summary['duplicates']++;
@@ -63,19 +95,29 @@ final class CollectorRunner
                     $summary['last_error'] = $e->getMessage();
                 }
             }
+            self::assertClaim($jobId, $attempt);
             $status = $summary['errors'] > 0 ? 'failed' : 'done';
             if ($provider instanceof OsmProvider && $provider->possiblyTruncated()) $summary['warning'] = 'حداکثر ۲۰۰ نتیجه دریافت شد؛ ممکن است نتایج بیشتری وجود داشته باشد.';
-            DB::query("UPDATE collector_jobs SET status=:status,result_json=:result,error=:error,updated_at=NOW() WHERE id=:id AND status='running'",
-                ['status'=>$status,'result'=>json_encode($summary, JSON_UNESCAPED_UNICODE),'error'=>$summary['last_error'],'id'=>$jobId]);
+            $finished = DB::query("UPDATE collector_jobs SET status=:status,result_json=:result,error=:error,updated_at=NOW() WHERE id=:id AND status='running' AND attempts=:attempt",
+                ['status'=>$status,'result'=>json_encode($summary, JSON_UNESCAPED_UNICODE),'error'=>$summary['last_error'],'id'=>$jobId,'attempt'=>$attempt])->rowCount();
+            if ($finished !== 1) throw new RuntimeException('مالکیت کار تغییر کرده است؛ نتیجه اجرا نیاز به بررسی دارد.');
             return ['ran'=>true,'job_id'=>$jobId,'status'=>$status,'summary'=>$summary,
                 'message'=>$status === 'done' ? 'کار اجرا شد؛ موارد جدید منتظر بازبینی‌اند.' : 'کار با خطاهای ثبت‌شده پایان یافت.'];
         } catch (Throwable $e) {
+            // Never mark a newer attempt failed or pause a provider after losing
+            // the lock. If ownership is uncertain, let the caller report it.
+            self::assertClaim($jobId, $attempt);
             $code = (int) $e->getCode();
             if (in_array($code, [403,429], true)) {
                 DB::query("UPDATE provider_state SET paused_until=DATE_ADD(NOW(), INTERVAL 24 HOUR),last_error=:e WHERE provider=:p", ['e'=>$e->getMessage(),'p'=>$providerName]);
             }
-            DB::query("UPDATE collector_jobs SET status='failed',error=:error,updated_at=NOW() WHERE id=:id AND status='running'", ['error'=>$e->getMessage(),'id'=>$jobId]);
+            $failed = DB::query("UPDATE collector_jobs SET status='failed',error=:error,updated_at=NOW() WHERE id=:id AND status='running' AND attempts=:attempt", ['error'=>$e->getMessage(),'id'=>$jobId,'attempt'=>$attempt])->rowCount();
+            if ($failed !== 1) throw new RuntimeException('مالکیت کار تغییر کرده است؛ نتیجه اجرا نیاز به بررسی دارد.', 0, $e);
             return ['ran'=>true,'job_id'=>$jobId,'status'=>'failed','message'=>$e->getMessage()];
+        } finally {
+            // Each record may commit independently, including an uncertain
+            // commit before a disconnect. Never leave earlier changes cached.
+            if ($pipelineAttempted) Cache::flushAll();
         }
     }
 }

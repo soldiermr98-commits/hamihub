@@ -51,8 +51,15 @@ final class CollectorController
     {
         Csrf::verifyOrFail($request);
         Auth::requireRole(['admin','editor']);
-        $result = CollectorRunner::runNext();
-        Response::json(array_merge(['ok'=>($result['status'] ?? '') !== 'failed'], $result));
+        try {
+            $result = CollectorRunner::runNext();
+            Response::json(array_merge(['ok'=>($result['status'] ?? '') !== 'failed'], $result));
+        } catch (\Throwable $e) {
+            // A database disconnect can make the result uncertain. Do not retry
+            // automatically or expose connection details to the browser.
+            error_log('Collector run could not be confirmed: ' . get_class($e));
+            Response::json(['ok'=>false, 'error'=>'نتیجه اجرای جمع‌آوری مشخص نیست؛ پیش از تلاش دوباره وضعیت صف را بررسی کنید.'], 500);
+        }
     }
 
     public static function updateProvider(Request $request): void

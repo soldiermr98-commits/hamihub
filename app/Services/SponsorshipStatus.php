@@ -18,4 +18,20 @@ final class SponsorshipStatus
         if (!empty($item['sponsor_start']) && (string)$item['sponsor_start'] > $now) return 'upcoming';
         return 'active';
     }
+
+    /** Next start/end of a visible sponsored item, using the site's local timezone. */
+    public static function nextBoundary(array $items, string $now): int
+    {
+        $next = 0;
+        foreach ($items as $item) {
+            if (empty($item['is_sponsored'])) continue;
+            foreach (['sponsor_start', 'sponsor_end'] as $key) {
+                $boundary = (string)($item[$key] ?? '');
+                if ($boundary === '' || $boundary <= $now) continue;
+                $timestamp = strtotime($boundary);
+                if ($timestamp !== false && $timestamp > 0 && ($next === 0 || $timestamp < $next)) $next = $timestamp;
+            }
+        }
+        return $next;
+    }
 }

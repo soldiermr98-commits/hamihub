@@ -49,6 +49,9 @@ if ($path === '/admin' || str_starts_with($path, '/admin/')) {
 if ($request->method() === 'GET' && empty($_GET)) {
     $cachedHtml = Cache::getPage($path);
     if ($cachedHtml !== null) Response::html($cachedHtml);
+    // Capture before the router or controller reads data. A later purge makes
+    // this render ineligible to write the cache, even if it finishes last.
+    Cache::beginRender();
 }
 
 $router = new Router();

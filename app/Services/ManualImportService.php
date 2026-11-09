@@ -205,56 +205,61 @@ final class ManualImportService
     public static function apply(array $entries, array $options): array
     {
         if (!$entries || count($entries) > self::BATCH_SIZE || !array_is_list($entries)) throw new InvalidArgumentException('هر نوبت حداکثر ۲۵ رکورد مجاز است.');
-        $result = []; $seen = []; $changed = false;
-        foreach ($entries as $entry) {
-            if (!is_array($entry)) { $result[] = ['index'=>-1,'status'=>'skipped','message'=>'رکورد ارسالی معتبر نیست.']; continue; }
-            $index = (int)($entry['index'] ?? -1);
-            $item = $entry['item'] ?? null;
-            $lockName = '';
-            if (is_array($item) && ($item['source'] ?? null) === 'google_maps') {
-                $pids = ApifyImportService::placeIds($item);
-                if (count($pids) === 1) {
-                    $lockName = 'hhx_google_' . substr(hash('sha256', $pids[0]), 0, 48);
-                    $locked = DB::fetchOne('SELECT GET_LOCK(:name, 2) AS acquired', ['name'=>$lockName]);
-                    if ((int)($locked['acquired'] ?? 0) !== 1) { $result[] = ['index'=>$index,'status'=>'skipped','message'=>'این شناسه هم‌اکنون در حال پردازش است؛ دوباره پیش‌نمایش بگیرید.']; continue; }
+        $result = []; $seen = []; $pipelineAttempted = false;
+        try {
+            foreach ($entries as $entry) {
+                if (!is_array($entry)) { $result[] = ['index'=>-1,'status'=>'skipped','message'=>'رکورد ارسالی معتبر نیست.']; continue; }
+                $index = (int)($entry['index'] ?? -1);
+                $item = $entry['item'] ?? null;
+                $lockName = '';
+                if (is_array($item) && ($item['source'] ?? null) === 'google_maps') {
+                    $pids = ApifyImportService::placeIds($item);
+                    if (count($pids) === 1) {
+                        $lockName = 'hhx_google_' . substr(hash('sha256', $pids[0]), 0, 48);
+                        $locked = DB::fetchOne('SELECT GET_LOCK(:name, 2) AS acquired', ['name'=>$lockName]);
+                        if ((int)($locked['acquired'] ?? 0) !== 1) { $result[] = ['index'=>$index,'status'=>'skipped','message'=>'این شناسه هم‌اکنون در حال پردازش است؛ دوباره پیش‌نمایش بگیرید.']; continue; }
+                    }
+                }
+                try {
+                    $row = self::inspect($index, $item, $options);
+                    $key = $row['source'] . "\0" . $row['source_id'];
+                    if (isset($seen[$key])) { $result[] = ['index'=>$index,'status'=>'skipped','message'=>'شناسه تکراری در همین نوبت.']; continue; }
+                    $seen[$key] = true;
+                    $decision = (string)($entry['decision'] ?? ''); $target = 0;
+                    if ($row['status'] === 'update' && $decision === 'update') {
+                        $target = (int)$row['business_id'];
+                    } elseif (in_array($row['status'], ['new','review'], true) && $decision === 'new') {
+                        $expected = is_array($entry['candidate_ids'] ?? null) ? array_map('intval', $entry['candidate_ids']) : [-1];
+                        $current = array_column($row['candidates'], 'id'); sort($expected); sort($current);
+                        if ($expected !== $current) { $result[] = ['index'=>$index,'status'=>'skipped','message'=>'نتیجه تطبیق تغییر کرده است؛ دوباره پیش‌نمایش بگیرید.']; continue; }
+                    } elseif ($row['status'] === 'review' && preg_match('/^link:(\d+)$/', $decision, $m) && in_array((int)$m[1], array_column($row['candidates'], 'id'), true)) {
+                        $target = (int)$m[1];
+                    } else {
+                        $result[] = ['index'=>$index,'status'=>'skipped','message'=>$row['message'] ?: 'این مورد نیاز به بررسی دوباره دارد.']; continue;
+                    }
+                    try {
+                        // inspect may have resolved a Place ID to an existing legacy FID.
+                        $item['source_id'] = $row['source_id'];
+                        $pipelineAttempted = true; // A commit can succeed even if its acknowledgement is lost.
+                        $saved = PipelineService::processIncomingRecord($options['city_id'], $options['category_id'], trim($item['source']), $item, 'manual', 0.0,
+                            ['manual_import'=>true,'target_business_id'=>$target,'source_time'=>$row['source_time']]);
+                        $result[] = ['index'=>$index, 'status'=>$saved['is_new'] ? 'created' : 'updated', 'business_id'=>$saved['business_id'],
+                            'message'=>$saved['is_new'] ? 'ثبت شد و در انتظار بازبینی است.' : 'منبع ثبت شد؛ تغییر مشخصات برای بازبینی ارسال شد.'];
+                    } catch (InvalidArgumentException $e) {
+                        $result[] = ['index'=>$index,'status'=>'skipped','message'=>$e->getMessage()];
+                    } catch (Throwable $e) {
+                        error_log('Manual import failed: ' . $e->getMessage());
+                        $result[] = ['index'=>$index,'status'=>'error','message'=>'خطای ذخیره؛ این رکورد ذخیره نشد. دوباره پیش‌نمایش بگیرید.'];
+                    }
+                } finally {
+                    if ($lockName !== '') DB::fetchOne('SELECT RELEASE_LOCK(:name) AS released', ['name'=>$lockName]);
                 }
             }
-            try {
-            $row = self::inspect($index, $item, $options);
-            $key = $row['source'] . "\0" . $row['source_id'];
-            if (isset($seen[$key])) { $result[] = ['index'=>$index,'status'=>'skipped','message'=>'شناسه تکراری در همین نوبت.']; continue; }
-            $seen[$key] = true;
-            $decision = (string)($entry['decision'] ?? ''); $target = 0;
-            if ($row['status'] === 'update' && $decision === 'update') {
-                $target = (int)$row['business_id'];
-            } elseif (in_array($row['status'], ['new','review'], true) && $decision === 'new') {
-                $expected = is_array($entry['candidate_ids'] ?? null) ? array_map('intval', $entry['candidate_ids']) : [-1];
-                $current = array_column($row['candidates'], 'id'); sort($expected); sort($current);
-                if ($expected !== $current) { $result[] = ['index'=>$index,'status'=>'skipped','message'=>'نتیجه تطبیق تغییر کرده است؛ دوباره پیش‌نمایش بگیرید.']; continue; }
-            } elseif ($row['status'] === 'review' && preg_match('/^link:(\d+)$/', $decision, $m) && in_array((int)$m[1], array_column($row['candidates'], 'id'), true)) {
-                $target = (int)$m[1];
-            } else {
-                $result[] = ['index'=>$index,'status'=>'skipped','message'=>$row['message'] ?: 'این مورد نیاز به بررسی دوباره دارد.']; continue;
-            }
-            try {
-                // inspect may have resolved a Place ID to an existing legacy FID.
-                $item['source_id'] = $row['source_id'];
-                $saved = PipelineService::processIncomingRecord($options['city_id'], $options['category_id'], trim($item['source']), $item, 'manual', 0.0,
-                    ['manual_import'=>true,'target_business_id'=>$target,'source_time'=>$row['source_time']]);
-                $changed = true;
-                $result[] = ['index'=>$index, 'status'=>$saved['is_new'] ? 'created' : 'updated', 'business_id'=>$saved['business_id'],
-                    'message'=>$saved['is_new'] ? 'ثبت شد و در انتظار بازبینی است.' : 'منبع ثبت شد؛ تغییر مشخصات برای بازبینی ارسال شد.'];
-            } catch (InvalidArgumentException $e) {
-                $result[] = ['index'=>$index,'status'=>'skipped','message'=>$e->getMessage()];
-            } catch (Throwable $e) {
-                error_log('Manual import failed: ' . $e->getMessage());
-                $result[] = ['index'=>$index,'status'=>'error','message'=>'خطای ذخیره؛ این رکورد ذخیره نشد. دوباره پیش‌نمایش بگیرید.'];
-            }
-            } finally {
-                if ($lockName !== '') DB::fetchOne('SELECT RELEASE_LOCK(:name) AS released', ['name'=>$lockName]);
-            }
+        } finally {
+            // Entries commit independently. Also invalidate if a later lock
+            // release or an uncertain commit interrupts the batch.
+            if ($pipelineAttempted) Cache::flushAll();
         }
-        if ($changed) Cache::flushAll();
         return $result;
     }
 }

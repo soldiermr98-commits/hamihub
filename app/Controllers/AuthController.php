@@ -100,6 +100,9 @@ final class AuthController
         Auth::requireRole(['admin']);
 
         $deleted = Cache::flushAll();
+        if ($deleted < 0) {
+            Response::json(['ok'=>false, 'error'=>'پاک‌سازی کش تأیید نشد؛ دسترسی فایل و گزارش سرور را بررسی کنید.'], 500);
+        }
         Response::json([
             'ok' => true,
             'deleted_pages' => $deleted,

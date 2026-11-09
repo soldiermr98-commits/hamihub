@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Auth;
+use App\Core\Cache;
 use App\Core\Csrf;
 use App\Core\DB;
 use App\Core\Request;
@@ -112,6 +113,7 @@ final class CategoryController
             $msg = "دسته‌بندی جدید «{$nameFa}» با اسلاگ «{$uniqueSlug}» ساخته شد.";
         }
 
+        Cache::flushAll();
         $category = DB::fetchOne("SELECT * FROM categories WHERE id = :id", ['id' => $catId]);
 
         Response::json([
