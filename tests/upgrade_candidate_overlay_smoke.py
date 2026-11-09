@@ -18,6 +18,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 BASE = '35476933f98ebd2d5d442ae4a8eb54dc7e32e5b0'
 TARGET = '543b0d6eeed8e51b1986268a43bee12cb564cc67'
+TARGET_RC2 = '17be5bb6d0f5d75c7d2aee159ac00b573f101ef9'
 ARCHIVES = (
     'release-files/v2026.11.06/hamihub-full-install-v2026.11.06.zip',
     'release-files/v2026.11.06.1/hamihub-update-admin-user-v2026.11.06.1.zip',
@@ -27,6 +28,7 @@ ARCHIVES = (
     'release-files/v2026.11.07.5/hamihub-update-ai-models-v2026.11.07.5.zip',
 )
 CANDIDATE = ROOT / 'release-files/after-v2026.11.07.5-rc1/hamihub-update-after-v2026.11.07.5-rc1.zip'
+CANDIDATE_RC2 = ROOT / 'release-files/after-v2026.11.07.5-rc2/hamihub-update-after-v2026.11.07.5-rc2.zip'
 RUNTIME = ('app/', 'database/', 'public_html/')
 DOCS = {'UPGRADE-RC-FA.md', 'UPGRADE-RC-SOURCE.txt', 'UPGRADE-RC-MANIFEST.txt', 'UPGRADE-RC-BASELINE-SHA256.txt'}
 if not __debug__:
@@ -95,14 +97,14 @@ def files_snapshot(stage: Path) -> dict[str, str]:
     return {p.relative_to(stage).as_posix(): sha(p.read_bytes()) for p in stage.rglob('*') if p.is_file()}
 
 
-def run(stage: Path, baseline_only: bool = False) -> None:
+def run(stage: Path, baseline_only: bool = False, *, target: str = TARGET, candidate: Path = CANDIDATE) -> None:
     for archive in ARCHIVES:
         extract(ROOT / archive, stage)
     count_before = compare_tree(stage, BASE)
     for path, content in SENTINELS.items():
-        target = stage / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
+        destination = stage / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(content)
     if baseline_only:
         test_dir = stage / 'tests'
         test_dir.mkdir(exist_ok=True)
@@ -114,14 +116,24 @@ def run(stage: Path, baseline_only: bool = False) -> None:
         return
     before = files_snapshot(stage)
 
-    with zipfile.ZipFile(CANDIDATE) as z:
+    with zipfile.ZipFile(candidate) as z:
         entries = safe_entries(z)
         assert z.testzip() is None, 'ZIP CRC validation failed'
     candidates = set(entries) - DOCS
-    changed = set(git('diff', '--no-renames', '--name-only', '-z', BASE, TARGET, '--', 'app', 'database', 'public_html').decode().split('\0')) - {''}
+    changed = set(git('diff', '--no-renames', '--name-only', '-z', BASE, target, '--', 'app', 'database', 'public_html').decode().split('\0')) - {''}
     assert candidates == changed, f'Unexpected runtime file set: {candidates ^ changed}'
     assert all(p.startswith(RUNTIME) and not p.startswith(('public_html/uploads/', 'public_html/cache/')) for p in candidates)
     assert DOCS <= set(entries) and len(entries) == len(changed) + len(DOCS)
+    assert entries['UPGRADE-RC-FA.md'] == (candidate.parent / 'RAHNAMA-FA.md').read_bytes(), 'External and embedded guides differ'
+    source = entries['UPGRADE-RC-SOURCE.txt'].decode()
+    assert BASE in source and target in source and 'STAGING ONLY' in source, 'Candidate source identifiers do not match'
+    if target == TARGET_RC2:
+        # RC2 is a cumulative .5 overlay, not an update to RC1. Its only
+        # runtime additions relative to RC1 are the two merged media files.
+        with zipfile.ZipFile(CANDIDATE) as old:
+            rc1_runtime = {name: data for name, data in safe_entries(old).items() if name not in DOCS}
+        differences = {p for p in set(rc1_runtime) | candidates if rc1_runtime.get(p) != entries.get(p)}
+        assert differences == {'app/Controllers/BusinessController.php', 'app/Services/MediaService.php'}, f'Unexpected RC2/RC1 differences: {differences}'
     for secret in SENTINELS.values():
         assert not any(secret in data for data in entries.values()), 'Synthetic private data leaked into the ZIP'
     def parse_manifest(data: bytes) -> dict[str, str]:
@@ -136,19 +148,19 @@ def run(stage: Path, baseline_only: bool = False) -> None:
     assert set(manifest) == candidates
     for path in candidates:
         assert sha(entries[path]) == manifest[path], f'Manifest mismatch: {path}'
-        assert entries[path] == git('show', f'{TARGET}:{path}'), f'Archive/source mismatch: {path}'
-    baseline_data = (CANDIDATE.parent / 'BASELINE-SHA256.txt').read_bytes()
+        assert entries[path] == git('show', f'{target}:{path}'), f'Archive/source mismatch: {path}'
+    baseline_data = (candidate.parent / 'BASELINE-SHA256.txt').read_bytes()
     assert baseline_data == entries['UPGRADE-RC-BASELINE-SHA256.txt']
     baseline = parse_manifest(baseline_data)
     assert set(baseline) == set(tracked_runtime(BASE))
     for path, value in baseline.items():
         assert value == sha((stage / path).read_bytes()), f'Baseline mismatch: {path}'
-    checksum_lines = (CANDIDATE.parent / 'SHA256SUMS.txt').read_text().splitlines()
-    assert checksum_lines == [f'{sha(CANDIDATE.read_bytes())}  {CANDIDATE.name}',
+    checksum_lines = (candidate.parent / 'SHA256SUMS.txt').read_text().splitlines()
+    assert checksum_lines == [f'{sha(candidate.read_bytes())}  {candidate.name}',
                               f'{sha(baseline_data)}  BASELINE-SHA256.txt'], 'External checksum mismatch'
 
-    extract(CANDIDATE, stage)
-    count_after = compare_tree(stage, TARGET)
+    extract(candidate, stage)
+    count_after = compare_tree(stage, target)
     after = files_snapshot(stage)
     for path, value in before.items():
         if path not in candidates:
@@ -167,9 +179,11 @@ def run(stage: Path, baseline_only: bool = False) -> None:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--candidate', choices=('rc1', 'rc2'), default='rc1', help='pinned candidate (default: rc1)')
     parser.add_argument('--stage', type=Path, help='new, non-repository directory to retain for guarded local tests')
     parser.add_argument('--baseline-only', action='store_true', help='retain old code and PHP fixtures for the two-phase DB test; requires --stage')
     args = parser.parse_args()
+    target, candidate = (TARGET_RC2, CANDIDATE_RC2) if args.candidate == 'rc2' else (TARGET, CANDIDATE)
     if args.baseline_only and not args.stage:
         parser.error('--baseline-only requires --stage')
     if args.stage:
@@ -177,7 +191,7 @@ if __name__ == '__main__':
         if stage.exists() or stage == ROOT or ROOT in stage.parents:
             raise SystemExit('--stage must be a new directory outside the repository')
         stage.mkdir(parents=True)
-        run(stage, args.baseline_only)
+        run(stage, args.baseline_only, target=target, candidate=candidate)
     else:
         with tempfile.TemporaryDirectory(prefix='hhx-upgrade-') as directory:
-            run(Path(directory))
+            run(Path(directory), target=target, candidate=candidate)
