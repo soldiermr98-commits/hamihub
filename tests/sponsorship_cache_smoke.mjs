@@ -34,11 +34,12 @@ r=await admin.request('POST','/api/v1/articles',{id:article.id,edit_token:articl
 assert.equal(r.status,200,r.text);
 r=await guest.request('GET','/fixture-sponsor-cache/');assert.equal(r.status,200);assert(r.text.includes('اسپانسر موقت آزمایشی'),'active sponsor is initially cached');
 await new Promise(resolve=>setTimeout(resolve,Math.max(0,endMs-Date.now()+1500)));
-r=await admin.request('POST','/api/v1/system/cron-run',{});
-assert.equal(r.status,200,r.text);assert(r.json.sponsor_transitions>=1,'maintenance detected transition');assert(r.json.flushed_files>=1,'maintenance invalidated cached page');
+// Expiration must happen at the boundary without waiting for maintenance.
 r=await guest.request('GET','/fixture-sponsor-cache/');
-assert.equal(r.status,200);assert(!r.text.includes('اسپانسر موقت آزمایشی'),'expired sponsor no longer appears after cache invalidation');
+assert.equal(r.status,200);assert(!r.text.includes('اسپانسر موقت آزمایشی'),'expired sponsor is absent even before maintenance');
 const table=r.text.match(/<table class="hx-table">([\s\S]*?)<\/table>/)?.[1]||'';
 assert(table.indexOf('کافه آزمایشی')>=0 && table.indexOf('کافه دوم')>=0);
 assert(table.indexOf('کافه آزمایشی')<table.indexOf('کافه دوم'),'normal order is restored after expiration');
-console.log('PASS: scheduled expiration clears a real cached synthetic article and restores non-sponsored order');
+r=await admin.request('POST','/api/v1/system/cron-run',{});
+assert.equal(r.status,200,r.text);assert(r.json.sponsor_transitions>=1,'maintenance detected transition');assert(r.json.flushed_files>=1,'maintenance invalidated the refreshed synthetic page');
+console.log('PASS: a cached synthetic article expires at its sponsor boundary even without maintenance');

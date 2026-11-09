@@ -14,6 +14,7 @@ use App\Services\AdvertisingService;
 use App\Services\ArticleService;
 use App\Services\BusinessUrlService;
 use App\Services\Normalizer;
+use App\Services\SponsorshipStatus;
 use Throwable;
 
 /**
@@ -1257,6 +1258,7 @@ final class PublicSiteController
             'ad_placement'=> 'article',
             'ad_city_id'  => !empty($article['city_id']) ? (int)$article['city_id'] : null,
             'ad_category_id' => !empty($article['category_id']) ? (int)$article['category_id'] : null,
+            'sponsor_until' => SponsorshipStatus::nextBoundary($items, $sponsorNow),
             'body'        => $bodyHtml,
         ]);
 
@@ -1610,7 +1612,16 @@ final class PublicSiteController
 
         try {
             $summary = \App\Services\MaintenanceService::run();
-            Response::json(array_merge(['ok' => true, 'message' => 'نگهداری سیستم انجام شد.'], $summary));
+            if (($summary['status'] ?? '') === 'busy') {
+                Response::json(['ok'=>false, 'error'=>$summary['message']], 409);
+            }
+            if (($summary['status'] ?? '') === 'cache_error') {
+                Response::json(['ok'=>false, 'error'=>'نگهداری اجرا شد، اما پاک‌سازی کش تأیید نشد؛ گزارش سرور را بررسی کنید.', 'summary'=>$summary], 500);
+            }
+            $message = !empty($summary['collector_recovery_skipped'])
+                ? 'نگهداری انجام شد؛ بررسی کارهای قدیمی جمع‌آوری تا پایان اجرای فعلی به تعویق افتاد.'
+                : 'نگهداری سیستم انجام شد.';
+            Response::json(array_merge(['ok' => true, 'message' => $message], $summary));
         } catch (Throwable $e) {
             error_log('Maintenance failed: ' . $e->getMessage());
             Response::json(['ok' => false, 'error' => 'اجرای نگهداری ناموفق بود؛ گزارش سرور را بررسی کنید.'], 500);
@@ -1839,6 +1850,7 @@ final class PublicSiteController
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="/assets/css/public.css?v=s10.0">
     <!-- hhx-ad-until:<?= (int)$ad['until'] ?> -->
+    <!-- hhx-sponsor-until:<?= max(0, (int)($data['sponsor_until'] ?? 0)) ?> -->
     <?php foreach ($schemas as $schema):
         $schemaJson = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT));
     ?>

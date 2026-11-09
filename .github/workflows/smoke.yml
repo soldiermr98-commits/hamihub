@@ -7,8 +7,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Never deploy, access production, run cron, or pass provider credentials here.
-# The application tests below use fake responses and temporary local files only.
+# Never deploy, access production, schedule cron, or pass provider credentials here.
+# Tests use fake responses, disposable local files and an isolated MariaDB service.
 permissions:
   contents: read
 
@@ -107,6 +107,7 @@ jobs:
             tests/ai_provider_vault_smoke.php \
             tests/payment_sandbox_flag_smoke.php \
             tests/payment_gateway_protocol_smoke.php \
+            tests/cache_generation_concurrency_smoke.php \
             tests/sponsorship_cache_version_smoke.php \
             tests/sponsorship_dashboard_status_smoke.php \
             tests/sponsorship_time_boundary_smoke.php; do
@@ -118,3 +119,80 @@ jobs:
         run: |
           python3 tests/rc2_read_only_preflight_smoke.py
           python3 tests/rc2_directadmin_once_smoke.py
+
+  database-concurrency:
+    name: MariaDB 10.11 synthetic concurrency and pages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: fixture-root-password-only
+          MARIADB_ROOT_HOST: '%'
+          MARIADB_DATABASE: hhx_test_worker_ci
+        ports:
+          - 33306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.3'
+          extensions: mbstring, curl, fileinfo, pdo, pdo_mysql
+          coverage: none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Fake worker contention, failures and cache invalidation
+        env:
+          HHX_ALLOW_TEST_FIXTURES: '1'
+        run: |
+          cat > "$RUNNER_TEMP/worker-config.php" <<'PHP'
+          <?php return [
+              'app'=>['timezone'=>'Asia/Tehran'],
+              'db'=>['host'=>'127.0.0.1','port'=>33306,'database'=>'hhx_test_worker_ci',
+                     'username'=>'root','password'=>'fixture-root-password-only','charset'=>'utf8mb4'],
+              'providers'=>[], 'security'=>['cookie_secure'=>false],
+              'reserved_slugs'=>['admin','api','assets','uploads','cache','city','b','sitemap','robots']
+          ];
+          PHP
+          export HHX_TEST_CONFIG="$RUNNER_TEMP/worker-config.php"
+          php tests/worker_cache_database_smoke.php
+      - name: Synthetic article cache boundaries without scheduled maintenance
+        env:
+          HHX_ALLOW_TEST_FIXTURES: '1'
+          HHX_TEST_NONCE: synthetic-fixture-nonce-only
+          HHX_TEST_PASSWORD: synthetic-password-only
+          HHX_TEST_URL: http://127.0.0.1:18795
+        run: |
+          php -r '$p=new PDO("mysql:host=127.0.0.1;port=33306", "root", "fixture-root-password-only", [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]); $p->exec("CREATE DATABASE hhx_test_public_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
+          cat > "$RUNNER_TEMP/public-config.php" <<'PHP'
+          <?php return [
+              'app'=>['timezone'=>'Asia/Tehran', 'url'=>'http://127.0.0.1:18795'],
+              'db'=>['host'=>'127.0.0.1','port'=>33306,'database'=>'hhx_test_public_ci',
+                     'username'=>'root','password'=>'fixture-root-password-only','charset'=>'utf8mb4'],
+              'providers'=>[], 'security'=>['cookie_secure'=>false,'session_name'=>'hhx_fixture_session'],
+              'reserved_slugs'=>['admin','api','assets','uploads','cache','city','b','sitemap','robots','install','check','storage']
+          ];
+          PHP
+          export HHX_TEST_CONFIG="$RUNNER_TEMP/public-config.php"
+          root="$RUNNER_TEMP/hhx-page-fixture"
+          mkdir -p "$root"
+          cp -a app config cron database public_html tests collector-remote "$root/"
+          php "$root/tests/setup_article_url_fixture.php"
+          php "$root/tests/manual_import_smoke.php"
+          php "$root/tests/collector_smoke.php"
+          php -S 127.0.0.1:18795 -t "$root/public_html" "$root/tests/article_fixture_router.php" > "$RUNNER_TEMP/fixture-server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          curl --retry 15 --retry-connrefused --retry-delay 1 -fsS "$HHX_TEST_URL/__article_fixture_guard__" > /dev/null
+          node "$root/tests/article_city_http_smoke.mjs"
+          node "$root/tests/sponsorship_cache_smoke.mjs"

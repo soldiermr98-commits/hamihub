@@ -136,6 +136,7 @@ final class ReviewQueueController
         foreach (array_unique($cleanIds) as $rqId) {
             $pdo = DB::connection();
             $pdo->beginTransaction();
+            $commitAttempted = false;
             try {
                 $item = DB::fetchOne("SELECT * FROM review_queue WHERE id=:id FOR UPDATE", ['id'=>$rqId]);
                 if (!$item || $item['status'] !== 'pending') { $pdo->rollBack(); $skipped++; continue; }
@@ -191,16 +192,17 @@ final class ReviewQueueController
                 elseif ($kind === 'report') DB::query("UPDATE reports SET status=:status WHERE id=:id AND status='pending'", ['status'=>$decision==='approved'?'resolved':'rejected','id'=>$targetId]);
                 else { $pdo->rollBack(); $skipped++; continue; }
                 DB::query("UPDATE review_queue SET status=:status,decided_by=:uid,decided_at=NOW() WHERE id=:id", ['status'=>$decision,'uid'=>(int)$user['id'],'id'=>$rqId]);
+                // The connection can fail while COMMIT's outcome is unknown.
+                // Invalidate even then, and before processing the next item.
+                $commitAttempted = true;
                 $pdo->commit();
                 $processedCount++;
             } catch (\Throwable $e) {
                 if ($pdo->inTransaction()) $pdo->rollBack();
                 throw $e;
+            } finally {
+                if ($commitAttempted) Cache::flushAll();
             }
-        }
-
-        if ($processedCount > 0) {
-            Cache::flushAll();
         }
 
         Response::json([

@@ -439,7 +439,6 @@ final class BusinessController
         $pdo->commit();
 
         // ابطال کش صفحات عمومی (صفحه کسب‌وکار، صفحه شهر، دسته و مقالات لیستی) در صورت تغییر
-        Cache::forgetPage('/b/' . $uniqueSlug);
         Cache::flushAll();
 
         $savedBiz = DB::fetchOne("SELECT * FROM businesses WHERE id = :id", ['id' => $bizId]);
