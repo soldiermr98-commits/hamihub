@@ -139,13 +139,22 @@ def main() -> None:
         version_id = int(subprocess.check_output([args.php, '-r', 'echo PHP_VERSION_ID;'], text=True))
         assert report['cli_environment']['php_at_least_8_1'] is (version_id >= 80100)
         assert report['baseline'] == {'expected': 80, 'matched': 80, 'issues': []}
+        baseline_only = subprocess.run([args.php, str(SCRIPT), '--baseline-only', str(stage), str(MANIFEST)],
+                                       cwd=ROOT, capture_output=True, text=True, timeout=30)
+        assert baseline_only.returncode == 0 and not baseline_only.stderr
+        assert CANARY not in baseline_only.stdout and str(stage) not in baseline_only.stdout
+        partial = json.loads(baseline_only.stdout)
+        assert partial['decision'] == 'MANUAL_REVIEW_REQUIRED' and partial['archive_verified'] is None
+        assert partial['baseline_manifest_verified'] and partial['baseline'] == report['baseline']
+        assert 'RC2 archive integrity (baseline-only mode)' in partial['not_checked']
         assert 'web PHP version and extensions' in report['not_checked']
         assert 'database schema, migrations and existing receipts' in report['not_checked']
         assert 'extra or customized files outside the baseline list' in report['not_checked']
         code2, report2 = invoke(args.php, stage)
         assert code2 == 0 and report2 == report and snapshot(stage) == before
         assert not (stage / 'config/poison-was-read').exists()
-        for disabled, expected in [('json_encode', 'CLI JSON extension'), ('hash_file', 'CLI hash functions')]:
+        for disabled, expected in [('json_encode', 'CLI JSON extension'), ('hash_file', 'CLI hash functions'),
+                                   ('hash_init', 'CLI hash functions')]:
             missing = subprocess.run([args.php, '-d', f'disable_functions={disabled}', str(SCRIPT),
                                       str(stage), str(MANIFEST), str(ARCHIVE)],
                                      cwd=ROOT, capture_output=True, text=True, timeout=15)
@@ -197,11 +206,24 @@ def main() -> None:
         special.unlink()
         special.write_bytes(files[special_name])
         with special.open('wb') as output:
-            output.truncate(67108865)  # Sparse; the preflight must not hash oversized files.
+            output.truncate(2097153)  # Sparse; just over the 2 MiB per-file budget.
         code, report = invoke(args.php, stage)
         assert code == 2
         expect_issue(report, special_name, 'unreadable_or_too_large')
         special.write_bytes(files[special_name])
+
+        # Nine changed 2 MiB files exceed the 16 MiB total read budget.
+        # The real pinned 80-file baseline is under 7 MiB.
+        inflated = list(files)[:9]
+        for name in inflated:
+            (stage / name).write_bytes(b'x' * 2097152)
+        code, report = invoke(args.php, stage)
+        assert code == 2
+        assert any(item['issue'] == 'audit_read_budget_exceeded' for item in report['baseline']['issues'])
+        for name in inflated:
+            (stage / name).write_bytes(files[name])
+        assert snapshot(stage) == before
+
         if hasattr(os, 'geteuid') and os.geteuid() != 0:
             special.chmod(0)
             try:
@@ -217,6 +239,12 @@ def main() -> None:
         code, report = invoke(args.php, stage, wrong_manifest)
         assert code == 2 and report['errors'] == ['baseline_manifest_digest_mismatch']
         assert report['baseline'] is None and not report['archive_verified']
+        failed_partial = subprocess.run([args.php, str(SCRIPT), '--baseline-only', str(stage), str(wrong_manifest)],
+                                        cwd=ROOT, capture_output=True, text=True, timeout=30)
+        bad_report = json.loads(failed_partial.stdout)
+        assert failed_partial.returncode == 2 and not failed_partial.stderr
+        assert bad_report['errors'] == ['baseline_manifest_digest_mismatch']
+        assert bad_report['baseline'] is None and bad_report['archive_verified'] is None
         broken_zip = temp / 'wrong-archive' / ARCHIVE.name
         broken_zip.parent.mkdir()
         changed = bytearray(ARCHIVE.read_bytes())
