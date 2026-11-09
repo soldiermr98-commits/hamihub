@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بررسی آفلاین بسته قفل و کش حامی‌هاب</title>
+<style>
+body{font:16px/1.9 Tahoma,sans-serif;max-width:850px;margin:24px auto;padding:0 16px;color:#17233a;background:#f4f7fb}main{background:#fff;border-radius:12px;padding:20px}h1{font-size:1.35rem}label,select,input,button{font:inherit}select,input,button{margin:.4rem 0;max-width:100%}table{border-collapse:collapse;width:100%;font-size:.85rem;direction:ltr}td,th{border-bottom:1px solid #ddd;padding:.35rem;text-align:left;overflow-wrap:anywhere}.ok{color:#166534}.bad{color:#b91c1c}.wait{color:#92400e}#message{font-weight:bold}code{direction:ltr;display:inline-block}
+</style>
+</head>
+<body><main>
+<h1>بررسی آفلاین بسته و فایل‌های کد</h1>
+<p>این صفحه فایل‌های انتخاب‌شده را فقط در مرورگر خودتان می‌خواند؛ چیزی ارسال نمی‌کند. فایل تنظیمات، کلید، بکاپ، کش یا آپلود را انتخاب نکنید. این ابزار مسیر واقعی هاست، نبود فایل جدید، دیتابیس، PHP یا بکاپ را بررسی نمی‌کند.</p>
+<label for="phase">مرحله:</label>
+<select id="phase"><option value="baseline">قبل از نصب این بسته (مبنای RC2)</option><option value="target">بعد از نصب این بسته</option></select><br>
+<label for="files">ZIP و فایل‌های کد با نام اصلی را انتخاب کنید؛ می‌توانید چند نوبت انتخاب کنید:</label><br>
+<input id="files" type="file" multiple><br>
+<button id="reset" type="button">پاک‌کردن نتیجه و شروع دوباره</button>
+<p id="message" aria-live="polite"></p><p id="zip" aria-live="polite"></p><p id="warning"></p>
+<table><thead><tr><th>Expected file path</th><th>Result</th></tr></thead><tbody id="rows"></tbody></table>
+<p>راهنمای همراه بسته توضیح می‌دهد فایل‌ها را از کدام مسیر در DirectAdmin دانلود کنید. وجود <code>app/Core/WorkerLock.php</code> قبل از نصب باید جداگانه در فایل‌منیجر بررسی شود. تطابق هشِ فایل انتخاب‌شده به‌تنهایی مجوز نصب یا اثبات اصالت منبع نیست.</p>
+</main>
+<script>
+'use strict';
+const expected = {"baseline":{"app/Controllers/AuthController.php":"a59114001078446dbccca3929d8066b04be5c16e5b3223528f08fd19d7c98eac","app/Controllers/BusinessController.php":"4045940cbe54a803fed19f0fd287479b2e9c5f700a5758e9ed1d1fcd9680a306","app/Controllers/CategoryController.php":"511b739223e30b6e8b2b246bf3f34acd766c6e72982e798ab0d196b434fc2695","app/Controllers/CollectorController.php":"c9ae362dbb3cba0b0e6d711019f407b68c735ebf8459fcca513e01ed04a4f5cb","app/Controllers/PublicSiteController.php":"54b5cb0cc55a405ae91fc0cf565f956744bfe16b54acedda424af9939aeb34f6","app/Controllers/ReviewQueueController.php":"fb9d64b61014f1e26dc1f8248e1c221117e16b55111014cf0106acdde23c66b6","app/Core/Cache.php":"97cbdea4772d130c07a8913230233d4035fa3b043e7e76b12fedb1d2be47ee34","app/Services/CollectorRunner.php":"347fa9d30738e90eaddace97e4ff61ab80125e3b95bb930654b0fb1746d80532","app/Services/MaintenanceService.php":"0f682043373e0a21e704b20a927f9ed02e5bddb26fcbbeee1e487f1e120ab5c7","app/Services/ManualImportService.php":"2334817bd3253e2b3ad3c5b22f685ba03b14f0b70f948b76e57917acf24cdda5","app/Services/SponsorshipStatus.php":"c255afd0d52903bc59c7949eab056681b3ce8a71dbed781b15844997684338e8","cron/worker.php":"3b644553d191b24f38e1957e3cfe1811d8f1d81482774a988d4d730d36cb2c01","public_html/index.php":"78f43db2ef1a333b05f764d93ed536c29f4c705f46db802256d92c7417853487"},"target":{"app/Controllers/AuthController.php":"3d31e94ca712ab1da6829b054636cd0b1eaa58329d5de4d1fff0c022947ffa77","app/Controllers/BusinessController.php":"b38fcdb06d6dc94a36140b16dd6297626af3ed8fde60e3f4f864ff2d672f87fa","app/Controllers/CategoryController.php":"084892475e4fc3d3ce41d06816054abf9d7e73bc66e5a8a7a36d8e276c142ff0","app/Controllers/CollectorController.php":"d2d2123b13edfab8d04b6d5e99de851981f28c2f93ffab518f92d3e3ba253e3e","app/Controllers/PublicSiteController.php":"c561c5411fa4df6fb912152a0a5b1fb60fe42e8b2806b3bf8bca1138d056da47","app/Controllers/ReviewQueueController.php":"f32ca983dd67bf67d2afb18e2fe547f13013e0ad88c6e7cfb126a686a2b7ad0d","app/Core/Cache.php":"b4deee2dc2fc80060d24bdfb4c9d1c8db8d71869de6627851e9605ebe81eca1d","app/Core/WorkerLock.php":"ec089ac0144e5a6c8fbf5af052862c5a186cbfc5c2617e623ebad0c7d02aa298","app/Services/CollectorRunner.php":"a43bb55066f30437d178e77d8bd635bc4c402d5b7ed7a52ada9e5d4fb203b80a","app/Services/MaintenanceService.php":"18b669cfcd6ec79bcdda41028fa0322aca4b45140640de83a553d27be6ff2814","app/Services/ManualImportService.php":"c6cc87ed29f6f682ca2c8228aa091a4afd0d33f7487b47fdb7f310ddc9e471e6","app/Services/SponsorshipStatus.php":"c660a8e093c60074a73c89481c162599c475519a992fa4af5e9167e120bfc057","cron/worker.php":"9f01732489cfbaf9e1afc8c2410bdf0721fe46f24b31dad05efc51fdff272963","public_html/index.php":"358db0bab66e7821839d68c046d1a23a0d12530570b4038028ac22289c4a0fab"},"zipName":"hamihub-update-after-rc2-worker-cache.zip","zipSha256":"482f15663ec5686fde23a63c30cc537b102d42b99bf8e8b245dcbcc87e885758"};
+const seen = new Map();
+const el = id => document.getElementById(id);
+const byName = new Map();
+for (const path of Object.keys(expected.target)) byName.set(path.split('/').pop(), path);
+function currentState() {
+    const phase = el('phase').value === 'target' ? 'target' : 'baseline';
+    const files = expected[phase];
+    let matching = 0, missing = 0, different = 0;
+    for (const [path, hash] of Object.entries(files)) {
+        const name = path.split('/').pop();
+        if (!seen.has(name)) missing++;
+        else if (seen.get(name) === hash) matching++;
+        else different++;
+    }
+    const zip = !seen.has(expected.zipName) ? 'missing' : seen.get(expected.zipName) === expected.zipSha256 ? 'match' : 'different';
+    return {phase, matching, missing, different, zip, newFileSeen: seen.has('WorkerLock.php')};
+}
+function render() {
+    const state = currentState();
+    const rows = el('rows');
+    rows.textContent = '';
+    for (const [path, hash] of Object.entries(expected[state.phase])) {
+        const name = path.split('/').pop();
+        const row = document.createElement('tr'), file = document.createElement('td'), result = document.createElement('td');
+        file.textContent = path;
+        if (!seen.has(name)) { result.textContent = 'انتخاب نشده'; result.className = 'wait'; }
+        else if (seen.get(name) === hash) { result.textContent = 'مطابق'; result.className = 'ok'; }
+        else { result.textContent = 'متفاوت یا ناخوانا — توقف'; result.className = 'bad'; }
+        row.appendChild(file); row.appendChild(result); rows.appendChild(row);
+    }
+    const total = Object.keys(expected[state.phase]).length;
+    el('message').textContent = state.different ? 'توقف: یک یا چند فایل متفاوت یا ناخواناست.'
+        : state.missing ? `${state.matching} از ${total} فایل مطابق؛ ${state.missing} فایل هنوز بررسی نشده است.`
+        : `${state.matching} از ${total} فایل انتخاب‌شده مطابق است؛ بررسی‌های دستی و بکاپ همچنان لازم‌اند.`;
+    el('message').className = state.different ? 'bad' : state.missing ? 'wait' : 'ok';
+    el('zip').textContent = state.zip === 'match' ? 'هش ZIP انتخاب‌شده مطابق است.' : state.zip === 'different' ? 'هش ZIP متفاوت است — توقف.' : 'ZIP هنوز انتخاب نشده است.';
+    el('zip').className = state.zip === 'match' ? 'ok' : state.zip === 'different' ? 'bad' : 'wait';
+    el('warning').textContent = state.phase === 'baseline' && state.newFileSeen
+        ? 'فایل WorkerLock.php انتخاب شده است؛ اگر از هاست آمده، قبل از نصب باید دربارهٔ وجود آن توقف و بررسی کنید.'
+        : 'تطابق نام و محتوا، محل فایل روی هاست یا نبود فایل WorkerLock.php را ثابت نمی‌کند.';
+}
+async function readFiles(files) {
+    if (!globalThis.crypto || !globalThis.crypto.subtle) {
+        el('message').textContent = 'Web Crypto در این مرورگر در دسترس نیست؛ نتیجه تأیید نشده است.';
+        el('message').className = 'bad'; return;
+    }
+    for (const file of files) {
+        const name = file.name;
+        // Ignore unknown filenames without opening them, including config or private data.
+        if (name !== expected.zipName && !byName.has(name)) continue;
+        try {
+            if (file.size > 10 * 1024 * 1024) throw new Error('File too large');
+            const digest = await globalThis.crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+            seen.set(name, Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join(''));
+        } catch (_) { seen.set(name, 'unreadable'); }
+    }
+    render();
+}
+el('files').addEventListener('change', async event => {
+    await readFiles(event.target.files || []);
+    event.target.value = '';
+});
+el('phase').addEventListener('change', render);
+el('reset').addEventListener('click', () => { seen.clear(); render(); });
+render();
+</script>
+</body></html>
