@@ -640,8 +640,8 @@ export async function financeMutation(path:string, payload:unknown, csrf:string)
 export async function fetchCitiesAndNeighborhoods(): Promise<{cities:CityItem[];neighborhoods:NeighborhoodItem[]}> { return request('/api/v1/cities'); }
 export async function fetchCategoriesAndPacks(): Promise<{categories:CategoryItem[];packs:CategoryPackItem[]}> { return request('/api/v1/categories'); }
 export async function fetchBusinessesList(): Promise<BusinessItem[]> { return (await request('/api/v1/businesses')).businesses; }
-export async function fetchBusinessesPage(page:number, cityId:number, query:string, quality=''): Promise<{businesses:BusinessItem[];total:number;page:number;per_page:number;data_review_schema_ready:boolean}> {
-  return request('/api/v1/businesses?' + new URLSearchParams({page:String(page),city_id:String(cityId),q:query,quality}));
+export async function fetchBusinessesPage(page:number, cityId:number, query:string, quality='',status=''): Promise<{businesses:BusinessItem[];total:number;page:number;per_page:number;data_review_schema_ready:boolean}> {
+  return request('/api/v1/businesses?' + new URLSearchParams({page:String(page),city_id:String(cityId),q:query,quality,status}));
 }
 export async function recordBusinessDataReview(payload:{business_id:number;review_hash:string;source_note:string;confirmed:boolean},csrf:string):Promise<any> {
   return action('/api/v1/businesses/data-review',payload,csrf);
@@ -694,8 +694,8 @@ export async function triggerCollectorJobRun(csrf:string): Promise<{ok:boolean;l
   const result=await action('/api/v1/collector/run-next',{},csrf);
   return {ok:result.ok,logLines:[result.message || result.error || 'پاسخ نامعتبر', ...(result.summary ? [JSON.stringify(result.summary)] : [])]};
 }
-export async function fetchReviewQueueState(status='pending',kind='all'): Promise<{items:ReviewQueueItem[];change_logs:ChangeLogItem[];pending_counts:Record<string,number>}> {
-  return request('/api/v1/review-queue?' + new URLSearchParams({status,kind}));
+export async function fetchReviewQueueState(status='pending',kind='all',query=''): Promise<{items:ReviewQueueItem[];change_logs:ChangeLogItem[];pending_counts:Record<string,number>}> {
+  return request('/api/v1/review-queue?' + new URLSearchParams({status,kind,q:query}));
 }
 export async function decideReviewQueueItems(ids:number[],decision:'approved'|'rejected',csrf:string): Promise<any> { return action('/api/v1/review-queue/decide',{ids,decision},csrf); }
 export async function fetchArticlesList(): Promise<{articles:ArticleItem[];schema_ready:boolean;article_tags_ready?:boolean;tag_catalog?:ArticleTopicTag[];rich_editor_available?:boolean}> { return request('/api/v1/articles', {cache:'no-store'}); }
@@ -703,7 +703,7 @@ export async function saveArticleItem(payload:Partial<Omit<ArticleItem,'tags'>> 
 export async function updateArticleSchema(csrf:string):Promise<any> { return action('/api/v1/system/update-article-schema',{},csrf); }
 export async function updateArticleTagsSchema(csrf:string):Promise<any> { return action('/api/v1/system/update-article-tags-schema',{},csrf); }
 export async function fetchArticleBusinesses(page:number, query:string, cityId:number, categoryId:number): Promise<{businesses:BusinessItem[];total:number;per_page:number}> {
-  return request('/api/v1/businesses?' + new URLSearchParams({page:String(page),q:query,city_id:String(cityId),category_id:String(categoryId),status:'published'}));
+  return request('/api/v1/businesses?' + new URLSearchParams({page:String(page),q:query,city_id:String(cityId),category_id:String(categoryId),status:'published',article_picker:'1'}));
 }
 export async function autoBuildCityCategoryArticle(cityId:number,categoryId:number,csrf:string): Promise<any> { return action('/api/v1/articles/auto-build',{city_id:cityId,category_id:categoryId},csrf); }
 export async function flushPublicHtmlCache(csrf:string): Promise<any> { return action('/api/v1/cache/flush',{},csrf); }
