@@ -1,0 +1,113 @@
+name: Synthetic smoke checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never deploy, access production, run cron, or pass provider credentials here.
+# The application tests below use fake responses and temporary local files only.
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate:
+    name: Release candidate integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The RCs reference old, pinned Git objects; the default shallow clone is insufficient.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rebuild content and check preservation on synthetic overlays
+        run: |
+          python3 tests/build_update_candidate_smoke.py
+          python3 tests/upgrade_candidate_overlay_smoke.py --candidate rc1
+          python3 tests/upgrade_candidate_overlay_smoke.py --candidate rc2
+          (cd release-files/after-v2026.11.07.5-rc1 && sha256sum -c SHA256SUMS.txt)
+          (cd release-files/after-v2026.11.07.5-rc2 && sha256sum -c SHA256SUMS.txt)
+
+  frontend:
+    name: Admin build and synthetic UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Install locked development dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Type-check and verify committed admin assets
+        run: |
+          npm run lint
+          npm run build
+          for file in admin.js admin.css; do
+            cmp "dist/assets/$file" "public_html/admin/assets/$file"
+            hash=$(sha256sum "public_html/admin/assets/$file" | cut -c1-12)
+            grep -Fq "/admin/assets/$file?v=$hash" public_html/admin/index.html
+          done
+      - name: UI, CSV and banner smoke tests (synthetic data)
+        run: |
+          for test in \
+            tests/advertising_reporting_ui_smoke.tsx \
+            tests/advertising_finance_ui_smoke.tsx \
+            tests/advertising_finance_logout_ui_smoke.tsx \
+            tests/advertising_payment_sandbox_ui_smoke.tsx \
+            tests/csv_import_smoke.ts \
+            tests/csv_import_ui_smoke.tsx \
+            tests/apify_panel_smoke.tsx \
+            tests/article_sponsor_ui_smoke.tsx \
+            tests/ai_article_ui_smoke.tsx \
+            tests/ai_provider_ui_smoke.tsx; do
+            ./node_modules/.bin/tsx "$test"
+          done
+          node tests/advertising_banner_client_smoke.mjs
+
+  php:
+    name: PHP ${{ matrix.php }} offline
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.1', '8.2', '8.3', '8.5']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2.40.0
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, curl, fileinfo, gd, pdo, pdo_mysql
+          coverage: none
+      - name: Syntax of tracked PHP files
+        run: |
+          php --version
+          git ls-files -z -- '*.php' | xargs -0 -n1 php -l > /dev/null
+          echo 'PASS: tracked PHP syntax'
+      - name: Unit and security smoke tests (fake data and no network)
+        run: |
+          for test in \
+            tests/ai_advertising_unit_smoke.php \
+            tests/ai_provider_settings_smoke.php \
+            tests/ai_provider_vault_smoke.php \
+            tests/payment_sandbox_flag_smoke.php \
+            tests/payment_gateway_protocol_smoke.php \
+            tests/sponsorship_cache_version_smoke.php \
+            tests/sponsorship_dashboard_status_smoke.php \
+            tests/sponsorship_time_boundary_smoke.php; do
+            php "$test"
+          done
+          python3 tests/payment_protocol_isolation_smoke.py
+          HHX_ALLOW_TEST_FIXTURES=1 php tests/media_service_synthetic_smoke.php
