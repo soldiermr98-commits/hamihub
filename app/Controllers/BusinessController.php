@@ -12,6 +12,7 @@ use App\Core\Response;
 use App\Services\BusinessDataReviewService;
 use App\Services\BusinessUrlService;
 use App\Services\MediaService;
+use App\Services\MediaUploadException;
 use App\Services\SlugService;
 use Throwable;
 
@@ -472,7 +473,14 @@ final class BusinessController
             ], 422);
         }
 
-        $altText = (string) ($_POST['alt_text'] ?? '');
+        $altText = $_POST['alt_text'] ?? '';
+        if (!is_string($altText)) {
+            Response::json([
+                'ok' => false,
+                'error' => 'متن جایگزین تصویر معتبر نیست.',
+                'field' => 'cover_media_id',
+            ], 422);
+        }
 
         try {
             $media = MediaService::handleUpload($_FILES['image'], $altText);
@@ -481,12 +489,19 @@ final class BusinessController
                 'message' => 'تصویر با موفقیت بررسی و به ۳ سایز WebP (۴۸۰، ۸۰۰ و ۱۲۰۰ پیکسل) تبدیل شد.',
                 'media' => $media,
             ]);
-        } catch (Throwable $e) {
+        } catch (MediaUploadException $e) {
             Response::json([
                 'ok' => false,
                 'error' => $e->getMessage(),
                 'field' => 'cover_media_id',
             ], 422);
+        } catch (Throwable $e) {
+            error_log('Unexpected media upload error: ' . get_class($e));
+            Response::json([
+                'ok' => false,
+                'error' => 'خطای غیرمنتظره در پردازش تصویر؛ وضعیت سرور را بررسی کنید.',
+                'field' => 'cover_media_id',
+            ], 500);
         }
     }
 
