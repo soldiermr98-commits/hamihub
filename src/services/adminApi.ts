@@ -226,14 +226,17 @@ export interface ArticleData {
   cover_url?: string | null;
   items: ArticleBizRow[];
   faqs: ArticleFaqRow[];
+  tags: string[];
 }
+export interface ArticleTopicTag { id:number; name_fa:string; slug:string }
 export interface ArticleItemDisplay {
   eligibility: 'eligible' | 'not_published' | 'missing_context' | 'missing';
   business_status: BusinessItem['status'] | null;
   city_id: number | null;
   category_id: number | null;
 }
-export interface ArticleItem extends ArticleData {
+export interface ArticleItem extends Omit<ArticleData,'tags'> {
+  tags: ArticleTopicTag[];
   item_display?: Record<string, ArticleItemDisplay>;
   id: number;
   status: 'draft' | 'review' | 'published';
@@ -695,9 +698,10 @@ export async function fetchReviewQueueState(status='pending',kind='all'): Promis
   return request('/api/v1/review-queue?' + new URLSearchParams({status,kind}));
 }
 export async function decideReviewQueueItems(ids:number[],decision:'approved'|'rejected',csrf:string): Promise<any> { return action('/api/v1/review-queue/decide',{ids,decision},csrf); }
-export async function fetchArticlesList(): Promise<{articles:ArticleItem[];schema_ready:boolean;rich_editor_available?:boolean}> { return request('/api/v1/articles', {cache:'no-store'}); }
-export async function saveArticleItem(payload:Partial<ArticleItem>,csrf:string): Promise<any> { return action('/api/v1/articles',payload,csrf); }
+export async function fetchArticlesList(): Promise<{articles:ArticleItem[];schema_ready:boolean;article_tags_ready?:boolean;tag_catalog?:ArticleTopicTag[];rich_editor_available?:boolean}> { return request('/api/v1/articles', {cache:'no-store'}); }
+export async function saveArticleItem(payload:Partial<Omit<ArticleItem,'tags'>> & {tags?:string[]},csrf:string): Promise<any> { return action('/api/v1/articles',payload,csrf); }
 export async function updateArticleSchema(csrf:string):Promise<any> { return action('/api/v1/system/update-article-schema',{},csrf); }
+export async function updateArticleTagsSchema(csrf:string):Promise<any> { return action('/api/v1/system/update-article-tags-schema',{},csrf); }
 export async function fetchArticleBusinesses(page:number, query:string, cityId:number, categoryId:number): Promise<{businesses:BusinessItem[];total:number;per_page:number}> {
   return request('/api/v1/businesses?' + new URLSearchParams({page:String(page),q:query,city_id:String(cityId),category_id:String(categoryId),status:'published'}));
 }

@@ -29,7 +29,9 @@ final class ArticleController
             $article = ArticleService::load((int)$row['id']);
             if ($article) $articles[] = $article;
         }
+        $tagsReady = ArticleService::tagsSchemaReady();
         Response::json(['ok'=>true, 'schema_ready'=>ArticleService::schemaReady(),
+            'article_tags_ready'=>$tagsReady, 'tag_catalog'=>$tagsReady ? ArticleService::tagCatalog() : [],
             'rich_editor_available'=>ArticleText::richAvailable(), 'articles'=>$articles]);
     }
 

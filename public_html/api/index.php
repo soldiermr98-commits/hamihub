@@ -44,6 +44,7 @@ $router->post('/api/v1/auth/logout', [AuthController::class, 'logout']);
 $router->post('/api/v1/cache/flush', [AuthController::class, 'flushCache']);
 $router->post('/api/v1/system/migrate', [AuthController::class, 'runMigrations']);
 $router->post('/api/v1/system/update-article-schema', [AuthController::class, 'updateArticleSchema']);
+$router->post('/api/v1/system/update-article-tags-schema', [AuthController::class, 'updateArticleTagsSchema']);
 $router->post('/api/v1/system/update-feature-schema', [AuthController::class, 'updateFeatureSchema']);
 $router->post('/api/v1/system/update-advertising-schema', [AuthController::class, 'updateAdvertisingSchema']);
 

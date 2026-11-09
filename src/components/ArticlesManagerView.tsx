@@ -4,9 +4,9 @@ import { AiArticleAssistant } from './AiArticleAssistant';
 import { ArticleEditor } from './ArticleEditor';
 import { insertArticleSuggestion, isRichArticleText } from '../services/articleText';
 import {
-  ArticleBizRow, ArticleData, ArticleFaqRow, ArticleItem, ArticleItemDisplay, BusinessItem, CategoryItem, CityItem,
+  ArticleBizRow, ArticleData, ArticleFaqRow, ArticleItem, ArticleItemDisplay, ArticleTopicTag, BusinessItem, CategoryItem, CityItem,
   autoBuildCityCategoryArticle, fetchArticleBusinesses, fetchArticlesList, saveArticleItem,
-  updateArticleSchema, uploadMediaWebp,
+  updateArticleSchema, updateArticleTagsSchema, uploadMediaWebp,
 } from '../services/adminApi';
 
 interface Props {
@@ -19,7 +19,7 @@ interface Props {
 }
 const emptyArticle = ():ArticleData => ({
   title_fa:'', intro_html:'', slug:'', city_id:null, category_id:null, meta_title:'', meta_description:'',
-  methodology_html:'', cover_media_id:null, cover_url:null, items:[], faqs:[],
+  methodology_html:'', cover_media_id:null, cover_url:null, items:[], faqs:[], tags:[],
 });
 const editorData = (a:ArticleItem):ArticleData => {
   const d = a.revision?.data || a;
@@ -30,6 +30,7 @@ const editorData = (a:ArticleItem):ArticleData => {
     cover_media_id:d.cover_media_id ? Number(d.cover_media_id) : null, cover_url:d.cover_url || null,
     items:Array.isArray(d.items) ? d.items.map(i=>({...i, business_id:Number(i.business_id)})) : [],
     faqs:Array.isArray(d.faqs) ? d.faqs.map(f=>({...f})) : [],
+    tags:Array.isArray(d.tags) ? d.tags.map((tag:any)=>typeof tag==='string'?tag:String(tag.name_fa||'' )).filter(Boolean) : [],
   };
 };
 const input = 'w-full border border-slate-300 rounded-lg bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300';
@@ -42,6 +43,9 @@ const statusLabel = (a:ArticleItem) => a.revision
 export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken,isAdmin,onGoReview,onDirtyChange}) => {
   const [articles,setArticles]=useState<ArticleItem[]>([]);
   const [schemaReady,setSchemaReady]=useState(true);
+  const [tagsSchemaReady,setTagsSchemaReady]=useState(false);
+  const [tagCatalog,setTagCatalog]=useState<ArticleTopicTag[]>([]);
+  const [tagDraft,setTagDraft]=useState('');
   const [richAvailable,setRichAvailable]=useState(false);
   const [extraDisplay,setExtraDisplay]=useState<Record<string, ArticleItemDisplay>>({});
   const [loading,setLoading]=useState(true);
@@ -65,6 +69,7 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
     setLoading(true);
     try {
       const result=await fetchArticlesList(); setArticles(result.articles); setSchemaReady(result.schema_ready);
+      setTagsSchemaReady(result.article_tags_ready === true);setTagCatalog(result.tag_catalog||[]);
       setRichAvailable(result.rich_editor_available === true); return result.articles;
     } catch(e) {setMessage({error:true,text:e instanceof Error?e.message:'دریافت مقالات ناموفق بود.'}); return [];}
     finally {setLoading(false);}
@@ -91,7 +96,7 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
   const canLeave = () => !dirty || window.confirm('تغییرات ذخیره نشده‌اند. از این صفحه خارج شوید؟');
   const openArticle = (a:ArticleItem|null) => {
     if(!canLeave()) return;
-    setSelected(a);setForm(a?editorData(a):emptyArticle());setDirty(false);setPickerOpen(false);setExtraDisplay({});setMessage(null);setMode('edit');
+    setSelected(a);setForm(a?editorData(a):emptyArticle());setDirty(false);setPickerOpen(false);setExtraDisplay({});setTagDraft('');setMessage(null);setMode('edit');
   };
   const returnToList = () => {if(canLeave()){setMode('list');setDirty(false);setMessage(null);}};
   const updateList = (article:ArticleItem) => setArticles(prev=>[article,...prev.filter(a=>Number(a.id)!==Number(article.id))]);
@@ -131,6 +136,18 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
     if(!window.confirm('از فایل‌ها و دیتابیس نسخه پشتیبان تهیه کرده‌اید؟ فقط به‌روزرسانی اختصاصی مقاله و نشانی‌ها اجرا می‌شود.')) return;
     setBusy(true);const result=await updateArticleSchema(csrfToken);setBusy(false);
     setMessage({error:!result.ok,text:result.message || result.error});if(result.ok) await load();
+  };
+  const runTagSchema = async () => {
+    if(!window.confirm('از دیتابیس نسخه پشتیبان تهیه کرده‌اید؟ این به‌روزرسانی فقط جدول‌های برچسب موضوعی مقاله را اضافه می‌کند و مقاله‌های قبلی را تغییر نمی‌دهد.')) return;
+    setBusy(true);const result=await updateArticleTagsSchema(csrfToken);setBusy(false);
+    setMessage({error:!result.ok,text:result.message || result.error});if(result.ok) await load();
+  };
+  const addTag = () => {
+    const tag=tagDraft.trim();if(!tag)return;
+    if(tag.length>50||/[<>]/.test(tag)){setMessage({error:true,text:'برچسب باید حداکثر ۵۰ نویسه و بدون نشانهٔ HTML باشد.'});return;}
+    if(form.tags.length>=20&&!form.tags.some(t=>t.toLocaleLowerCase()===tag.toLocaleLowerCase())){setMessage({error:true,text:'برای هر مقاله حداکثر ۲۰ برچسب ثبت کنید.'});return;}
+    if(form.tags.some(t=>t.toLocaleLowerCase()===tag.toLocaleLowerCase())){setTagDraft('');return;}
+    change({tags:[...form.tags,tag]});setTagDraft('');
   };
   const autoBuild = async () => {
     if(!canLeave())return;
@@ -180,9 +197,14 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
     </div>
     {message && <div role={message.error?'alert':'status'} className={`rounded-lg p-3 text-sm ${message.error?'bg-rose-50 text-rose-800 border border-rose-200':'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>{message.text}</div>}
     {!schemaReady && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 space-y-3">
-      <p className="font-bold">به‌روزرسانی دیتابیس این نسخه هنوز انجام نشده است.</p>
+      <p className="font-bold">به‌روزرسانی دیتابیس ویرایشگر مقاله هنوز انجام نشده است.</p>
       <p>بعد از پشتیبان‌گیری، فقط به‌روزرسانی اختصاصی مقاله و نشانی‌ها را اجرا کنید. این دکمه مایگریشن قدیمی ۰۰۳ را اجرا نمی‌کند و محتوای قبلی را منتشر یا از انتشار خارج نمی‌کند.</p>
       {isAdmin ? <button className={primary} disabled={busy} onClick={runSchema}>تکمیل به‌روزرسانی مقاله و نشانی‌ها</button> : <p>از مدیر سایت بخواهید این به‌روزرسانی را انجام دهد.</p>}
+    </div>}
+    {schemaReady && !tagsSchemaReady && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 space-y-3">
+      <p className="font-bold">ساختار برچسب‌های موضوعی مقاله هنوز نصب نشده است.</p>
+      <p>به‌روزرسانی زیر فقط دو جدول افزایشی می‌سازد؛ هیچ مقاله‌ای را منتشر نمی‌کند و وضعیت قبلی را تغییر نمی‌دهد.</p>
+      {isAdmin ? <button className={primary} disabled={busy} onClick={runTagSchema}>آماده‌سازی برچسب‌های موضوعی</button> : <p>از مدیر سایت بخواهید ساختار برچسب‌ها را آماده کند.</p>}
     </div>}
     {mode==='list' ? <>
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -209,6 +231,21 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
               ? 'این متن قالب‌بندی‌شده فعلاً فقط‌خواندنی است. برای ویرایش آن، API سازگار و افزونه DOM در PHP وب لازم است؛ سایر تنظیمات را می‌توانید بدون تغییر متن ذخیره کنید.'
               : 'ویرایشگر دیداری زمانی فعال می‌شود که API سازگار و افزونه DOM در PHP وب در دسترس باشند؛ متن ساده همچنان قابل ویرایش است.'}</p>
           </div>}
+        <section aria-labelledby="article-tags-heading" className="rounded-lg border border-sky-200 bg-sky-50/40 p-4 space-y-3">
+          <div><h2 id="article-tags-heading" className="font-bold text-sm">برچسب‌های موضوعی مقاله <span className="font-normal text-slate-500">(اختیاری)</span></h2><p className="text-xs text-slate-600 mt-1">موضوع‌های قابل استفاده را انتخاب کنید یا برچسب تازه‌ای بسازید؛ هر برچسب را Enter کنید.</p></div>
+          {tagsSchemaReady ? <>
+            <div className="flex flex-wrap gap-2">
+              <input aria-label="برچسب موضوعی" list="article-topic-tag-options" className={`${input} min-w-48 flex-1`} maxLength={50} value={tagDraft} onChange={e=>setTagDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addTag();}}} placeholder="مثلاً گردشگری، کافه، طبیعت"/>
+              <datalist id="article-topic-tag-options">{tagCatalog.map(tag=><option key={tag.id} value={tag.name_fa}/>)}</datalist>
+              <button type="button" className={secondary} onClick={addTag} disabled={!tagDraft.trim()}>افزودن برچسب</button>
+            </div>
+            <div className="flex flex-wrap gap-2" aria-label="برچسب‌های انتخاب‌شده">
+              {form.tags.map(tag=><span key={tag.toLocaleLowerCase()} className="inline-flex items-center gap-2 rounded-full border border-sky-300 bg-white px-3 py-1 text-xs text-sky-900">{tag}<button type="button" aria-label={`حذف برچسب ${tag}`} onClick={()=>change({tags:form.tags.filter(t=>t!==tag)})} className="font-bold text-slate-500 hover:text-rose-700">×</button></span>)}
+              {!form.tags.length&&<span className="text-xs text-slate-500">برچسبی انتخاب نشده است.</span>}
+            </div>
+            {!!tagCatalog.length&&<p className="text-xs text-slate-500">برچسب‌های موجود: {tagCatalog.map(t=>t.name_fa).join('، ')}</p>}
+          </> : <p className="text-xs text-amber-800">ابتدا مدیر باید ساختار برچسب‌ها را آماده کند؛ پس از آن این بخش فعال می‌شود.</p>}
+        </section>
         <div className="rounded-lg border border-slate-200 p-4"><div className="font-bold text-sm">تصویر اصلی <span className="font-normal text-slate-500">(اختیاری)</span></div>
           {form.cover_url && <img src={form.cover_url} alt="تصویر اصلی مقاله" className="w-full max-w-sm h-40 object-cover rounded-lg mt-3"/>}
           <div className="flex flex-wrap gap-2 mt-3"><label className={`${secondary} cursor-pointer`}><Upload size={15}/> انتخاب تصویر<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={busy} onChange={e=>{void upload(e.target.files?.[0]);e.target.value='';}}/></label>{form.cover_media_id&&<button className={secondary} onClick={()=>change({cover_media_id:null,cover_url:null})}>حذف تصویر</button>}</div>

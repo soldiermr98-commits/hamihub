@@ -27,6 +27,7 @@ let available=true;
 let existing:any={
   id:1,status:'published',title_fa:'مقاله ساختگی',slug:'fake-article',city_id:1,category_id:1,
   intro_html:oldText,methodology_html:'توضیحات محفوظ',meta_title:'عنوان',meta_description:'شرح',cover_media_id:null,cover_url:null,faqs:[],
+  tags:['سفر'],
   items:[
     {business_id:11,business_name_fa:'گزینه موجود',business_slug:'one',rank_num:1,is_sponsored:1,sponsor_label:'تبلیغ',custom_desc_html:'توضیح محفوظ'},
     {business_id:12,business_name_fa:'گزینه خصوصی',business_slug:'two',rank_num:2,is_sponsored:0,custom_desc_html:''},
@@ -40,7 +41,7 @@ globalThis.fetch=async(input,options={})=>{
   const url=String(input),method=options.method||'GET',body=options.body?JSON.parse(String(options.body)):null;
   requests.push({url,method,body});
   const json=(data:any)=>new Response(JSON.stringify(data),{status:200,headers:{'content-type':'application/json'}});
-  if(url==='/api/v1/articles'&&method==='GET')return json({ok:true,schema_ready:true,rich_editor_available:available,articles:[existing]});
+  if(url==='/api/v1/articles'&&method==='GET')return json({ok:true,schema_ready:true,article_tags_ready:true,tag_catalog:[{id:1,name_fa:'سفر',slug:'safar'}],rich_editor_available:available,articles:[existing]});
   if(url==='/api/v1/articles'&&method==='POST'){
     existing={...existing,edit_token:'next-token',revision:{status:body.status,base_conflict:false,data:body}};
     return json({ok:true,message:'پیش‌نویس ذخیره شد.',article:existing});
@@ -76,6 +77,8 @@ try {
   await act(async()=>{root.render(<ArticlesManagerView {...props}/>);await pause(20);});
   await click(button('ویرایش'));
   assert.equal(saves().length,0,'opening must not save');
+  assert(document.body.textContent?.includes('برچسب‌های موضوعی مقاله'));
+  assert(document.body.textContent?.includes('سفر'),'existing article topic tags should load in the editor');
   assert(document.querySelector('[role="toolbar"][aria-label="ابزارهای متن مقاله"]'));
   assert(document.body.textContent?.includes('در سایت نمایش داده نمی‌شود: کسب‌وکار منتشرشده نیست'));
   assert(document.body.textContent?.includes('شهر یا دستهٔ این کسب‌وکار با تنظیمات مقاله متفاوت است'));
@@ -88,10 +91,15 @@ try {
   await click(button('دیداری'));
   assert.equal(saves().length,0,'changing views must not save or convert content');
 
+  const topicInput=document.querySelector('[aria-label="برچسب موضوعی"]') as HTMLInputElement;
+  await setText(topicInput,'کافه');
+  await act(async()=>{topicInput.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await pause();});
+  assert(document.body.textContent?.includes('کافه'),'new topic tag should be selectable before save');
   const check=document.querySelector('[aria-label="جایگاه اسپانسری گزینه موجود"]') as HTMLInputElement;
   await click(check);
   await click(button('ذخیره پیش‌نویس'));
   assert.equal(saves().at(-1)!.body.intro_html,oldText,'a sponsor-only edit must preserve legacy text exactly');
+  assert.deepEqual(saves().at(-1)!.body.tags,['سفر','کافه'],'article tag selection must be included in the saved revision');
   assert.equal(saves().at(-1)!.body.status,'draft');
   assert.equal(saves().at(-1)!.body.edit_token,'original-token');
   assert(document.body.textContent?.includes('پیش‌نویس ذخیره شد.'));

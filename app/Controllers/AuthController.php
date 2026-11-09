@@ -124,6 +124,20 @@ final class AuthController
         }
     }
 
+    /** Apply only the additive article topic-tag tables. */
+    public static function updateArticleTagsSchema(Request $request): void
+    {
+        Csrf::verifyOrFail($request);
+        Auth::requireRole(['admin']);
+        try {
+            $result = Migrator::runArticleTagsUpdate();
+            Response::json(['ok'=>true,'migration_result'=>$result,'message'=>'ساختار برچسب‌های موضوعی مقاله آماده است؛ وضعیت و محتوای مقاله‌های قبلی تغییر نکرد.']);
+        } catch (Throwable $e) {
+            error_log('Article topic-tag schema update failed: ' . $e->getMessage());
+            Response::json(['ok'=>false,'error'=>'به‌روزرسانی برچسب‌های مقاله انجام نشد: ' . $e->getMessage()], 409);
+        }
+    }
+
     /** Apply the additive AI/advertising/review migration only. */
     public static function updateFeatureSchema(Request $request): void
     {
