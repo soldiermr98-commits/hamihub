@@ -21,9 +21,9 @@ const pause=()=>new Promise(r=>setTimeout(r,0));
 function button(text:string){const b=[...document.querySelectorAll('button')].find(x=>x.textContent?.trim()===text);assert(b,'Missing '+text);return b;}
 async function click(text:string){await act(async()=>{button(text).click();await pause();});}
 async function change(el:HTMLTextAreaElement,value:string){await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype,'value')!.set!.call(el,value);el.dispatchEvent(new dom.window.Event('input',{bubbles:true}));await pause();});}
-let inserted='';const root=createRoot(document.getElementById('root')!);
+let inserted='';let insertMode:''|'append'|'replace'='';const root=createRoot(document.getElementById('root')!);
 try {
-  await act(async()=>{root.render(<AiArticleAssistant title="عنوان آزمایشی" currentText="متن قبلی محفوظ" csrfToken="fixture-csrf" onInsert={text=>{inserted=text;}}/>);await pause();});
+  await act(async()=>{root.render(<AiArticleAssistant title="عنوان آزمایشی" currentText="متن قبلی محفوظ" csrfToken="fixture-csrf" onInsert={(text,mode)=>{inserted=text;insertMode=mode;}}/>);await pause();});
   const open=[...document.querySelectorAll('button')].find(b=>b.textContent?.includes('نوشتن با هوش مصنوعی'));assert(open);
   await act(async()=>{open.click();await pause();});
   assert.equal((document.querySelector('[aria-label="سرویس هوش مصنوعی"]') as HTMLSelectElement).value,'gemini');
@@ -38,13 +38,17 @@ try {
   assert(!JSON.stringify(sent[0].body).includes('متن قبلی محفوظ'),'existing article must not be silently sent');
   assert.equal(inserted,'','result must not be inserted, saved, or published automatically');
   assert((document.querySelector('[aria-label="متن پیشنهادی هوش مصنوعی"]') as HTMLTextAreaElement).value.includes('پیشنهادی'));
-  await click('افزودن به انتهای متن');assert.equal(inserted,'متن قبلی محفوظ\n\nمتن پیشنهادی آزمایشی');
+  await click('افزودن به انتهای متن');assert.equal(inserted,'متن پیشنهادی آزمایشی');assert.equal(insertMode,'append');
   const selector=document.querySelector('[aria-label="سرویس هوش مصنوعی"]') as HTMLSelectElement;
   assert([...selector.options].some(o=>o.value==='nvidia'&&!o.disabled),'configured NVIDIA should be selectable');
   await act(async()=>{selector.value='nvidia';selector.dispatchEvent(new dom.window.Event('change',{bubbles:true}));await pause();});
   await click('ساخت متن پیشنهادی');const last=calls.filter(c=>c.url==='/api/v1/ai/article/generate').at(-1)!;
   assert.equal(last.body.provider,'nvidia','generation must use the explicitly selected provider');
   assert(document.body.textContent?.includes('nvidia/nemotron-3.5-lightning-30b-a3b'));
+  dom.window.confirm=()=>false;
+  await click('جایگزینی متن مقاله');assert.equal(insertMode,'append','cancelled replacement must not modify the article');
+  dom.window.confirm=()=>true;
+  await click('جایگزینی متن مقاله');assert.equal(insertMode,'replace');
   assert(calls.every(c=>c.url.startsWith('/api/v1/ai/article/')),'no save or publish call');
   console.log('PASS: AI requires two acknowledgements, sends only selected fields, and inserts only after review');
 } finally {await act(async()=>root.unmount());dom.window.close();}
