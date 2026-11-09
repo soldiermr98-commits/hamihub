@@ -5,7 +5,7 @@ import { AiProviderStatus, fetchAiProviders, generateAiArticle } from '../servic
 const input = 'w-full border border-slate-300 rounded-lg bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300';
 const button = 'inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-50 disabled:opacity-50';
 
-interface Props { title:string; currentText:string; csrfToken:string; onInsert:(text:string)=>void }
+interface Props { title:string; currentText:string; csrfToken:string; onInsert:(text:string, mode:'append'|'replace')=>void }
 
 /** Explicit request → separate suggestion → explicit insert. Never saves or publishes. */
 export const AiArticleAssistant:React.FC<Props> = ({title,currentText,csrfToken,onInsert}) => {
@@ -39,7 +39,7 @@ export const AiArticleAssistant:React.FC<Props> = ({title,currentText,csrfToken,
   const insert=(replace:boolean)=>{
     if(!result)return;
     if(replace && currentText.trim() && !window.confirm('متن فعلی مقاله با پیشنهاد جایگزین شود؟'))return;
-    onInsert(replace ? result : [currentText.trimEnd(),result].filter(Boolean).join('\n\n'));
+    onInsert(result, replace ? 'replace' : 'append');
     setResult('');
   };
   return <section className="rounded-xl border border-blue-200 bg-blue-50/40 p-4" aria-label="دستیار نوشتن مقاله">

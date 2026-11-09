@@ -227,7 +227,14 @@ export interface ArticleData {
   items: ArticleBizRow[];
   faqs: ArticleFaqRow[];
 }
+export interface ArticleItemDisplay {
+  eligibility: 'eligible' | 'not_published' | 'missing_context' | 'missing';
+  business_status: BusinessItem['status'] | null;
+  city_id: number | null;
+  category_id: number | null;
+}
 export interface ArticleItem extends ArticleData {
+  item_display?: Record<string, ArticleItemDisplay>;
   id: number;
   status: 'draft' | 'review' | 'published';
   city_name_fa?: string | null;
@@ -688,7 +695,7 @@ export async function fetchReviewQueueState(status='pending',kind='all'): Promis
   return request('/api/v1/review-queue?' + new URLSearchParams({status,kind}));
 }
 export async function decideReviewQueueItems(ids:number[],decision:'approved'|'rejected',csrf:string): Promise<any> { return action('/api/v1/review-queue/decide',{ids,decision},csrf); }
-export async function fetchArticlesList(): Promise<{articles:ArticleItem[];schema_ready:boolean}> { return request('/api/v1/articles', {cache:'no-store'}); }
+export async function fetchArticlesList(): Promise<{articles:ArticleItem[];schema_ready:boolean;rich_editor_available?:boolean}> { return request('/api/v1/articles', {cache:'no-store'}); }
 export async function saveArticleItem(payload:Partial<ArticleItem>,csrf:string): Promise<any> { return action('/api/v1/articles',payload,csrf); }
 export async function updateArticleSchema(csrf:string):Promise<any> { return action('/api/v1/system/update-article-schema',{},csrf); }
 export async function fetchArticleBusinesses(page:number, query:string, cityId:number, categoryId:number): Promise<{businesses:BusinessItem[];total:number;per_page:number}> {

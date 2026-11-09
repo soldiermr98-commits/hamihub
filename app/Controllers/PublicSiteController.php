@@ -12,6 +12,7 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Services\AdvertisingService;
 use App\Services\ArticleService;
+use App\Services\ArticleText;
 use App\Services\BusinessUrlService;
 use App\Services\Normalizer;
 use App\Services\SponsorshipStatus;
@@ -1663,26 +1664,10 @@ final class PublicSiteController
         return $items;
     }
 
-    /** Plain writing with optional heading lines; all content is escaped, never trusted HTML. */
+    /** Legacy text is unchanged; explicitly formatted text is reconstructed from safe markup. */
     private static function renderArticleText(string $text): string
     {
-        $text = (string)preg_replace('~<br\s*/?>~i', "\n", $text);
-        $text = (string)preg_replace('~</(?:p|div|h[1-6]|li)>~i', "\n\n", $text);
-        $text = strip_tags($text);
-        $lines = preg_split('/\R/u', $text) ?: [];
-        $result = ''; $paragraph = [];
-        $flush = static function () use (&$result, &$paragraph): void {
-            if ($paragraph) { $result .= '<p>' . nl2br(self::e(implode("\n", $paragraph))) . '</p>'; $paragraph = []; }
-        };
-        foreach ($lines as $line) {
-            $trimmed = trim($line);
-            if ($trimmed === '') { $flush(); continue; }
-            if (str_starts_with($trimmed, '### ')) { $flush(); $result .= '<h3>' . self::e(substr($trimmed, 4)) . '</h3>'; }
-            elseif (str_starts_with($trimmed, '## ')) { $flush(); $result .= '<h2>' . self::e(substr($trimmed, 3)) . '</h2>'; }
-            else $paragraph[] = $line;
-        }
-        $flush();
-        return $result;
+        return ArticleText::render($text);
     }
 
     private static function fetchPublishedBusinesses(string $whereClause, array $params, int $limit, int $offset = 0): array
@@ -1848,7 +1833,7 @@ final class PublicSiteController
     <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s10.0">
+    <link rel="stylesheet" href="/assets/css/public.css?v=s10.1">
     <!-- hhx-ad-until:<?= (int)$ad['until'] ?> -->
     <!-- hhx-sponsor-until:<?= max(0, (int)($data['sponsor_until'] ?? 0)) ?> -->
     <?php foreach ($schemas as $schema):

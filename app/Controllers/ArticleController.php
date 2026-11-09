@@ -10,6 +10,7 @@ use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
 use App\Services\ArticleService;
+use App\Services\ArticleText;
 use App\Services\SlugService;
 
 /**
@@ -28,7 +29,8 @@ final class ArticleController
             $article = ArticleService::load((int)$row['id']);
             if ($article) $articles[] = $article;
         }
-        Response::json(['ok'=>true, 'schema_ready'=>ArticleService::schemaReady(), 'articles'=>$articles]);
+        Response::json(['ok'=>true, 'schema_ready'=>ArticleService::schemaReady(),
+            'rich_editor_available'=>ArticleText::richAvailable(), 'articles'=>$articles]);
     }
 
     /** Save without exposing drafts or replacing the published version prematurely. */

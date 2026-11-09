@@ -85,10 +85,38 @@ final class ArticleService
                 ];
             }
         }
+        $workingItems = $article['revision']['data']['items'] ?? [];
+        $article['item_display'] = (object)self::itemDisplayInfo(array_merge($items, is_array($workingItems) ? $workingItems : []));
         $article['edit_token'] = isset($revision) && $revision
             ? hash('sha256', (string)$revision['status'] . "\n" . (string)$revision['payload_json'])
             : self::liveHash($id);
         return $article;
+    }
+
+    /** Explain public eligibility without changing or publishing any business or article. */
+    private static function itemDisplayInfo(array $items): array
+    {
+        $ids = [];
+        foreach ($items as $item) {
+            $id = is_array($item) ? (int)($item['business_id'] ?? 0) : 0;
+            if ($id > 0) $ids[$id] = $id;
+        }
+        if (!$ids) return [];
+        $rows = DB::fetchAll('SELECT b.id,b.status,b.city_id,b.category_id,c.id AS joined_city_id,cat.id AS joined_category_id
+            FROM businesses b LEFT JOIN cities c ON c.id=b.city_id LEFT JOIN categories cat ON cat.id=b.category_id
+            WHERE b.id IN (' . implode(',', array_values($ids)) . ')');
+        $byId = [];
+        foreach ($rows as $row) $byId[(int)$row['id']] = $row;
+        $info = [];
+        foreach ($ids as $id) {
+            $row = $byId[$id] ?? null;
+            $eligibility = !$row ? 'missing' : ((string)$row['status'] !== 'published' ? 'not_published'
+                : (empty($row['joined_city_id']) || empty($row['joined_category_id']) ? 'missing_context' : 'eligible'));
+            $info[(string)$id] = ['eligibility'=>$eligibility, 'business_status'=>$row['status'] ?? null,
+                'city_id'=>isset($row['city_id']) ? (int)$row['city_id'] : null,
+                'category_id'=>isset($row['category_id']) ? (int)$row['category_id'] : null];
+        }
+        return $info;
     }
 
     /** Hash content that a published revision is based on, to avoid overwriting newer live edits. */
@@ -139,6 +167,8 @@ final class ArticleService
         $intro = (string)$value(['intro_html','intro'], '');
         $tips = (string)$value(['methodology_html','tips_html'], '');
         if (strlen($intro) > 1000000 || strlen($tips) > 1000000) throw new InvalidArgumentException('متن مقاله بیش از حد طولانی است.');
+        $intro = ArticleText::normalizeInput($intro, (string)($previous['intro_html'] ?? ''));
+        if (strlen($intro) > 1000000) throw new InvalidArgumentException('متن مقاله بیش از حد طولانی است.');
         $cover = (int)$value(['cover_media_id'], 0) ?: null;
         if ($cover && !DB::fetchOne('SELECT id FROM media WHERE id=:id', ['id'=>$cover])) throw new InvalidArgumentException('تصویر مقاله یافت نشد.');
 
@@ -227,7 +257,7 @@ final class ArticleService
             $previous = $revisionRow ? json_decode((string)$revisionRow['payload_json'], true) : self::dataFromArticle($article);
             if (!is_array($previous)) throw new RuntimeException('نسخه در حال ویرایش قابل خواندن نیست.');
             $data = self::normalize($input, $previous, $id);
-            if (in_array($status, ['review','published'], true) && trim(strip_tags($data['intro_html'])) === '' && count($data['items']) === 0) {
+            if (in_array($status, ['review','published'], true) && !ArticleText::hasVisibleText($data['intro_html']) && count($data['items']) === 0) {
                 throw new InvalidArgumentException('برای ارسال یا انتشار، متن مقاله را بنویسید یا دست‌کم یک کسب‌وکار به فهرست اضافه کنید.');
             }
 
@@ -331,7 +361,7 @@ final class ArticleService
             $data = json_decode((string)$revision['payload_json'], true);
             if (!is_array($data)) return 'conflict';
             if (SlugService::ensureUniqueSlug('articles', (string)$data['slug'], $id) !== (string)$data['slug']) return 'conflict';
-            if (trim(strip_tags((string)$data['intro_html'])) === '' && empty($data['items'])) return 'conflict';
+            if (!ArticleText::hasVisibleText((string)$data['intro_html']) && empty($data['items'])) return 'conflict';
             self::apply($id, $data, 'published');
             DB::query('DELETE FROM article_revisions WHERE article_id=:id', ['id'=>$id]);
             return 'applied';

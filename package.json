@@ -12,13 +12,18 @@
     "build:deploy": "vite build && node scripts/deploy-admin.mjs",
     "test:apify-ui": "tsx tests/apify_panel_smoke.tsx",
     "test:article-ui": "tsx tests/article_sponsor_ui_smoke.tsx",
+    "test:article-editor-ui": "tsx tests/article_editor_ui_smoke.tsx",
     "test:ai-ui": "tsx tests/ai_article_ui_smoke.tsx",
     "test:ai-provider-ui": "tsx tests/ai_provider_ui_smoke.tsx"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@tiptap/extension-text-align": "3.33.0",
+    "@tiptap/react": "3.33.0",
+    "@tiptap/starter-kit": "3.33.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "dompurify": "3.4.17",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",

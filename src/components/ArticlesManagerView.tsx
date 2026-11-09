@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ExternalLink, Eye, FileText, Plus, Save, Trash2, Upload } from 'lucide-react';
 import { AiArticleAssistant } from './AiArticleAssistant';
+import { ArticleEditor } from './ArticleEditor';
+import { insertArticleSuggestion, isRichArticleText } from '../services/articleText';
 import {
-  ArticleBizRow, ArticleData, ArticleFaqRow, ArticleItem, BusinessItem, CategoryItem, CityItem,
+  ArticleBizRow, ArticleData, ArticleFaqRow, ArticleItem, ArticleItemDisplay, BusinessItem, CategoryItem, CityItem,
   autoBuildCityCategoryArticle, fetchArticleBusinesses, fetchArticlesList, saveArticleItem,
   updateArticleSchema, uploadMediaWebp,
 } from '../services/adminApi';
@@ -40,6 +42,8 @@ const statusLabel = (a:ArticleItem) => a.revision
 export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken,isAdmin,onGoReview,onDirtyChange}) => {
   const [articles,setArticles]=useState<ArticleItem[]>([]);
   const [schemaReady,setSchemaReady]=useState(true);
+  const [richAvailable,setRichAvailable]=useState(false);
+  const [extraDisplay,setExtraDisplay]=useState<Record<string, ArticleItemDisplay>>({});
   const [loading,setLoading]=useState(true);
   const [mode,setMode]=useState<'list'|'edit'>('list');
   const [selected,setSelected]=useState<ArticleItem|null>(null);
@@ -60,7 +64,8 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
   const load = async ():Promise<ArticleItem[]> => {
     setLoading(true);
     try {
-      const result=await fetchArticlesList(); setArticles(result.articles); setSchemaReady(result.schema_ready); return result.articles;
+      const result=await fetchArticlesList(); setArticles(result.articles); setSchemaReady(result.schema_ready);
+      setRichAvailable(result.rich_editor_available === true); return result.articles;
     } catch(e) {setMessage({error:true,text:e instanceof Error?e.message:'دریافت مقالات ناموفق بود.'}); return [];}
     finally {setLoading(false);}
   };
@@ -82,11 +87,11 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
     return()=>{cancelled=true;window.clearTimeout(timer);};
   },[mode,pickerOpen,page,query,form.city_id,form.category_id]);
 
-  const change = (patch:Partial<ArticleData>) => {setForm(f=>({...f,...patch}));setDirty(true);};
+  const change = (patch:Partial<ArticleData>) => {setForm(f=>({...f,...patch}));setDirty(true);setMessage(null);};
   const canLeave = () => !dirty || window.confirm('تغییرات ذخیره نشده‌اند. از این صفحه خارج شوید؟');
   const openArticle = (a:ArticleItem|null) => {
     if(!canLeave()) return;
-    setSelected(a);setForm(a?editorData(a):emptyArticle());setDirty(false);setPickerOpen(false);setMessage(null);setMode('edit');
+    setSelected(a);setForm(a?editorData(a):emptyArticle());setDirty(false);setPickerOpen(false);setExtraDisplay({});setMessage(null);setMode('edit');
   };
   const returnToList = () => {if(canLeave()){setMode('list');setDirty(false);setMessage(null);}};
   const updateList = (article:ArticleItem) => setArticles(prev=>[article,...prev.filter(a=>Number(a.id)!==Number(article.id))]);
@@ -103,7 +108,7 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
       },csrfToken);
       if (!res.ok || !res.article) {setMessage({error:true,text:res.error || 'ذخیره ناموفق بود.'});return null;}
       const article=res.article as ArticleItem;
-      setSelected(article);setForm(editorData(article));setDirty(false);updateList(article);
+      setSelected(article);setForm(editorData(article));setExtraDisplay({});setDirty(false);updateList(article);
       setMessage({error:false,text:res.message});
       return article;
     } finally {inFlight.current=false;setBusy(false);}
@@ -152,6 +157,9 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
   const addBusiness = (b:BusinessItem) => {
     if(form.items.some(i=>Number(i.business_id)===Number(b.id)))return;
     const item:ArticleBizRow={business_id:Number(b.id),business_name_fa:b.name,business_slug:b.slug,rank_num:form.items.length+1,badge_fa:'',verdict_fa:'',custom_desc_html:'',is_sponsored:0,sponsor_label:'تبلیغ'};
+    if (b.status === 'published' && b.city_id && b.category_id) setExtraDisplay(prev=>({...prev,[String(b.id)]:{
+      eligibility:'eligible',business_status:'published',city_id:Number(b.city_id),category_id:Number(b.category_id),
+    }}));
     change({items:[...form.items,item]});
   };
   const moveItem = (index:number, direction:number) => {
@@ -160,6 +168,10 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
   };
   const updateItem = (index:number, patch:Partial<ArticleBizRow>) => change({items:form.items.map((item,i)=>i===index?{...item,...patch}:item)});
   const updateFaq = (index:number, patch:Partial<ArticleFaqRow>) => change({faqs:form.faqs.map((faq,i)=>i===index?{...faq,...patch}:faq)});
+  const itemDisplay = (item:ArticleBizRow):ArticleItemDisplay|undefined => extraDisplay[String(item.business_id)] ?? selected?.item_display?.[String(item.business_id)];
+  const eligibleCount = form.items.filter(item=>itemDisplay(item)?.eligibility==='eligible').length;
+  const unknownCount = form.items.filter(item=>!itemDisplay(item)).length;
+  const richReadOnly = !richAvailable && isRichArticleText(form.intro_html);
 
   return <div className="max-w-6xl mx-auto space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -189,11 +201,14 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
         <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-bold">{selected ? statusLabel(selected) : 'مقاله جدید · هنوز ذخیره نشده'}</div>{dirty&&<span className="text-xs text-amber-700">تغییرات ذخیره نشده</span>}</div>
         {selected?.revision?.base_conflict && <div role="alert" className="bg-amber-50 border border-amber-300 text-amber-900 text-sm rounded p-3">نسخه منتشرشده بعد از شروع این ویرایش تغییر کرده است. انتشار این نسخه برای جلوگیری از حذف تغییرات متوقف می‌شود؛ ابتدا دو نسخه را بررسی کنید.</div>}
         <label className="block text-sm font-bold">عنوان مقاله<input className={`${input} mt-2 text-base`} value={form.title_fa} onChange={e=>change({title_fa:e.target.value})} placeholder="مثلاً راهنمای سفر به رشت" maxLength={255}/></label>
-        <AiArticleAssistant title={form.title_fa} currentText={form.intro_html} csrfToken={csrfToken} onInsert={text=>change({intro_html:text})}/>
-        <div><div className="flex items-center justify-between gap-2"><label htmlFor="article-body" className="text-sm font-bold">متن مقاله</label><button type="button" className={secondary} onClick={insertHeading}>افزودن تیتر</button></div>
-          <textarea ref={textRef} id="article-body" className={`${input} mt-2 min-h-64 leading-8`} value={form.intro_html} onChange={e=>change({intro_html:e.target.value})} placeholder="متن خود را اینجا بنویسید…"/>
-          <p className="text-xs text-slate-500 mt-1">برای تیتر، دکمه «افزودن تیتر» را بزنید و عنوان را بنویسید. نمایش نهایی را در پیش‌نمایش ببینید.</p>
-        </div>
+        {!richReadOnly && <AiArticleAssistant title={form.title_fa} currentText={form.intro_html} csrfToken={csrfToken} onInsert={(text,mode)=>change({intro_html:insertArticleSuggestion(form.intro_html,text,mode)})}/>}
+        {richAvailable ? <ArticleEditor key={selected?.id ?? 'new'} value={form.intro_html} onChange={text=>change({intro_html:text})} disabled={busy}/>
+          : <div><div className="flex items-center justify-between gap-2"><label htmlFor="article-body" className="text-sm font-bold">متن مقاله</label>{!richReadOnly && <button type="button" className={secondary} onClick={insertHeading}>افزودن تیتر</button>}</div>
+            <textarea ref={textRef} id="article-body" readOnly={richReadOnly} className={`${input} mt-2 min-h-64 leading-8`} value={form.intro_html} onChange={e=>change({intro_html:e.target.value})} placeholder="متن خود را اینجا بنویسید…"/>
+            <p role="status" className="text-xs text-amber-800 mt-1">{richReadOnly
+              ? 'این متن قالب‌بندی‌شده فعلاً فقط‌خواندنی است. برای ویرایش آن، API سازگار و افزونه DOM در PHP وب لازم است؛ سایر تنظیمات را می‌توانید بدون تغییر متن ذخیره کنید.'
+              : 'ویرایشگر دیداری زمانی فعال می‌شود که API سازگار و افزونه DOM در PHP وب در دسترس باشند؛ متن ساده همچنان قابل ویرایش است.'}</p>
+          </div>}
         <div className="rounded-lg border border-slate-200 p-4"><div className="font-bold text-sm">تصویر اصلی <span className="font-normal text-slate-500">(اختیاری)</span></div>
           {form.cover_url && <img src={form.cover_url} alt="تصویر اصلی مقاله" className="w-full max-w-sm h-40 object-cover rounded-lg mt-3"/>}
           <div className="flex flex-wrap gap-2 mt-3"><label className={`${secondary} cursor-pointer`}><Upload size={15}/> انتخاب تصویر<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={busy} onChange={e=>{void upload(e.target.files?.[0]);e.target.value='';}}/></label>{form.cover_media_id&&<button className={secondary} onClick={()=>change({cover_media_id:null,cover_url:null})}>حذف تصویر</button>}</div>
@@ -207,14 +222,30 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
             <button type="button" className={secondary} onClick={()=>setPickerOpen(v=>!v)}><Plus size={14}/> {pickerOpen?'بستن جست‌وجو':'افزودن کسب‌وکار'}</button>
           </div>
           {pickerOpen&&<div className="mt-3 p-3 bg-white border border-slate-200 rounded-lg"><input aria-label="جست‌وجوی کسب‌وکار منتشرشده" className={input} placeholder="جست‌وجوی کسب‌وکار منتشرشده" value={query} onChange={e=>{setQuery(e.target.value);setPage(1);}}/>{pickerError&&<p role="alert" className="text-rose-700 text-xs mt-2">{pickerError}</p>}<ul className="divide-y divide-slate-200 mt-2">{picker.businesses.map(b=><li key={b.id} className="flex justify-between items-center gap-2 py-2 text-sm"><span>{b.name} <small className="text-slate-500">{b.city_name}</small></span><button type="button" className={secondary} disabled={form.items.some(i=>Number(i.business_id)===Number(b.id))} onClick={()=>addBusiness(b)}>افزودن</button></li>)}</ul><div className="flex items-center gap-3 text-xs mt-2"><button type="button" className={secondary} disabled={page<=1} onClick={()=>setPage(p=>p-1)}>قبلی</button><span>صفحه {page} · {picker.total} نتیجه</span><button type="button" className={secondary} disabled={page*picker.per_page>=picker.total} onClick={()=>setPage(p=>p+1)}>بعدی</button></div></div>}
-          {form.items.length===0 ? <p className="text-xs text-slate-500 mt-4">هنوز کسب‌وکاری به این مقاله اضافه نشده است.</p> : <p className="text-xs text-slate-500 mt-4">{form.items.length} کسب‌وکار · ترتیب را با پیکان‌ها عوض کنید.</p>}
-          {form.items.map((item,index)=><div key={item.business_id} className={`border rounded-lg p-3 mt-3 space-y-3 ${Number(item.is_sponsored)?'border-amber-300 bg-amber-50':'border-slate-200 bg-white'}`}>
+          {form.items.length===0 ? <p className="text-xs text-slate-500 mt-4">هنوز کسب‌وکاری به این مقاله اضافه نشده است.</p> : <div className="text-xs text-slate-600 mt-4 space-y-1" role="status">
+            <p>{form.items.length} کسب‌وکار · ترتیب را با پیکان‌ها عوض کنید.</p>
+            <p>در آخرین بررسی، {eligibleCount} مورد از {form.items.length} از نظر وضعیت کسب‌وکار قابل نمایش‌اند{unknownCount ? `؛ وضعیت ${unknownCount} مورد نامشخص است` : ''}. انتشار آخرین نسخه و بازه اسپانسر نیز باید جداگانه بررسی شوند.</p>
+          </div>}
+          {dirty && <p role="status" className="text-xs text-amber-900 mt-2">تغییرات این فرم هنوز ذخیره یا منتشر نشده‌اند.</p>}
+          {selected?.revision && <p className="text-xs text-amber-900 mt-2">این فرم نسخهٔ در حال ویرایش را نشان می‌دهد؛ نسخهٔ عمومی تا انتشار یا تأیید مدیر جداگانه باقی می‌ماند.</p>}
+          {form.items.map((item,index)=>{
+            const info=itemDisplay(item);
+            const mismatch=!!info && (!!form.city_id && !!info.city_id && Number(form.city_id)!==info.city_id
+              || !!form.category_id && !!info.category_id && Number(form.category_id)!==info.category_id);
+            const visibility=info?.eligibility === 'eligible' ? 'کسب‌وکار از نظر وضعیت و شهر و دسته قابل نمایش است؛ نسخهٔ مقاله باید منتشر شود و برچسب اسپانسر به زمان‌بندی وابسته است.'
+              : info?.eligibility === 'not_published' ? `در سایت نمایش داده نمی‌شود: کسب‌وکار منتشرشده نیست (${info.business_status || 'نامشخص'}).`
+              : info?.eligibility === 'missing_context' ? 'در سایت نمایش داده نمی‌شود: شهر یا دستهٔ کسب‌وکار یافت نشد.'
+              : info?.eligibility === 'missing' ? 'در سایت نمایش داده نمی‌شود: کسب‌وکار یافت نشد.'
+              : 'وضعیت نمایش این کسب‌وکار هنوز مشخص نیست؛ پس از ذخیره و بارگذاری دوباره بررسی کنید.';
+            return <div key={item.business_id} className={`border rounded-lg p-3 mt-3 space-y-3 ${Number(item.is_sponsored)?'border-amber-300 bg-amber-50':'border-slate-200 bg-white'}`}>
             <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm">{index+1}. {item.business_name_fa || `کسب‌وکار #${item.business_id}`}</strong><div className="flex gap-1"><button type="button" aria-label="انتقال به بالا" className={secondary} disabled={index===0} onClick={()=>moveItem(index,-1)}><ArrowUp size={14}/></button><button type="button" aria-label="انتقال به پایین" className={secondary} disabled={index===form.items.length-1} onClick={()=>moveItem(index,1)}><ArrowDown size={14}/></button><button type="button" aria-label="حذف کسب‌وکار" className={secondary} onClick={()=>change({items:form.items.filter((_,i)=>i!==index)})}><Trash2 size={14}/></button></div></div>
+            <p className={`text-xs leading-6 ${info?.eligibility === 'eligible'?'text-emerald-800':'text-amber-900'}`}>{visibility}</p>
+            {mismatch && <p className="text-xs leading-6 text-amber-900">شهر یا دستهٔ این کسب‌وکار با تنظیمات مقاله متفاوت است؛ ارتباط آن با موضوع مقاله را بررسی کنید.</p>}
             <label className="flex items-start gap-2 text-sm font-semibold text-amber-950"><input type="checkbox" className="mt-1" aria-label={`جایگاه اسپانسری ${item.business_name_fa || `کسب‌وکار ${item.business_id}`}`} checked={!!Number(item.is_sponsored)} onChange={e=>updateItem(index,{is_sponsored:e.target.checked?1:0})}/><span>جایگاه ویژه اسپانسری <span className="block text-xs font-normal text-slate-600 mt-1">در بازه فعال، با برچسب تبلیغ در ابتدای فهرست نشان داده می‌شود.</span></span></label>
             {!!Number(item.is_sponsored)&&<div className="rounded-lg bg-white border border-amber-200 p-3"><div className="grid sm:grid-cols-3 gap-3"><label className="text-xs">برچسب تبلیغ<input aria-label={`برچسب تبلیغ ${item.business_name_fa || `کسب‌وکار ${item.business_id}`}`} maxLength={80} className={`${input} mt-1`} value={item.sponsor_label||''} onChange={e=>updateItem(index,{sponsor_label:e.target.value})}/></label><label className="text-xs">شروع (اختیاری)<input type="datetime-local" aria-label={`شروع اسپانسر ${item.business_name_fa || `کسب‌وکار ${item.business_id}`}`} className={`${input} mt-1`} value={(item.sponsor_start||'').replace(' ','T').slice(0,16)} onChange={e=>updateItem(index,{sponsor_start:e.target.value||null})}/></label><label className="text-xs">پایان (اختیاری)<input type="datetime-local" aria-label={`پایان اسپانسر ${item.business_name_fa || `کسب‌وکار ${item.business_id}`}`} className={`${input} mt-1`} value={(item.sponsor_end||'').replace(' ','T').slice(0,16)} onChange={e=>updateItem(index,{sponsor_end:e.target.value||null})}/></label></div><p className="text-xs text-slate-500 mt-2">زمان خالی یعنی بدون محدودیت؛ ساعت طبق تنظیمات سایت است. تغییرات پس از انتشار یا تأیید مدیر نمایش داده می‌شوند.</p></div>}
             <label className="block text-xs">توضیح اختصاصی<textarea className={`${input} mt-1`} rows={2} value={item.custom_desc_html||''} onChange={e=>updateItem(index,{custom_desc_html:e.target.value})}/></label>
             <details><summary className="text-xs cursor-pointer text-slate-600">جزئیات بیشتر این گزینه</summary><div className="grid sm:grid-cols-2 gap-2 mt-2"><label className="text-xs">برچسب<input className={`${input} mt-1`} value={item.badge_fa||''} onChange={e=>updateItem(index,{badge_fa:e.target.value})}/></label><label className="text-xs">جمع‌بندی<input className={`${input} mt-1`} value={item.verdict_fa||''} onChange={e=>updateItem(index,{verdict_fa:e.target.value})}/></label></div></details>
-          </div>)}
+          </div>;})}
         </section>
         <details className="border border-slate-200 rounded-lg p-4"><summary className="cursor-pointer font-bold text-sm">تنظیمات بیشتر مقاله <span className="font-normal text-slate-500">(اختیاری)</span></summary>
           <div className="space-y-5 mt-4"><div className="grid sm:grid-cols-2 gap-3">

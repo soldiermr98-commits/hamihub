@@ -78,6 +78,7 @@ jobs:
             tests/csv_import_ui_smoke.tsx \
             tests/apify_panel_smoke.tsx \
             tests/article_sponsor_ui_smoke.tsx \
+            tests/article_editor_ui_smoke.tsx \
             tests/ai_article_ui_smoke.tsx \
             tests/ai_provider_ui_smoke.tsx; do
             ./node_modules/.bin/tsx "$test"
@@ -117,7 +118,8 @@ jobs:
             tests/cache_generation_concurrency_smoke.php \
             tests/sponsorship_cache_version_smoke.php \
             tests/sponsorship_dashboard_status_smoke.php \
-            tests/sponsorship_time_boundary_smoke.php; do
+            tests/sponsorship_time_boundary_smoke.php \
+            tests/article_text_security_smoke.php; do
             php "$test"
           done
           python3 tests/payment_protocol_isolation_smoke.py
@@ -203,3 +205,5 @@ jobs:
           curl --retry 15 --retry-connrefused --retry-delay 1 -fsS "$HHX_TEST_URL/__article_fixture_guard__" > /dev/null
           node "$root/tests/article_city_http_smoke.mjs"
           node "$root/tests/sponsorship_cache_smoke.mjs"
+          php "$root/tests/article_item_display_db_smoke.php"
+          node "$root/tests/article_rich_http_smoke.mjs"

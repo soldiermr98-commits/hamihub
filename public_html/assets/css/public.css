@@ -68,6 +68,21 @@ a:hover {
   color: var(--hx-brand-dark);
 }
 
+/* Rich article text and private preview. Scoped to the prose block only. */
+.hx-prose { line-height: 2; overflow-wrap: anywhere; }
+.hx-prose p { margin: .65rem 0; }
+.hx-prose h2 { font-size: 1.5rem; margin: 1.2rem 0 .55rem; }
+.hx-prose h3 { font-size: 1.25rem; margin: 1rem 0 .45rem; }
+.hx-prose h4 { font-size: 1.1rem; margin: .9rem 0 .4rem; }
+.hx-prose ul, .hx-prose ol { padding-inline-start: 1.7rem; margin: .6rem 0; }
+.hx-prose blockquote {
+  border-inline-start: 3px solid var(--hx-brand-border);
+  padding-inline-start: 1rem;
+  margin: 1rem 0;
+  color: var(--hx-slate-600);
+}
+.hx-prose a { text-decoration: underline; }
+
 .hx-container, .container {
   max-width: 1180px;
   margin: 0 auto;
