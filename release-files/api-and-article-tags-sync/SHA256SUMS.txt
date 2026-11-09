@@ -1,0 +1,2 @@
+4db33dc31328d3fe61273aaef3b2c0dff4ed0a8471432c58dbbb9babe24a6af2  hamihub-update-api-and-article-tags-sync.zip
+9b207ca3066db62ffaff3126b06e306d9fe9710a4d0ab05ab6284ad250d2665c  RAHNAMA-FA.md
