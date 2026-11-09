@@ -254,7 +254,7 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 id="article-sponsor-heading" className="font-bold text-sm text-slate-900">کسب‌وکارها و جایگاه اسپانسری <span className="font-normal text-slate-500">(اختیاری)</span></h2>
-              <p className="text-xs text-slate-600 mt-1 leading-6">برای ایجاد جایگاه تبلیغاتی، کسب‌وکار را اضافه کنید و گزینه اسپانسر همان مورد را روشن کنید. فقط کسب‌وکارهای منتشرشده در مقاله نمایش داده می‌شوند.</p>
+              <p className="text-xs text-slate-600 mt-1 leading-6">فقط کسب‌وکارهای منتشرشده با شهر و دستهٔ معتبر در جست‌وجو می‌آیند. پیش‌نویس را اول در «کسب‌وکارها» منتشر کنید؛ اسپانسر در جدول همین مقاله و کنار نام کسب‌وکار نمایش داده می‌شود، نه به شکل بنر جداگانه.</p>
             </div>
             <button type="button" className={secondary} onClick={()=>setPickerOpen(v=>!v)}><Plus size={14}/> {pickerOpen?'بستن جست‌وجو':'افزودن کسب‌وکار'}</button>
           </div>

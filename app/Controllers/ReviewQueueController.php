@@ -44,6 +44,17 @@ final class ReviewQueueController
             $where[] = "rq.kind = :k";
             $params['k'] = $kindFilter;
         }
+        $search = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 120);
+        if ($search !== '') {
+            $where[] = "(rq.reason_code LIKE :search_reason OR rq.payload_json LIKE :search_payload OR b.name LIKE :search_name OR b.slug LIKE :search_slug OR b.address LIKE :search_address";
+            $pattern = '%' . $search . '%';
+            $params += ['search_reason'=>$pattern,'search_payload'=>$pattern,'search_name'=>$pattern,'search_slug'=>$pattern,'search_address'=>$pattern];
+            if (ctype_digit($search)) {
+                $where[ count($where)-1 ] .= ' OR rq.target_id=:search_target';
+                $params['search_target'] = (int)$search;
+            }
+            $where[count($where)-1] .= ')';
+        }
 
         $whereSql = implode(' AND ', $where);
 

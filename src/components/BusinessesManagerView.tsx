@@ -46,6 +46,8 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [cityFilter, setCityFilter] = useState<number>(0);
   const [qualityFilter, setQualityFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [publishIntent, setPublishIntent] = useState(false);
   const [reviewReady, setReviewReady] = useState(false);
   const [reviewTarget, setReviewTarget] = useState<BusinessItem|null>(null);
   const [reviewNote, setReviewNote] = useState('');
@@ -62,12 +64,12 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const data = await fetchBusinessesPage(page, cityFilter, searchQuery, qualityFilter);
+        const data = await fetchBusinessesPage(page, cityFilter, searchQuery, qualityFilter, statusFilter);
         if (!cancelled) { setPageBusinesses(data.businesses); setTotal(data.total); setReviewReady(!!data.data_review_schema_ready); setListError(''); }
       } catch (e) { if (!cancelled) { setPageBusinesses([]); setListError(e instanceof Error ? e.message : 'خطا در دریافت فهرست'); } }
     }, 200);
     return () => {cancelled=true;window.clearTimeout(timer);};
-  }, [mode, page, cityFilter, searchQuery, qualityFilter, refreshList]);
+  }, [mode, page, cityFilter, searchQuery, qualityFilter, statusFilter, refreshList]);
 
   const togglePromotion = async (biz:BusinessItem) => {
     setPromotionBusy(biz.id);setListError('');
@@ -138,6 +140,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
     setCoverPreviewUrl(null);
     setMediaFeedback('');
     setFormError(null);
+    setPublishIntent(false);
     setMode('form');
   };
 
@@ -167,7 +170,16 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
     setCoverPreviewUrl(biz.cover_thumb_url || null);
     setMediaFeedback('');
     setFormError(null);
+    setPublishIntent(false);
     setMode('form');
+  };
+
+  const prepareBusinessForPublication = (biz:BusinessItem) => {
+    const warnings = biz.warnings?.length ? `\n\nپیش از انتشار این موارد را بررسی کنید: ${biz.warnings.join('، ')}` : '';
+    if (!window.confirm(`«${biz.name}» پیش‌نویس است و اکنون در سایت نمایش داده نمی‌شود. برای انتشار، وضعیت آن را آماده می‌کنیم؛ تا زمانی که در فرم دکمه «ذخیره فوری کسب‌وکار» را نزنید، تغییری روی سایت اعمال نمی‌شود.${warnings}`)) return;
+    openEditBusinessForm(biz);
+    setStatus('published');
+    setPublishIntent(true);
   };
 
   const scrollToField = (fieldName: string) => {
@@ -251,6 +263,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
     }
 
     setSaveSuccess(res.message || 'کسب‌وکار با موفقیت ذخیره شد.');
+    setPublishIntent(false);
     await onRefreshData();
     setMode('list');
   };
@@ -286,7 +299,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                 فهرست کسب‌وکارها ({total} مورد)
               </h2>
               <p className="text-xs text-slate-500 mt-1">
-فیلترهای کیفیت همه رکوردها را جست‌وجو می‌کنند و موارد منتشرشده و ناقص‌تر را در اولویت می‌گذارند. وجود اطلاعات به‌معنای صحت آن‌ها نیست.
+پیش‌نویس‌ها را با فیلتر «وضعیت انتشار» پیدا کنید؛ آن‌ها به‌تنهایی وارد صندوق بازبینی نمی‌شوند. فقط موارد «در انتظار بازبینی» در صندوق هستند. پیش‌نویس را ویرایش کنید و وضعیت «منتشرشده» را انتخاب و ذخیره کنید.
               </p>
             </div>
 
@@ -301,7 +314,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
           </div>
 
           {/* نوار جستجو و فیلتر شهر */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-5">
             <div className="sm:col-span-2">
               <input
                 type="text"
@@ -323,6 +336,16 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                     {c.name_fa}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <select aria-label="فیلتر وضعیت انتشار کسب‌وکار" value={statusFilter} onChange={e=>{setPage(1);setStatusFilter(e.target.value);setReviewTarget(null);}} className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-lg">
+                <option value="">همه وضعیت‌ها</option>
+                <option value="draft">پیش‌نویس</option>
+                <option value="pending_review">در انتظار بازبینی</option>
+                <option value="published">منتشرشده</option>
+                <option value="hidden">مخفی</option>
+                <option value="rejected">ردشده</option>
               </select>
             </div>
           </div>
@@ -378,14 +401,14 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                             ? 'text-emerald-700'
                             : biz.status === 'pending_review'
                             ? 'text-amber-700'
-                            : 'text-slate-600'
+                            : biz.status === 'rejected' ? 'text-rose-700' : 'text-slate-600'
                         }`}
                       >
                         {biz.status === 'published'
                           ? 'منتشرشده'
                           : biz.status === 'pending_review'
                           ? 'در انتظار بازبینی'
-                          : 'پیش‌نویس'}
+                          : biz.status === 'hidden' ? 'مخفی' : biz.status === 'rejected' ? 'ردشده' : 'پیش‌نویس'}
                       </span>
                       <span className="mx-1.5 text-slate-300">·</span>
                       <span className="font-mono text-slate-700">Tier {biz.tier}</span>
@@ -407,6 +430,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                         <Edit3 className="w-3.5 h-3.5" />
                         ویرایش
                       </button>
+                      {isAdmin && biz.status === 'draft' && <button type="button" onClick={()=>prepareBusinessForPublication(biz)} className="block mt-2 text-xs font-bold text-emerald-800 hover:underline">انتشار پیش‌نویس</button>}
                       <button type="button" disabled={!reviewReady} onClick={()=>openDataReview(biz)} className="block mt-2 text-xs font-semibold text-blue-700 hover:underline disabled:opacity-50">بازبینی اطلاعات</button>
                       {isAdmin && <button type="button" disabled={promotionBusy===biz.id} onClick={()=>togglePromotion(biz)} className="block mt-2 text-xs font-semibold text-blue-700 hover:underline disabled:opacity-50">
                         {Number(biz.promoted) ? 'حذف از جایگاه ویژه' : 'قرار دادن در جایگاه ویژه'}
@@ -465,6 +489,8 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                 )}
               </div>
             )}
+
+            {publishIntent && <div role="status" className="p-4 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm"><strong>آمادهٔ انتشار:</strong> وضعیت روی «منتشرشده» تنظیم شده، اما هنوز چیزی عمومی نشده است. اطلاعات را مرور کنید و دکمهٔ «ذخیره فوری کسب‌وکار» را بزنید تا منتشر شود.</div>}
 
             {/* چک‌لیست غیرمسدودکننده بالای فرم */}
             <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
@@ -718,7 +744,7 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                   <label className="block text-xs font-semibold text-slate-800">وضعیت انتشار</label>
                   <select
                     value={status}
-                    onChange={(e) => setStatus(e.target.value as BusinessItem['status'])}
+                    onChange={(e) => {setStatus(e.target.value as BusinessItem['status']);setPublishIntent(false);}}
                     className="mt-1 w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg"
                   >
                     <option value="published">منتشرشده (published)</option>

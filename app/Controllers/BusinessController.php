@@ -48,6 +48,13 @@ final class BusinessController
         if (in_array($status, ['draft', 'pending_review', 'published', 'hidden', 'rejected'], true)) {
             $where[] = 'b.status=:status'; $params['status']=$status;
         }
+        if ((string)($_GET['article_picker'] ?? '') === '1') {
+            // Article lists use INNER JOINs for city/category, so never offer
+            // drafts or orphaned businesses as sponsor candidates.
+            $where[] = "b.status='published'";
+            $where[] = 'EXISTS (SELECT 1 FROM cities eligible_city WHERE eligible_city.id=b.city_id)';
+            $where[] = 'EXISTS (SELECT 1 FROM categories eligible_category WHERE eligible_category.id=b.category_id)';
+        }
         $search = trim((string)($_GET['q'] ?? ''));
         if ($search !== '') {
             $search = mb_substr($search, 0, 120);

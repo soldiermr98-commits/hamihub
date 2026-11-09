@@ -105,6 +105,9 @@ try {
   await setInput(title,'مقاله آزمایشی جدید');
   await click('افزودن کسب‌وکار');
   await act(async()=>{await pause(260);});
+  const pickerRequest=requests.find(r=>r.url.startsWith('/api/v1/businesses?'))!;
+  const pickerQuery=new URL(pickerRequest.url,'http://example.test').searchParams;
+  assert.equal(pickerQuery.get('status'),'published');assert.equal(pickerQuery.get('article_picker'),'1','drafts and businesses without valid city/category must be excluded at the server');
   await click('افزودن');
   check=input('جایگاه اسپانسری کافه جدید');
   assert.equal(check.checked,false);

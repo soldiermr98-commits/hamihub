@@ -29,7 +29,7 @@ const KIND_TABS: Array<{ key: string; label: string }> = [
   { key: 'business', label: 'کسب‌وکارهای مشکوک / تناقض منبع' },
   { key: 'change', label: 'تغییرات شماره و آدرس' },
   { key: 'duplicate', label: 'تکراری‌های مرزی' },
-  { key: 'article', label: 'پیش‌نویس مقالات' },
+  { key: 'article', label: 'تغییرات مقالهٔ ارسال‌شده برای بررسی' },
   { key: 'claim', label: 'ادعای مالکیت' },
   { key: 'report', label: 'گزارش خطای کاربران' },
 ];
@@ -97,6 +97,8 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent, i
   const [pendingCounts, setPendingCounts] = useState<Record<string, number>>({ all: 0 });
   const [statusFilter, setStatusFilter] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [kindFilter, setKindFilter] = useState<string>('all');
+  const [queueSearchInput, setQueueSearchInput] = useState('');
+  const [queueSearch, setQueueSearch] = useState('');
   const [activeSubView, setActiveSubView] = useState<'queue' | 'changelog'>('queue');
 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -110,13 +112,18 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent, i
   const loadQueue = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchReviewQueueState(statusFilter, kindFilter);
+      const data = await fetchReviewQueueState(statusFilter, kindFilter, queueSearch);
       setItems(data.items); setChangeLogs(data.change_logs); setPendingCounts(data.pending_counts);
     } catch (e) { setFeedback({type:'err',text:e instanceof Error ? e.message : 'خطا در دریافت صف'}); }
     setSelectedIds([]);
     setFocusedIndex(0);
     setLoading(false);
-  }, [statusFilter, kindFilter]);
+  }, [statusFilter, kindFilter, queueSearch]);
+
+  useEffect(() => {
+    const timer=window.setTimeout(()=>setQueueSearch(queueSearchInput.trim()),250);
+    return ()=>window.clearTimeout(timer);
+  }, [queueSearchInput]);
 
   useEffect(() => {
     loadQueue();
@@ -344,6 +351,13 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent, i
                 )}
               </div>
             </div>
+            <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-6 text-blue-900">
+              پیش‌نویس‌ها در این صندوق نیستند. پیش‌نویس کسب‌وکار را در «کسب‌وکارها» با فیلتر وضعیت پیدا کنید و برای تأیید به صندوق ارسال کنید؛ مقالهٔ پیش‌نویس هم در «مقاله‌ها» است. این صندوق فقط موارد ارسال‌شده برای بازبینی را نشان می‌دهد.
+            </div>
+            <label className="block">
+              <span className="sr-only">جست‌وجو در صندوق بازبینی</span>
+              <input type="search" aria-label="جست‌وجو در صندوق بازبینی" value={queueSearchInput} onChange={e=>setQueueSearchInput(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" placeholder="جست‌وجو با نام کسب‌وکار، شناسه، دلیل یا جزئیات…"/>
+            </label>
 
             {/* جدول آیتم‌های صندوق بازبینی */}
             <div className="overflow-x-auto border border-slate-200 rounded-lg">
@@ -376,7 +390,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent, i
                   {items.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-10 text-center text-slate-500">
-                        هیچ موردی با این فیلتر در صندوق بازبینی وجود ندارد.
+                        {queueSearch ? `موردی برای «${queueSearch}» با فیلترهای انتخاب‌شده پیدا نشد.` : 'هیچ موردی با این فیلتر در صندوق بازبینی وجود ندارد. پیش‌نویس‌ها تا وقتی برای بررسی ارسال نشوند اینجا دیده نمی‌شوند.'}
                       </td>
                     </tr>
                   ) : (
