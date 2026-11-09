@@ -68,6 +68,10 @@ searched=(await admin.request('GET','/api/v1/review-queue?status=pending&kind=bu
 assert(!searched.some(i=>Number(i.target_id)===queueBusinessId));
 r=await admin.request('POST','/api/v1/review-queue/decide',{ids:[queueItemId],decision:'rejected'});
 assert.equal(r.status,200,r.text);
+r=await editor.request('POST','/api/v1/businesses/publish',{business_id:queueBusinessId});assert.equal(r.status,403,'editors must never use the direct publication action');
+r=await admin.request('POST','/api/v1/businesses/publish',{business_id:queueBusinessId});assert.equal(r.status,200,r.text);assert.equal(r.json.business.status,'published');
+const persistedBusiness=(await admin.request('GET',`/api/v1/businesses?page=1&status=published&q=synthetic-queue-search-target`)).json.businesses;
+assert(persistedBusiness.some(b=>Number(b.id)===queueBusinessId && b.status==='published'),'admin publication must persist and be visible in the published list');
 const schedule=(await admin.request('GET','/api/v1/import/apify/status')).json.schedule;
 assert.equal(Number(schedule.enabled),1);assert.equal(schedule.task_id,'fixture-only-never-run');
 ok('targeted migration is repeatable and preserves existing publication states and schedule; unrecorded 003 is blocked');

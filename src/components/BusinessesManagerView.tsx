@@ -17,6 +17,7 @@ import {
   NeighborhoodItem,
   computeBusinessWarnings,
   fetchBusinessesPage,
+  publishSavedBusiness,
   normalizeIranPhone,
   recordBusinessDataReview,
   saveBusinessItem,
@@ -262,7 +263,25 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
       return;
     }
 
-    setSaveSuccess(res.message || 'کسب‌وکار با موفقیت ذخیره شد.');
+    let successMessage = res.message || 'کسب‌وکار با موفقیت ذخیره شد.';
+    // Verify the actual saved value. If an admin's full-form save reports a
+    // different status, use a minimal admin-only endpoint after all form data
+    // has been saved, then require an explicit published response.
+    if (isAdmin && status === 'published' && res.business?.status !== 'published') {
+      const savedId = Number(res.business?.id || bizId);
+      if (!savedId) {
+        setFormError({ text: 'ذخیره انجام شد، اما شناسهٔ کسب‌وکار برای تأیید انتشار دریافت نشد.', field: 'status' });
+        return;
+      }
+      const publication = await publishSavedBusiness(savedId, csrfToken);
+      if (!publication.ok || publication.business?.status !== 'published') {
+        setFormError({ text: publication.error || 'اطلاعات ذخیره شد، اما سرور انتشار را تأیید نکرد. فهرست را تازه کنید و وضعیت را بررسی کنید.', field: 'status' });
+        return;
+      }
+      successMessage = 'اطلاعات ذخیره و وضعیت منتشرشده توسط سرور تأیید شد.';
+    }
+
+    setSaveSuccess(successMessage);
     setPublishIntent(false);
     await onRefreshData();
     setMode('list');

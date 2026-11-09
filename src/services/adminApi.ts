@@ -680,6 +680,7 @@ export async function saveCityItem(payload:Partial<CityItem>, csrf:string): Prom
 export async function saveCategoryItem(payload:Partial<CategoryItem>, csrf:string): Promise<any> { return action('/api/v1/categories',payload,csrf); }
 export async function saveCategoryPackItem(payload:Partial<CategoryPackItem>, csrf:string): Promise<any> { return action('/api/v1/category-packs',payload,csrf); }
 export async function saveBusinessItem(payload:any, csrf:string): Promise<any> { return action('/api/v1/businesses',payload,csrf); }
+export async function publishSavedBusiness(businessId:number, csrf:string):Promise<any> { return action('/api/v1/businesses/publish',{business_id:businessId},csrf); }
 export async function uploadMediaWebp(file:File, altText:string, csrf:string): Promise<any> {
   try {
     const body = new FormData(); body.append('image',file); body.append('alt_text',altText);
