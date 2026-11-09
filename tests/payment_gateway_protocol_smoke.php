@@ -2,10 +2,13 @@
 declare(strict_types=1);
 
 // Pure protocol and encryption checks: synthetic values and an injected sender only.
+// Load the few classes directly: Bootstrap would read the site's local config,
+// which this offline test does not need and must not touch.
 if (PHP_SAPI !== 'cli') throw new RuntimeException('CLI only.');
 define('BASE_PATH', dirname(__DIR__));
-require BASE_PATH . '/app/Core/Bootstrap.php';
-\App\Core\Bootstrap::init(BASE_PATH);
+require BASE_PATH . '/app/Services/PaymentVault.php';
+require BASE_PATH . '/app/Services/PaymentGatewaySettings.php';
+require BASE_PATH . '/app/Services/PaymentGatewayClient.php';
 
 use App\Services\PaymentGatewayClient as Client;
 use App\Services\PaymentVault;
