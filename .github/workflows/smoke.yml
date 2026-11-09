@@ -112,3 +112,5 @@ jobs:
           done
           python3 tests/payment_protocol_isolation_smoke.py
           HHX_ALLOW_TEST_FIXTURES=1 php tests/media_service_synthetic_smoke.php
+      - name: RC2 read-only preflight against a synthetic baseline
+        run: python3 tests/rc2_read_only_preflight_smoke.py
