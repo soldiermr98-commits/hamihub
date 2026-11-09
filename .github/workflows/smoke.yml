@@ -27,15 +27,22 @@ jobs:
           # The RCs reference old, pinned Git objects; the default shallow clone is insufficient.
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
       - name: Rebuild content and check preservation on synthetic overlays
         run: |
           python3 tests/build_update_candidate_smoke.py
           python3 tests/build_rc2_directadmin_filecheck_smoke.py
           python3 tests/upgrade_candidate_overlay_smoke.py --candidate rc1
           python3 tests/upgrade_candidate_overlay_smoke.py --candidate rc2
+          python3 tests/build_worker_cache_update_smoke.py
+          node tests/worker_filecheck_smoke.mjs
           (cd release-files/after-v2026.11.07.5-rc1 && sha256sum -c SHA256SUMS.txt)
           (cd release-files/after-v2026.11.07.5-rc2 && sha256sum -c SHA256SUMS.txt)
           (cd release-files/rc2-directadmin-filecheck && sha256sum -c SHA256SUMS.txt)
+          (cd release-files/after-rc2-worker-cache && sha256sum -c SHA256SUMS.txt)
 
   frontend:
     name: Admin build and synthetic UI

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بررسی آفلاین بسته قفل و کش حامی‌هاب</title>
+<style>
+body{font:16px/1.9 Tahoma,sans-serif;max-width:850px;margin:24px auto;padding:0 16px;color:#17233a;background:#f4f7fb}main{background:#fff;border-radius:12px;padding:20px}h1{font-size:1.35rem}label,select,input,button{font:inherit}select,input,button{margin:.4rem 0;max-width:100%}table{border-collapse:collapse;width:100%;font-size:.85rem;direction:ltr}td,th{border-bottom:1px solid #ddd;padding:.35rem;text-align:left;overflow-wrap:anywhere}.ok{color:#166534}.bad{color:#b91c1c}.wait{color:#92400e}#message{font-weight:bold}code{direction:ltr;display:inline-block}
+</style>
+</head>
+<body><main>
+<h1>بررسی آفلاین بسته و فایل‌های کد</h1>
+<p>این صفحه فایل‌های انتخاب‌شده را فقط در مرورگر خودتان می‌خواند؛ چیزی ارسال نمی‌کند. فایل تنظیمات، کلید، بکاپ، کش یا آپلود را انتخاب نکنید. این ابزار مسیر واقعی هاست، نبود فایل جدید، دیتابیس، PHP یا بکاپ را بررسی نمی‌کند.</p>
+<label for="phase">مرحله:</label>
+<select id="phase"><option value="baseline">قبل از نصب این بسته (مبنای RC2)</option><option value="target">بعد از نصب این بسته</option></select><br>
+<label for="files">ZIP و فایل‌های کد با نام اصلی را انتخاب کنید؛ می‌توانید چند نوبت انتخاب کنید:</label><br>
+<input id="files" type="file" multiple><br>
+<button id="reset" type="button">پاک‌کردن نتیجه و شروع دوباره</button>
+<p id="message" aria-live="polite"></p><p id="zip" aria-live="polite"></p><p id="warning"></p>
+<table><thead><tr><th>Expected file path</th><th>Result</th></tr></thead><tbody id="rows"></tbody></table>
+<p>راهنمای همراه بسته توضیح می‌دهد فایل‌ها را از کدام مسیر در DirectAdmin دانلود کنید. وجود <code>app/Core/WorkerLock.php</code> قبل از نصب باید جداگانه در فایل‌منیجر بررسی شود. تطابق هشِ فایل انتخاب‌شده به‌تنهایی مجوز نصب یا اثبات اصالت منبع نیست.</p>
+</main>
+<script>
+'use strict';
+const expected = __PAYLOAD_JSON__;
+const seen = new Map();
+const el = id => document.getElementById(id);
+const byName = new Map();
+for (const path of Object.keys(expected.target)) byName.set(path.split('/').pop(), path);
+function currentState() {
+    const phase = el('phase').value === 'target' ? 'target' : 'baseline';
+    const files = expected[phase];
+    let matching = 0, missing = 0, different = 0;
+    for (const [path, hash] of Object.entries(files)) {
+        const name = path.split('/').pop();
+        if (!seen.has(name)) missing++;
+        else if (seen.get(name) === hash) matching++;
+        else different++;
+    }
+    const zip = !seen.has(expected.zipName) ? 'missing' : seen.get(expected.zipName) === expected.zipSha256 ? 'match' : 'different';
+    return {phase, matching, missing, different, zip, newFileSeen: seen.has('WorkerLock.php')};
+}
+function render() {
+    const state = currentState();
+    const rows = el('rows');
+    rows.textContent = '';
+    for (const [path, hash] of Object.entries(expected[state.phase])) {
+        const name = path.split('/').pop();
+        const row = document.createElement('tr'), file = document.createElement('td'), result = document.createElement('td');
+        file.textContent = path;
+        if (!seen.has(name)) { result.textContent = 'انتخاب نشده'; result.className = 'wait'; }
+        else if (seen.get(name) === hash) { result.textContent = 'مطابق'; result.className = 'ok'; }
+        else { result.textContent = 'متفاوت یا ناخوانا — توقف'; result.className = 'bad'; }
+        row.appendChild(file); row.appendChild(result); rows.appendChild(row);
+    }
+    const total = Object.keys(expected[state.phase]).length;
+    el('message').textContent = state.different ? 'توقف: یک یا چند فایل متفاوت یا ناخواناست.'
+        : state.missing ? `${state.matching} از ${total} فایل مطابق؛ ${state.missing} فایل هنوز بررسی نشده است.`
+        : `${state.matching} از ${total} فایل انتخاب‌شده مطابق است؛ بررسی‌های دستی و بکاپ همچنان لازم‌اند.`;
+    el('message').className = state.different ? 'bad' : state.missing ? 'wait' : 'ok';
+    el('zip').textContent = state.zip === 'match' ? 'هش ZIP انتخاب‌شده مطابق است.' : state.zip === 'different' ? 'هش ZIP متفاوت است — توقف.' : 'ZIP هنوز انتخاب نشده است.';
+    el('zip').className = state.zip === 'match' ? 'ok' : state.zip === 'different' ? 'bad' : 'wait';
+    el('warning').textContent = state.phase === 'baseline' && state.newFileSeen
+        ? 'فایل WorkerLock.php انتخاب شده است؛ اگر از هاست آمده، قبل از نصب باید دربارهٔ وجود آن توقف و بررسی کنید.'
+        : 'تطابق نام و محتوا، محل فایل روی هاست یا نبود فایل WorkerLock.php را ثابت نمی‌کند.';
+}
+async function readFiles(files) {
+    if (!globalThis.crypto || !globalThis.crypto.subtle) {
+        el('message').textContent = 'Web Crypto در این مرورگر در دسترس نیست؛ نتیجه تأیید نشده است.';
+        el('message').className = 'bad'; return;
+    }
+    for (const file of files) {
+        const name = file.name;
+        // Ignore unknown filenames without opening them, including config or private data.
+        if (name !== expected.zipName && !byName.has(name)) continue;
+        try {
+            if (file.size > 10 * 1024 * 1024) throw new Error('File too large');
+            const digest = await globalThis.crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+            seen.set(name, Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join(''));
+        } catch (_) { seen.set(name, 'unreadable'); }
+    }
+    render();
+}
+el('files').addEventListener('change', async event => {
+    await readFiles(event.target.files || []);
+    event.target.value = '';
+});
+el('phase').addEventListener('change', render);
+el('reset').addEventListener('click', () => { seen.clear(); render(); });
+render();
+</script>
+</body></html>
