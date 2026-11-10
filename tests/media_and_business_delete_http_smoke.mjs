@@ -3,9 +3,14 @@
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
 
+process.on('uncaughtException', (err) => {
+  const msg = String(err?.stack || err).replace(/\r?\n/g, '%0A');
+  console.log(`::error title=media_http_smoke::${msg}`);
+  process.exit(1);
+});
 process.on('unhandledRejection', (err) => {
   const msg = String(err?.stack || err).replace(/\r?\n/g, '%0A');
-  console.error(`::error title=media_http_smoke::${msg}`);
+  console.log(`::error title=media_http_smoke::${msg}`);
   process.exit(1);
 });
 
@@ -133,7 +138,7 @@ let r = await admin.request('GET', '/api/v1/media?page=1&per_page=24&usage=all&q
 assert.equal(r.status, 200, `GET /api/v1/media failed: ${r.text}`);
 assert.equal(r.json?.ok, true, r.text);
 assert(Array.isArray(r.json.items));
-assert.equal(r.json.dimension_guides?.length, 3);
+assert.equal(Object.keys(r.json.dimension_guides || {}).length, 3);
 
 // 2. Upload PNG -> auto WebP conversion -> verify listed on disk & DB
 const pngBuf = makeSolidPng(16, 16);
@@ -149,12 +154,14 @@ assert.match(path1200, /^\/uploads\/.+\.webp$/);
 const webpFetch = await fetch(base + path1200);
 assert.equal(webpFetch.status, 200);
 
-// Verify media item appears in GET /api/v1/media search with disk_status.exists_1200 === true
+// Verify media item appears in GET /api/v1/media search with all_files_present === true
 r = await admin.request('GET', `/api/v1/media?page=1&per_page=24&usage=unused&q=${encodeURIComponent('آزمایشی')}`);
 assert.equal(r.status, 200, r.text);
 const listed = r.json.items.find((m) => m.id === mediaId);
 assert(listed, 'Uploaded WebP item must appear in unused media filter');
-assert.equal(listed.disk_status.exists_1200, true);
+assert.equal(listed.all_files_present, true);
+assert.equal(listed.all_webp, true);
+assert.equal(listed.variants?.['1200']?.exists, true);
 assert.match(listed.host_path_1200, /^public_html\/uploads\/.+\.webp$/);
 
 // 3. Update Alt text
