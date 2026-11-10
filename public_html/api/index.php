@@ -11,6 +11,7 @@ require_once BASE_PATH . '/app/Core/Bootstrap.php';
 
 use App\Controllers\AdvertisingController;
 use App\Controllers\AdminMailController;
+use App\Controllers\StaffController;
 use App\Controllers\AdvertisingFinanceController;
 use App\Controllers\AiArticleController;
 use App\Controllers\AiProviderController;
@@ -106,6 +107,10 @@ $router->get('/api/v1/articles/preview/{id}', [PublicSiteController::class, 'art
 $router->post('/api/v1/articles', [ArticleController::class, 'storeOrUpdate']);
 $router->post('/api/v1/articles/auto-build', [ArticleController::class, 'autoBuild']);
 $router->post('/api/v1/events/track', [PublicSiteController::class, 'trackEvent']);
+
+// Limited staff accounts and their server-enforced permissions.
+$router->get('/api/v1/staff', [StaffController::class, 'index']);
+$router->post('/api/v1/staff', [StaffController::class, 'save']);
 
 // Admin notification delivery settings (administrator only).
 $router->get('/api/v1/admin-mail', [AdminMailController::class, 'index']);

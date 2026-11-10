@@ -1879,7 +1879,7 @@ final class PublicSiteController
     <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s10.3">
+    <link rel="stylesheet" href="/assets/css/public.css?v=s10.4">
     <!-- hhx-ad-until:<?= $adUntil ?> -->
     <!-- hhx-sponsor-until:<?= max(0, (int)($data['sponsor_until'] ?? 0)) ?> -->
     <?php foreach ($schemas as $schema):

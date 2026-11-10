@@ -952,3 +952,17 @@ a:hover {
 .hx-ad-honeypot { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 .hx-article-topic-tags span { display: inline-flex; border: 1px solid #cbdced; border-radius: 999px; background: #f2f7fc; color: #24466b; padding: .2rem .65rem; font-size: .75rem; line-height: 1.6; }
 .hx-ad-contact button:disabled { opacity: .6; }
+
+/* Usability refinements: visible keyboard focus and comfortable touch targets. */
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 3px;
+}
+.hx-btn { min-height: 44px; }
+@media (max-width: 640px) {
+  .hx-card { overflow-wrap: anywhere; }
+  .hx-card-actions .hx-btn { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+}

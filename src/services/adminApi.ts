@@ -9,8 +9,14 @@ export interface AdminUser {
   username: string;
   display_name: string;
   role: 'admin' | 'editor';
+  permissions?: StaffPermission[];
   last_login_at?: string;
 }
+
+export type StaffPermission = 'articles' | 'businesses' | 'media' | 'review';
+export interface StaffAccount { id:number; username:string; display_name:string; is_active:number; permissions:StaffPermission[]; created_at:string; last_login_at:string|null; }
+export async function fetchStaff():Promise<{ok:boolean;users:StaffAccount[]}> { return request('/api/v1/staff',{cache:'no-store'}); }
+export async function saveStaff(payload:unknown,csrf:string):Promise<any> { return action('/api/v1/staff',payload,csrf); }
 
 export interface CityItem {
   id: number;
