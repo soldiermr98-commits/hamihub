@@ -30,7 +30,10 @@ if ($path === '/__article_fixture_guard__') {
 }
 if (str_starts_with($path, '/cache/')) { http_response_code(403); exit; }
 $file = realpath($root . $path);
-if ($file && str_starts_with($file, $root . '/') && is_file($file)) return false;
+if ($file && str_starts_with($file, $root . '/') && is_file($file)) {
+    if (str_ends_with($file, '.php')) { require $file; return true; }
+    return false;
+}
 if (str_starts_with($path, '/api/')) { require $root . '/api/index.php'; return true; }
 require $root . '/index.php';
 return true;

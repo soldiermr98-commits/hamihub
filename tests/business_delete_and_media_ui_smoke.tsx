@@ -164,7 +164,7 @@ globalThis.fetch = async (input, options = {}) => {
       message: '۲ کسب‌وکار با موفقیت حذف شد. برای ۱ کسب‌وکار منتشرشده قانون سئوی 410 Gone ثبت شد.',
     });
   }
-  if (url.startsWith('/api/v1/media?')) {
+  if (url.startsWith('/api/media-library.php?') && (!options.method || options.method === 'GET')) {
     return json({
       ok: true,
       items: mediaStore,
@@ -183,7 +183,7 @@ globalThis.fetch = async (input, options = {}) => {
       },
     });
   }
-  if (url === '/api/v1/media/delete') {
+  if (url === '/api/media-library.php?action=delete') {
     assert.equal(options.method, 'POST');
     assert.equal(new Headers(options.headers).get('X-CSRF-Token'), 'csrf-test-token');
     lastMediaDeletePayload = JSON.parse(String(options.body));
@@ -195,7 +195,7 @@ globalThis.fetch = async (input, options = {}) => {
       message: '۱ رکورد تصویر از دیتابیس و ۳ فایل WebP از هاست حذف شد.',
     });
   }
-  if (url === '/api/v1/media/update') {
+  if (url === '/api/media-library.php?action=update') {
     assert.equal(options.method, 'POST');
     lastMediaUpdatePayload = JSON.parse(String(options.body));
     return json({ ok: true, message: 'متن جایگزین (Alt) تصویر ذخیره شد.' });

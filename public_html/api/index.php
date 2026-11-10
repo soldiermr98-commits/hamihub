@@ -153,4 +153,13 @@ $router->post('/api/v1/public/report', [PublicSiteController::class, 'submitRepo
 $router->get('/api/v1/analytics/summary', [PublicSiteController::class, 'analyticsSummary']);
 $router->post('/api/v1/system/cron-run', [PublicSiteController::class, 'runCronMaintenance']);
 
-$router->dispatch($request);
+try {
+    $router->dispatch($request);
+} catch (\Throwable $e) {
+    $loc = basename($e->getFile()) . ':' . $e->getLine();
+    error_log('Unhandled API exception (' . $loc . '): ' . get_class($e) . ': ' . $e->getMessage());
+    \App\Core\Response::json([
+        'ok' => false,
+        'error' => 'خطای غیرمنتظره سرور در اجرای درخواست API (' . get_class($e) . ' در ' . $loc . ').',
+    ], 500);
+}

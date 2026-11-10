@@ -133,12 +133,16 @@ class Client {
 const admin = new Client();
 await admin.login('admin');
 
-// 1. Verify GET /api/v1/media returns HTTP 200 JSON (regression guard for Request::query 500)
-let r = await admin.request('GET', '/api/v1/media?page=1&per_page=24&usage=all&q=');
-assert.equal(r.status, 200, `GET /api/v1/media failed: ${r.text}`);
+// 1. Verify BOTH /api/media-library.php (OPcache-fresh physical endpoint) AND GET /api/v1/media return HTTP 200 JSON
+let r = await admin.request('GET', '/api/media-library.php?page=1&per_page=24&usage=all&q=');
+assert.equal(r.status, 200, `GET /api/media-library.php failed: ${r.text}`);
 assert.equal(r.json?.ok, true, r.text);
 assert(Array.isArray(r.json.items));
 assert.equal(Object.keys(r.json.dimension_guides || {}).length, 3);
+
+r = await admin.request('GET', '/api/v1/media?page=1&per_page=24&usage=all&q=');
+assert.equal(r.status, 200, `GET /api/v1/media failed: ${r.text}`);
+assert.equal(r.json?.ok, true, r.text);
 
 // 2. Upload PNG -> auto WebP conversion -> verify listed on disk & DB
 const pngBuf = makeSolidPng(128, 128);
@@ -154,8 +158,8 @@ assert.match(path1200, /^\/uploads\/.+\.webp$/);
 const webpFetch = await fetch(base + path1200);
 assert.equal(webpFetch.status, 200);
 
-// Verify media item appears in GET /api/v1/media search with all_files_present === true
-r = await admin.request('GET', `/api/v1/media?page=1&per_page=24&usage=unused&q=${encodeURIComponent('آزمایشی')}`);
+// Verify media item appears in GET /api/media-library.php search with all_files_present === true
+r = await admin.request('GET', `/api/media-library.php?page=1&per_page=24&usage=unused&q=${encodeURIComponent('آزمایشی')}`);
 assert.equal(r.status, 200, r.text);
 const listed = r.json.items.find((m) => m.id === mediaId);
 assert(listed, 'Uploaded WebP item must appear in unused media filter');
@@ -164,8 +168,8 @@ assert.equal(listed.all_webp, true);
 assert.equal(listed.variants?.['1200']?.exists, true);
 assert.match(listed.host_path_1200, /^public_html\/uploads\/.+\.webp$/);
 
-// 3. Update Alt text
-r = await admin.request('POST', '/api/v1/media/update', { id: mediaId, alt_text: 'متن جایگزین جدید' });
+// 3. Update Alt text via OPcache-fresh endpoint
+r = await admin.request('POST', '/api/media-library.php?action=update', { id: mediaId, alt_text: 'متن جایگزین جدید' });
 assert.equal(r.status, 200, r.text);
 assert.equal(r.json?.ok, true);
 
@@ -195,7 +199,7 @@ assert.equal(r.status, 200, r.text);
 const id410 = r.json.business.id;
 
 // Deleting media without detach_usages while attached to business must return 409
-r = await admin.request('POST', '/api/v1/media/delete', { ids: [mediaId], detach_usages: false });
+r = await admin.request('POST', '/api/media-library.php?action=delete', { ids: [mediaId], detach_usages: false });
 assert.equal(r.status, 409, r.text);
 
 r = await admin.request('POST', '/api/v1/businesses', {
@@ -256,8 +260,8 @@ assert(sitemap.includes(`/${citySlug}/${slugTarget}`), 'Live target business mus
 r = await admin.request('POST', '/api/v1/businesses/delete', { ids: [idTarget], seo_mode: 'purge_clean' });
 assert.equal(r.status, 200, r.text);
 
-// 7. Delete WebP media item from DB and physical disk
-r = await admin.request('POST', '/api/v1/media/delete', { ids: [mediaId], detach_usages: false });
+// 7. Delete WebP media item from DB and physical disk via OPcache-fresh endpoint
+r = await admin.request('POST', '/api/media-library.php?action=delete', { ids: [mediaId], detach_usages: false });
 assert.equal(r.status, 200, r.text);
 assert.equal(r.json?.result?.deleted_count, 1);
 assert.equal(r.json?.result?.deleted_files_count, 3);
