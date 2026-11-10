@@ -542,6 +542,10 @@ async function action(path: string, payload: unknown, csrf: string): Promise<any
     return { ok: false, error: message, message };
   }
 }
+export interface AdminMailSettings { enabled:boolean; method:'php'|'smtp'; recipient:string; from:string; host:string; port:number; security:'tls'|'ssl'; username:string; password_configured:boolean; version:number; }
+export async function fetchAdminMail():Promise<{ok:boolean;settings:AdminMailSettings}> { return request('/api/v1/admin-mail',{cache:'no-store'}); }
+export async function saveAdminMail(payload:unknown,csrf:string):Promise<any> { return action('/api/v1/admin-mail',payload,csrf); }
+export async function testAdminMail(csrf:string):Promise<any> { return action('/api/v1/admin-mail/test',{},csrf); }
 export async function fetchAuthMe(): Promise<{ok:boolean; authenticated:boolean; user:AdminUser|null; csrf_token:string}> { return request('/api/v1/auth/me'); }
 export async function loginAdmin(params: {username:string;password:string;csrfToken:string}): Promise<any> {
   return action('/api/v1/auth/login', { username:params.username, password:params.password }, params.csrfToken);

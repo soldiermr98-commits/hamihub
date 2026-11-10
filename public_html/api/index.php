@@ -10,6 +10,7 @@ if (!defined('BASE_PATH')) define('BASE_PATH', dirname(__DIR__, 2));
 require_once BASE_PATH . '/app/Core/Bootstrap.php';
 
 use App\Controllers\AdvertisingController;
+use App\Controllers\AdminMailController;
 use App\Controllers\AdvertisingFinanceController;
 use App\Controllers\AiArticleController;
 use App\Controllers\AiProviderController;
@@ -105,6 +106,11 @@ $router->get('/api/v1/articles/preview/{id}', [PublicSiteController::class, 'art
 $router->post('/api/v1/articles', [ArticleController::class, 'storeOrUpdate']);
 $router->post('/api/v1/articles/auto-build', [ArticleController::class, 'autoBuild']);
 $router->post('/api/v1/events/track', [PublicSiteController::class, 'trackEvent']);
+
+// Admin notification delivery settings (administrator only).
+$router->get('/api/v1/admin-mail', [AdminMailController::class, 'index']);
+$router->post('/api/v1/admin-mail', [AdminMailController::class, 'save']);
+$router->post('/api/v1/admin-mail/test', [AdminMailController::class, 'test']);
 
 // Independent banner inventory and advertiser inquiries (admin-only management).
 $router->get('/api/v1/advertising', [AdvertisingController::class, 'index']);

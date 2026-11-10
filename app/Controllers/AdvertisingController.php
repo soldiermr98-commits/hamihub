@@ -10,6 +10,7 @@ use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
 use App\Services\AdvertisingService;
+use App\Services\AdminMailService;
 use App\Services\AdvertisingReportingService;
 use App\Services\Normalizer;
 use DateTimeImmutable;
@@ -158,6 +159,7 @@ final class AdvertisingController
         }
         DB::query('INSERT INTO advertising_inquiries (name,phone,message,status,created_at) VALUES (:name,:phone,:message,\'new\',NOW())',
             ['name'=>$name, 'phone'=>$phone, 'message'=>$message !== '' ? $message : null]);
+        AdminMailService::notify('advertising');
         Response::json(['ok'=>true, 'message'=>'درخواست تبلیغات ثبت شد و در پنل مدیر قابل بررسی است.']);
     }
 
