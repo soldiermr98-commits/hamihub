@@ -1,3 +1,4 @@
+import { PersianDateInput } from './PersianDateInput';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AdBanner, AdContract, AdFinanceData, AdGatewayStatus, AdOnlinePaymentSummary,
@@ -205,8 +206,8 @@ export const AdvertisingFinancePanel:React.FC<{csrfToken:string;banners:AdBanner
           <label className="text-sm">شماره تماس (اختیاری)<input dir="ltr" maxLength={32} className={`${input} mt-1`} value={contract.client_phone} disabled={busy||!!pending} onChange={e=>setContract({...contract,client_phone:e.target.value})}/></label>
           <label className="text-sm">مبلغ قرارداد (تومان)<input required inputMode="numeric" dir="ltr" className={`${input} mt-1`} value={contract.amount_toman} disabled={busy||!!pending} onChange={e=>setContract({...contract,amount_toman:e.target.value})} placeholder="100000"/></label>
           <label className="text-sm">بنر مرتبط (اختیاری)<select className={`${input} mt-1`} value={contract.banner_id} disabled={busy||!!pending} onChange={e=>setContract({...contract,banner_id:Number(e.target.value)})}><option value={0}>بدون بنر</option>{banners.map(b=><option key={b.id} value={b.id}>{b.title}</option>)}</select></label>
-          <label className="text-sm">شروع قرارداد (میلادی، اختیاری)<input type="date" className={`${input} mt-1`} value={contract.starts_at} disabled={busy||!!pending} onChange={e=>setContract({...contract,starts_at:e.target.value})}/></label>
-          <label className="text-sm">پایان قرارداد (میلادی، اختیاری)<input type="date" className={`${input} mt-1`} value={contract.ends_at} disabled={busy||!!pending} onChange={e=>setContract({...contract,ends_at:e.target.value})}/></label>
+          <div className="text-sm">شروع قرارداد (اختیاری)<PersianDateInput label="شروع قرارداد" value={contract.starts_at} disabled={busy||!!pending} onChange={value=>setContract({...contract,starts_at:value})}/></div>
+          <div className="text-sm">پایان قرارداد (اختیاری)<PersianDateInput label="پایان قرارداد" value={contract.ends_at} disabled={busy||!!pending} onChange={value=>setContract({...contract,ends_at:value})}/></div>
           <label className="text-sm sm:col-span-2">توضیحات قرارداد<textarea maxLength={2000} className={`${input} mt-1`} value={contract.notes} disabled={busy||!!pending} onChange={e=>setContract({...contract,notes:e.target.value})}/></label>
         </div><p className="text-xs text-slate-600">مبلغ صحیح و بدون جداکننده یا اعشار وارد شود. تاریخ و بنر اینجا زمان‌بندی یا انتشار بنر را تغییر نمی‌دهند.</p>
         <div className="flex gap-2"><button className={primary} disabled={busy||!!pending}>ثبت قرارداد</button><button type="button" className={button} disabled={busy||!!pending} onClick={()=>setContract(null)}>انصراف</button></div>

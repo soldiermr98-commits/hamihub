@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import React, {act, useState} from 'react';
+import {JSDOM} from 'jsdom';
+const dom = new JSDOM('<div id="root"></div>', {url:'https://example.test', pretendToBeVisual:true});
+Object.assign(globalThis, {window:dom.window, document:dom.window.document, IS_REACT_ACT_ENVIRONMENT:true});
+Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator, configurable:true});
+const {createRoot} = await import('react-dom/client');
+const {PersianDateInput} = await import('../src/components/PersianDateInput');
+let current = '2024-03-20T14:30';
+function Test(){const [value,setValue]=useState(current); return <PersianDateInput label="تاریخ آزمون" value={value} withTime onChange={v=>{current=v;setValue(v);}}/>;}
+const root=createRoot(document.getElementById('root')!);
+await act(async()=>root.render(<Test/>));
+assert.match(document.body.textContent!, /۱۴۰۳\/۱\/۱/);
+await act(async()=>document.querySelector<HTMLButtonElement>('button[aria-label="تاریخ آزمون"]')!.click());
+assert.match(document.body.textContent!, /فروردین ۱۴۰۳/);
+await act(async()=>document.querySelector<HTMLButtonElement>('button[aria-label="۲ فروردین ۱۴۰۳"]')!.click());
+assert.equal(current,'2024-03-21T14:30');
+await act(async()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='پاک کردن تاریخ')!.click());
+assert.equal(current,'');
+await act(async()=>root.unmount());
+console.log('PASS: Jalali picker displays and selects Persian dates while preserving Gregorian API wall time.');

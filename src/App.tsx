@@ -19,7 +19,7 @@ const nav: Array<{id:Route;label:string;icon:React.ElementType}> = [
   {id:'cities',label:'جمع‌آوری و شهرها',icon:MapPin},{id:'businesses',label:'کسب‌وکارها',icon:Store},
   {id:'import',label:'جمع‌آوری و ورود',icon:FileJson},{id:'articles',label:'مقالات',icon:FileText},
   {id:'media',label:'رسانه',icon:ImageIcon},
-  {id:'advertising',label:'تبلیغات',icon:Megaphone},{id:'settings',label:'تنظیمات',icon:Settings},
+  {id:'advertising',label:'تبلیغات و درخواست‌ها',icon:Megaphone},{id:'settings',label:'تنظیمات',icon:Settings},
 ];
 function routeFromPath():Route {
   const part = window.location.pathname.split('/').filter(Boolean)[1] as Route | undefined;
@@ -75,7 +75,7 @@ export default function App() {
       <p className="text-xs text-slate-500 mt-4">برای نصب اولیه از نصب‌کننده واقعی سرور استفاده کنید.</p></main>:
     <div className="flex flex-col md:flex-row"><aside className="md:w-60 bg-white border-l border-slate-200 p-4 shrink-0"><p className="text-xs text-slate-500 p-2">{user.display_name} · {user.role}</p><nav className="flex md:flex-col gap-1 overflow-x-auto">{nav.filter(n=>!['import','advertising'].includes(n.id)||user.role==='admin').map(n=><button key={n.id} onClick={()=>go(n.id)} className={`flex items-center gap-2 px-3 py-2 rounded text-sm whitespace-nowrap ${route===n.id?'bg-blue-50 text-blue-800 font-bold':'hover:bg-slate-100'}`}><n.icon className="w-4 h-4"/>{n.label}</button>)}</nav></aside>
     <main className="flex-1 p-4 md:p-8 min-w-0">{error&&<p role="alert" className="p-3 mb-4 bg-rose-50 text-rose-800 rounded text-sm">{error}</p>}{notice&&<p className="p-3 mb-4 bg-blue-50 rounded text-sm">{notice}</p>}
-      {route==='dashboard'&&<S6AnalyticsPanel csrfToken={csrf} onNavigateReview={()=>go('review')}/>}
+      {route==='dashboard'&&<div className="space-y-4">{user.role==='admin'&&<section className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4"><div><h2 className="font-bold text-blue-950">درخواست‌های تبلیغات</h2><p className="mt-1 text-sm text-blue-800">درخواست‌های ثبت‌شده را ببینید و پیگیری کنید.</p></div><button type="button" onClick={()=>go('advertising')} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">مشاهده درخواست‌ها</button></section>}<S6AnalyticsPanel csrfToken={csrf} onNavigateReview={()=>go('review')}/></div>}
       {route==='review'&&<ReviewQueueView csrfToken={csrf} onRefreshParent={refresh} isAdmin={user.role==='admin'}/>}
       {route==='cities'&&<CitiesAndCategoriesView cities={cities} categories={categories} packs={packs} csrfToken={csrf} onRefreshData={refresh}/>}
       {route==='businesses'&&<BusinessesManagerView cities={cities} neighborhoods={neighborhoods} categories={categories} csrfToken={csrf} onRefreshData={refresh} isAdmin={user.role==='admin'}/>}

@@ -78,6 +78,7 @@ jobs:
       - name: UI, CSV and banner smoke tests (synthetic data)
         run: |
           for test in \
+            tests/persian_date_input_smoke.tsx \
             tests/advertising_reporting_ui_smoke.tsx \
             tests/advertising_finance_ui_smoke.tsx \
             tests/advertising_finance_logout_ui_smoke.tsx \

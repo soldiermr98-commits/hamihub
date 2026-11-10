@@ -6,11 +6,14 @@ from pathlib import Path
 import sys
 import tempfile
 import zipfile
+import io
+import subprocess
+import tarfile
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'scripts'))
 import build_unified_categories_dedupe_update as builder  # noqa: E402
-from build_api_article_sync_update import DOC_PREFIXES, safe_zip_entries  # noqa: E402
+from build_api_article_sync_update import DOC_PREFIXES, FORBIDDEN_PREFIXES, RUNTIME_TREES, safe_zip_entries  # noqa: E402
 
 if not __debug__:
     raise RuntimeError('Run without Python optimization; assertions are required.')
@@ -45,6 +48,14 @@ def main() -> None:
     rq_src = zip_entries['app/Controllers/ReviewQueueController.php'].decode('utf-8')
     assert 'merge_into_id' in rq_src, 'ReviewQueueController.php must support 1-click duplicate merge'
 
+    # This is a historical release: compare the overlay to its published commit,
+    # not to the current working tree, which legitimately changes in later releases.
+    archive = subprocess.check_output(['git', 'archive', 'dd1e2cebbe44009a94a9fb05ff1c5209608d9429'], cwd=ROOT)
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        pinned = {member.name: tar.extractfile(member).read() for member in tar.getmembers() if member.isfile()}
+    runtime_paths = [name for name in pinned if any(name.startswith(tree + '/') for tree in RUNTIME_TREES)
+                     and not name.startswith(FORBIDDEN_PREFIXES)]
+
     for label, chain in (
         ('pre-hotfix', builder.PRE_HOTFIX_CHAIN),
         ('post-hotfix', builder.POST_HOTFIX_CHAIN),
@@ -62,7 +73,11 @@ def main() -> None:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(content)
 
-            stats = builder.verify_tree(host, check_matches_repo=True)
+            stats = builder.verify_tree(host, check_matches_repo=False)
+            for rel in runtime_paths:
+                assert rel in pinned, f'Missing runtime file from published commit: {rel}'
+                assert (host / rel).read_bytes() == pinned[rel], f'Runtime differs from published commit: {rel}'
+            stats['runtime_files'] = len(runtime_paths)
             assert stats['api_routes'] == 89, stats
             assert stats['public_routes'] == 8, stats
             assert stats['runtime_files'] >= 107, stats
