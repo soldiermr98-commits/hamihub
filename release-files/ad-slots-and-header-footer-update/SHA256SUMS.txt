@@ -1,2 +1,2 @@
-7f587b20792009902ec9fb9564b6c6080e973b5bab8eb504d7fa51b2bb9cde5c  hamihub-update-ad-slots-and-header-footer.zip
+dde9791c97b14dfa683a39179168ef40bb34efae5506562c1a0eb8f00d046885  hamihub-update-ad-slots-and-header-footer.zip
 990acdcd9ef627a8adee61a5f57b961fc34e2811970f430fb21a1218bfaab2f8  RAHNAMA-FA.md

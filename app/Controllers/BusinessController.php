@@ -70,13 +70,14 @@ final class BusinessController
         $quality = (string)($_GET['quality'] ?? '');
         if (isset($missing[$quality])) $where[] = '(' . $missing[$quality] . ')';
         elseif ($quality === 'incomplete') $where[] = '(' . implode(' OR ', $missing) . ')';
-        elseif ($quality === 'unreviewed' && $reviewReady) $where[] = '(dr.business_id IS NULL OR dr.data_hash <> ' . $hash . ')';
+        elseif ($quality === 'unreviewed' && $reviewReady) $where[] = '(dr.business_id IS NULL OR dr.data_hash <> CONVERT(' . $hash . ' USING ascii) COLLATE ascii_bin)';
         $whereSql = implode(' AND ', $where);
         $total = (int)(DB::fetchOne("SELECT COUNT(*) AS cnt FROM businesses b {$reviewJoin} WHERE {$whereSql}", $params)['cnt'] ?? 0);
         $photoId = BusinessDataReviewService::effectivePhotoId();
         $reviewSelect = $reviewReady ? ", {$hash} AS review_hash, dr.data_hash AS reviewed_hash, dr.source_note AS review_source_note, dr.reviewed_at" : ", NULL AS review_hash, NULL AS reviewed_hash, NULL AS review_source_note, NULL AS reviewed_at";
         $score = implode(' + ', array_map(static fn(string $condition): string => '(' . $condition . ')', $missing));
-        $order = $quality !== '' ? "(b.status='published') DESC, ({$score}) DESC, b.updated_at DESC, b.id DESC" : 'b.updated_at DESC, b.id DESC';
+        $scoreSelect = $quality !== '' ? ", ({$score}) AS quality_missing_score" : '';
+        $order = $quality !== '' ? "(b.status='published') DESC, quality_missing_score DESC, b.updated_at DESC, b.id DESC" : 'b.updated_at DESC, b.id DESC';
         $rows = DB::fetchAll(
             "SELECT b.*,
                     c.name_fa AS city_name, c.slug AS city_slug,
@@ -84,7 +85,7 @@ final class BusinessController
                     n.name_fa AS neighborhood_name,
                     m.id AS effective_cover_media_id, m.file_path_480 AS cover_thumb_url,
                     m.file_path_800 AS cover_medium_url,
-                    COALESCE(bp.active,0) AS promoted {$reviewSelect}
+                    COALESCE(bp.active,0) AS promoted {$reviewSelect}{$scoreSelect}
              FROM businesses b
              LEFT JOIN cities c ON c.id = b.city_id
              LEFT JOIN categories cat ON cat.id = b.category_id

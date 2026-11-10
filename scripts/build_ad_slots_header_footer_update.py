@@ -40,6 +40,7 @@ POST_OPCACHE_FIX_CHAIN = (
 
 PACKAGE_FILES = (
     'app/Controllers/AdvertisingController.php',
+    'app/Controllers/BusinessController.php',
     'app/Controllers/MediaController.php',
     'app/Controllers/PublicSiteController.php',
     'app/Core/Cache.php',
