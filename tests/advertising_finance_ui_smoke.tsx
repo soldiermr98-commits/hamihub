@@ -1,3 +1,4 @@
+import {toJalaali} from 'jalaali-js';
 // Isolated jsdom UI test; all ledger responses are synthetic and no gateway is contacted.
 import assert from 'node:assert/strict';
 import React, {act} from 'react';
@@ -42,6 +43,14 @@ const button=(text:string,scope:ParentNode=document)=>{const el=[...scope.queryS
 const control=(label:string)=>{const el=[...document.querySelectorAll('label')].find(x=>x.textContent?.trim().startsWith(label));assert(el,`Missing label: ${label}`);const field=el.querySelector('input,textarea,select');assert(field,`Missing control: ${label}`);return field as HTMLInputElement;};
 async function click(el:HTMLElement){await act(async()=>{el.click();await pause();});}
 async function type(el:HTMLInputElement,value:string){await act(async()=>{const proto=el.tagName==='TEXTAREA'?dom.window.HTMLTextAreaElement.prototype:dom.window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value')!.set!.call(el,value);el.dispatchEvent(new dom.window.Event('input',{bubbles:true}));await pause();});}
+async function chooseDate(label:string, iso:string){
+  const start=toJalaali(new Date()); const target=toJalaali(...iso.split('-').map(Number) as [number,number,number]);
+  await click(document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!);
+  const diff=(target.jy-start.jy)*12+target.jm-start.jm;
+  for(let i=0;i<Math.abs(diff);i++) await click(document.querySelector<HTMLButtonElement>(`button[aria-label="ماه ${diff>0?'بعد':'قبل'}"]`)!);
+  const months=['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];const fa=(n:number)=>n.toLocaleString('fa-IR',{useGrouping:false});
+  await click(document.querySelector<HTMLButtonElement>(`button[aria-label="${fa(target.jd)} ${months[target.jm-1]} ${fa(target.jy)}"]`)!);
+}
 async function render(){await act(async()=>{root.render(<AdvertisingFinancePanel csrfToken="fixture-csrf" banners={[]}/>);await pause();});}
 dom.window.confirm=()=>true;dom.window.prompt=()=> 'دلیل آزمایشی کافی';
 try {
@@ -49,7 +58,7 @@ try {
   assert(document.body.textContent?.includes('ثبت دستی فقط اظهار مدیر'));
   await click(button('قرارداد جدید'));
   await type(control('عنوان قرارداد'),'قرارداد نمونه');await type(control('طرف قرارداد'),'مشتری نمونه');await type(control('مبلغ قرارداد'),'۱۰۰۰۰۰');
-  await type(control('توضیحات قرارداد'),'شرایط مالی ساختگی');await type(control('شروع قرارداد'),'2026-11-01');await type(control('پایان قرارداد'),'2026-12-01');
+  await type(control('توضیحات قرارداد'),'شرایط مالی ساختگی');await chooseDate('شروع قرارداد','2026-11-01');await chooseDate('پایان قرارداد','2026-12-01');
   dom.window.confirm=()=>false;await click(button('ثبت قرارداد'));assert.equal(contractAttempts,0,'cancelled confirmation must not mutate');
   dom.window.confirm=()=>true;await click(button('ثبت قرارداد'));assert.equal(contractAttempts,1);
   assert.match(firstContract.request_key,/^[a-f0-9]{64}$/);assert.equal(firstContract.amount_toman,'۱۰۰۰۰۰');assert(dom.window.sessionStorage.getItem('hhx.advertising.finance.pending.v1'));

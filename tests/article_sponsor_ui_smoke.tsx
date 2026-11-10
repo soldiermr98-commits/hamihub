@@ -1,3 +1,4 @@
+import {toJalaali} from 'jalaali-js';
 // Synthetic API and jsdom only. Nothing is published to a real site.
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
@@ -67,6 +68,19 @@ async function setInput(element:HTMLInputElement, value:string) {
     await pause();
   });
 }
+async function setPersianDate(label:string, iso:string, initial?:string) {
+  const start = initial ? toJalaali(...initial.split('-').map(Number) as [number,number,number]) : toJalaali(new Date());
+  const target = toJalaali(...iso.slice(0,10).split('-').map(Number) as [number,number,number]);
+  const open = document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  assert.ok(open); await act(async()=>open.click());
+  const diff = (target.jy-start.jy)*12+target.jm-start.jm;
+  for (let i=0;i<Math.abs(diff);i++) await act(async()=>document.querySelector<HTMLButtonElement>(`button[aria-label="ماه ${diff>0?'بعد':'قبل'}"]`)!.click());
+  const months=['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+  const fa=(n:number)=>n.toLocaleString('fa-IR',{useGrouping:false});
+  const day=document.querySelector<HTMLButtonElement>(`button[aria-label="${fa(target.jd)} ${months[target.jm-1]} ${fa(target.jy)}"]`)!;
+  assert.ok(day); await act(async()=>day.click());
+  await setInput(input(label+'، ساعت'),iso.slice(11,16));
+}
 const saves = () => requests.filter(r=>r.url==='/api/v1/articles' && r.method==='POST');
 
 try {
@@ -79,15 +93,15 @@ try {
   let check = input('جایگاه اسپانسری کافه قدیمی');
   assert.equal(check.checked,true);
   assert.equal(input('برچسب تبلیغ کافه قدیمی').value,'حامی قدیمی');
-  assert.equal(input('شروع اسپانسر کافه قدیمی').value,'2025-01-01T08:30');
-  assert.equal(input('پایان اسپانسر کافه قدیمی').value,'2030-01-01T09:45');
+  assert.match(document.querySelector('button[aria-label="شروع اسپانسر کافه قدیمی"]')!.textContent!, /۱۴۰۳/); assert.equal(input('شروع اسپانسر کافه قدیمی، ساعت').value,'08:30');
+  assert.equal(input('پایان اسپانسر کافه قدیمی، ساعت').value,'09:45');
   await act(async()=>{check.click();await pause();});
   assert.equal(document.querySelector('input[aria-label="برچسب تبلیغ کافه قدیمی"]'),null);
   check = input('جایگاه اسپانسری کافه قدیمی');
   await act(async()=>{check.click();await pause();});
   assert.equal(input('برچسب تبلیغ کافه قدیمی').value,'حامی قدیمی','temporarily disabling must not erase fields');
   await setInput(input('برچسب تبلیغ کافه قدیمی'),'تبلیغ تازه');
-  await setInput(input('پایان اسپانسر کافه قدیمی'),'2031-02-03T10:20');
+  await setPersianDate('پایان اسپانسر کافه قدیمی','2031-02-03T10:20','2030-01-01');
   assert.equal(saves().length,0,'changing a placement must not auto-publish or auto-save');
   await click('ذخیره پیش‌نویس');
   let sent=saves().at(-1)!.body;
@@ -113,8 +127,8 @@ try {
   assert.equal(check.checked,false);
   await act(async()=>{check.click();await pause();});
   assert.equal(input('برچسب تبلیغ کافه جدید').value,'تبلیغ');
-  await setInput(input('شروع اسپانسر کافه جدید'),'2027-01-01T08:00');
-  await setInput(input('پایان اسپانسر کافه جدید'),'2027-02-01T08:00');
+  await setPersianDate('شروع اسپانسر کافه جدید','2027-01-01T08:00');
+  await setPersianDate('پایان اسپانسر کافه جدید','2027-02-01T08:00');
   assert.equal(saves().length,1,'adding and marking a business requires an explicit save');
   await click('ذخیره پیش‌نویس');
   sent=saves().at(-1)!.body;
