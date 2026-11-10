@@ -51,6 +51,8 @@ jobs:
           (cd release-files/ad-slots-and-header-footer-update && sha256sum -c SHA256SUMS.txt)
           python3 tests/unified_categories_dedupe_update_smoke.py
           (cd release-files/unified-categories-and-dedupe && sha256sum -c SHA256SUMS.txt)
+          python3 tests/staff_mail_persian_ui_update_smoke.py
+          (cd release-files/staff-mail-persian-ui && sha256sum -c SHA256SUMS.txt)
 
   frontend:
     name: Admin build and synthetic UI

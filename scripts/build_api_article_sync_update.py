@@ -135,6 +135,9 @@ def index_php_types(stage: Path) -> dict[str, dict[str, object]]:
     types: dict[str, dict[str, object]] = {}
     for php_file in sorted(app_dir.rglob('*.php')):
         rel = php_file.relative_to(stage).as_posix()
+        # Explicitly vendored PHPMailer classes use their upstream namespace.
+        if rel in ('app/ThirdParty/PHPMailer/PHPMailer.php', 'app/ThirdParty/PHPMailer/SMTP.php', 'app/ThirdParty/PHPMailer/Exception.php'):
+            continue
         cleaned = clean_php(php_file.read_text(encoding='utf-8'))
         ns_match = re.search(r'\bnamespace\s+(App(?:\\[A-Za-z0-9_]+)*)\s*;', cleaned)
         if not ns_match:
