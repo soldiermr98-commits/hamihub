@@ -141,7 +141,7 @@ assert(Array.isArray(r.json.items));
 assert.equal(Object.keys(r.json.dimension_guides || {}).length, 3);
 
 // 2. Upload PNG -> auto WebP conversion -> verify listed on disk & DB
-const pngBuf = makeSolidPng(16, 16);
+const pngBuf = makeSolidPng(128, 128);
 const up = await admin.uploadPng('کاور آزمایشی حامی‌هاب', pngBuf);
 assert.equal(up.status, 200, `Upload failed: ${up.text}`);
 assert.equal(up.json?.ok, true, up.text);
