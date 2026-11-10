@@ -470,7 +470,10 @@ final class MediaService
                     $item['host_path_1200'],
                     implode(' ', array_map(static fn(array $u): string => (string) ($u['title'] ?? ''), $usages)),
                 ]);
-                if (mb_stripos($haystack, $search) === false) {
+                $matched = function_exists('mb_stripos')
+                    ? mb_stripos($haystack, $search, 0, 'UTF-8') !== false
+                    : stripos($haystack, $search) !== false;
+                if (!$matched) {
                     continue;
                 }
             }
@@ -781,72 +784,81 @@ final class MediaService
         }
 
         if (self::tableExists('article_extras')) {
-            $artCovers = DB::fetchAll(
-                'SELECT ae.cover_media_id, a.id AS article_id, a.title, a.status
-                 FROM article_extras ae
-                 INNER JOIN articles a ON a.id = ae.article_id
-                 WHERE ae.cover_media_id IS NOT NULL'
-            );
-            foreach ($artCovers as $row) {
-                $mid = (int) ($row['cover_media_id'] ?? 0);
-                if ($mid > 0) {
-                    $map[$mid][] = [
-                        'type' => 'article_cover',
-                        'label' => 'تصویر شاخص مقاله',
-                        'entity_id' => (int) $row['article_id'],
-                        'title' => (string) ($row['title'] ?? ''),
-                        'status' => (string) ($row['status'] ?? ''),
-                    ];
+            try {
+                $artCovers = DB::fetchAll(
+                    'SELECT ae.cover_media_id, a.id AS article_id, a.title, a.status
+                     FROM article_extras ae
+                     INNER JOIN articles a ON a.id = ae.article_id
+                     WHERE ae.cover_media_id IS NOT NULL'
+                );
+                foreach ($artCovers as $row) {
+                    $mid = (int) ($row['cover_media_id'] ?? 0);
+                    if ($mid > 0) {
+                        $map[$mid][] = [
+                            'type' => 'article_cover',
+                            'label' => 'تصویر شاخص مقاله',
+                            'entity_id' => (int) $row['article_id'],
+                            'title' => (string) ($row['title'] ?? ''),
+                            'status' => (string) ($row['status'] ?? ''),
+                        ];
+                    }
                 }
+            } catch (Throwable) {
             }
         }
 
         if (self::tableExists('article_revisions')) {
-            $revRows = DB::fetchAll(
-                "SELECT ar.article_id, ar.payload_json, a.title
-                 FROM article_revisions ar
-                 INNER JOIN articles a ON a.id = ar.article_id
-                 WHERE ar.status IN ('draft', 'pending_review')"
-            );
-            foreach ($revRows as $row) {
-                $payload = json_decode((string) ($row['payload_json'] ?? ''), true);
-                $mid = is_array($payload) ? (int) ($payload['cover_media_id'] ?? 0) : 0;
-                if ($mid > 0) {
-                    $alreadyListed = false;
-                    foreach ($map[$mid] ?? [] as $existing) {
-                        if ($existing['type'] === 'article_cover' && $existing['entity_id'] === (int) $row['article_id']) {
-                            $alreadyListed = true;
-                            break;
+            try {
+                $revRows = DB::fetchAll(
+                    "SELECT ar.article_id, ar.payload_json, a.title
+                     FROM article_revisions ar
+                     INNER JOIN articles a ON a.id = ar.article_id
+                     WHERE ar.status IN ('draft', 'review')"
+                );
+                foreach ($revRows as $row) {
+                    $payload = json_decode((string) ($row['payload_json'] ?? ''), true);
+                    $mid = is_array($payload) ? (int) ($payload['cover_media_id'] ?? 0) : 0;
+                    if ($mid > 0) {
+                        $alreadyListed = false;
+                        foreach ($map[$mid] ?? [] as $existing) {
+                            if ($existing['type'] === 'article_cover' && $existing['entity_id'] === (int) $row['article_id']) {
+                                $alreadyListed = true;
+                                break;
+                            }
+                        }
+                        if (!$alreadyListed) {
+                            $map[$mid][] = [
+                                'type' => 'article_revision',
+                                'label' => 'پیش‌نویس/بازبینی مقاله',
+                                'entity_id' => (int) $row['article_id'],
+                                'title' => (string) ($row['title'] ?? ''),
+                                'status' => 'draft',
+                            ];
                         }
                     }
-                    if (!$alreadyListed) {
-                        $map[$mid][] = [
-                            'type' => 'article_revision',
-                            'label' => 'پیش‌نویس/بازبینی مقاله',
-                            'entity_id' => (int) $row['article_id'],
-                            'title' => (string) ($row['title'] ?? ''),
-                            'status' => 'draft',
-                        ];
-                    }
                 }
+            } catch (Throwable) {
             }
         }
 
         if (self::tableExists('advertising_banners')) {
-            $banners = DB::fetchAll(
-                'SELECT id, title, placement, active, media_id FROM advertising_banners WHERE media_id IS NOT NULL'
-            );
-            foreach ($banners as $row) {
-                $mid = (int) ($row['media_id'] ?? 0);
-                if ($mid > 0) {
-                    $map[$mid][] = [
-                        'type' => 'advertising_banner',
-                        'label' => 'بنر تبلیغاتی (' . (string) ($row['placement'] ?? '') . ')',
-                        'entity_id' => (int) $row['id'],
-                        'title' => (string) ($row['title'] ?? ''),
-                        'status' => ((int) ($row['active'] ?? 0) === 1) ? 'active' : 'inactive',
-                    ];
+            try {
+                $banners = DB::fetchAll(
+                    'SELECT id, title, placement, active, media_id FROM advertising_banners WHERE media_id IS NOT NULL'
+                );
+                foreach ($banners as $row) {
+                    $mid = (int) ($row['media_id'] ?? 0);
+                    if ($mid > 0) {
+                        $map[$mid][] = [
+                            'type' => 'advertising_banner',
+                            'label' => 'بنر تبلیغاتی (' . (string) ($row['placement'] ?? '') . ')',
+                            'entity_id' => (int) $row['id'],
+                            'title' => (string) ($row['title'] ?? ''),
+                            'status' => ((int) ($row['active'] ?? 0) === 1) ? 'active' : 'inactive',
+                        ];
+                    }
                 }
+            } catch (Throwable) {
             }
         }
 

@@ -65,6 +65,17 @@ final class Request
     }
 
     /**
+     * دریافت پارامتر از Query String ($_GET)
+     */
+    public function query(string $key, mixed $default = null): mixed
+    {
+        if (array_key_exists($key, $_GET)) {
+            return $_GET[$key];
+        }
+        return $default;
+    }
+
+    /**
      * دریافت مقدار از JSON یا POST یا GET
      */
     public function input(string $key, mixed $default = null): mixed
