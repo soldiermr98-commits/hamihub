@@ -11,16 +11,27 @@ final class AdvertisingService
 {
     // New placements can be registered here without changing the DB schema.
     public const PLACEMENTS = [
-        'home'=>'صفحه اصلی', 'city'=>'صفحه شهر', 'category'=>'صفحه شهر و دسته',
-        'business'=>'صفحه کسب‌وکار', 'article'=>'صفحه مقاله',
+        'home'            => 'صفحه اصلی — بالای هیرو',
+        'home_below_hero' => 'صفحه اصلی — زیر هیرو سکشن',
+        'home_mid'        => 'صفحه اصلی — بین مقالات و کسب‌وکارها',
+        'city'            => 'صفحه شهر — بالای صفحه',
+        'category'        => 'صفحه شهر و دسته — بالای صفحه',
+        'business'        => 'صفحه کسب‌وکار — بالای صفحه',
+        'article'         => 'صفحه مقاله — بالای صفحه',
+        'footer_above'    => 'بالای فوتر سایت (سراسری یا هدفمند)',
     ];
+
+    public const HOME_ONLY_SLOTS = ['home', 'home_below_hero', 'home_mid'];
+    public const MAX_BANNERS_PER_SLOT = 2;
 
     public static function schemaReady(): bool
     {
         try {
             return DB::fetchOne("SHOW TABLES LIKE 'advertising_banners'") !== null
                 && DB::fetchOne("SHOW TABLES LIKE 'advertising_inquiries'") !== null;
-        } catch (Throwable $e) { return false; }
+        } catch (Throwable $e) {
+            return false;
+        }
     }
 
     public static function validTarget(string $url): bool
@@ -38,47 +49,98 @@ final class AdvertisingService
         return (bool)preg_match('~\A/uploads/[a-zA-Z0-9_\-/]+\.webp\z~', $path);
     }
 
+    public static function earliestBoundary(int ...$boundaries): int
+    {
+        $earliest = 0;
+        foreach ($boundaries as $ts) {
+            if ($ts > 0 && ($earliest === 0 || $ts < $earliest)) {
+                $earliest = $ts;
+            }
+        }
+        return $earliest;
+    }
+
     /**
-     * Returns a fully escaped SSR banner and the next relevant schedule boundary.
-     * Cache reads expire at that boundary, even without a cron job.
+     * Returns fully escaped SSR banner(s) (up to 2 side-by-side on desktop) and
+     * the next relevant schedule boundary so cached pages expire on time without cron.
+     *
      * @return array{html:string,until:int}
      */
-    public static function placement(string $slot, ?int $cityId, ?int $categoryId, ?string $now = null): array
-    {
-        $empty = ['html'=>'', 'until'=>0];
+    public static function placement(
+        string $slot,
+        ?int $cityId,
+        ?int $categoryId,
+        ?string $now = null,
+        bool $withContainer = true,
+        string $extraWrapClass = ''
+    ): array {
+        $empty = ['html' => '', 'until' => 0];
         if (!isset(self::PLACEMENTS[$slot]) || !self::schemaReady()) return $empty;
         $now ??= date('Y-m-d H:i:s');
         $target = 'a.placement=:slot AND a.active=1 AND (a.city_id IS NULL OR a.city_id=:city) AND (a.category_id IS NULL OR a.category_id=:category)';
-        $params = ['slot'=>$slot, 'city'=>$cityId ?? 0, 'category'=>$categoryId ?? 0];
+        $params = ['slot' => $slot, 'city' => $cityId ?? 0, 'category' => $categoryId ?? 0];
         $future = DB::fetchOne(
             "SELECT MIN(CASE WHEN a.starts_at > :now_start THEN a.starts_at ELSE NULL END) AS next_start,
                     MIN(CASE WHEN a.ends_at > :now_end THEN a.ends_at ELSE NULL END) AS next_end
              FROM advertising_banners a WHERE {$target}",
-            ['now_start'=>$now, 'now_end'=>$now] + $params
+            ['now_start' => $now, 'now_end' => $now] + $params
         );
         $until = 0;
-        foreach (['next_start','next_end'] as $key) {
+        foreach (['next_start', 'next_end'] as $key) {
             if (!empty($future[$key])) {
                 $timestamp = strtotime((string)$future[$key]);
                 if ($timestamp !== false && ($until === 0 || $timestamp < $until)) $until = $timestamp;
             }
         }
-        $banner = DB::fetchOne(
+        $rows = DB::fetchAll(
             "SELECT a.id,a.title,a.alt_text,a.target_url,m.file_path_1200,m.width,m.height
              FROM advertising_banners a INNER JOIN media m ON m.id=a.media_id
              WHERE {$target} AND (a.starts_at IS NULL OR a.starts_at <= :starts_now)
                AND (a.ends_at IS NULL OR a.ends_at > :ends_now)
-             ORDER BY a.priority DESC,a.id DESC LIMIT 1",
-            $params + ['starts_now'=>$now, 'ends_now'=>$now]
+             ORDER BY a.priority DESC,a.id DESC LIMIT 6",
+            $params + ['starts_now' => $now, 'ends_now' => $now]
         );
-        if (!$banner || !self::validTarget((string)$banner['target_url']) || !self::validImagePath((string)$banner['file_path_1200'])) {
-            return ['html'=>'', 'until'=>$until];
+        $validBanners = [];
+        foreach ($rows as $banner) {
+            if (self::validTarget((string)$banner['target_url']) && self::validImagePath((string)$banner['file_path_1200'])) {
+                $validBanners[] = $banner;
+                if (count($validBanners) >= self::MAX_BANNERS_PER_SLOT) {
+                    break;
+                }
+            }
         }
-        $html = '<aside class="hx-ad-wrap hx-container" aria-label="تبلیغات"><span class="hx-ad-label">تبلیغ</span>'
-            . '<a class="hx-ad-banner" data-hx-banner-id="' . (int)$banner['id'] . '" href="' . Response::e((string)$banner['target_url']) . '" target="_blank" rel="sponsored noopener noreferrer">'
-            . '<img src="' . Response::e((string)$banner['file_path_1200']) . '" alt="' . Response::e((string)$banner['alt_text'])
-            . '" loading="lazy" decoding="async" width="' . max(1,(int)$banner['width']) . '" height="' . max(1,(int)$banner['height']) . '">'
-            . '</a></aside>';
-        return ['html'=>$html, 'until'=>$until];
+        if (!$validBanners) {
+            return ['html' => '', 'until' => $until];
+        }
+
+        $count = count($validBanners);
+        $gridClass = $count > 1 ? 'hx-ad-grid hx-ad-grid-2' : 'hx-ad-grid hx-ad-grid-1';
+        $wrapClasses = ['hx-ad-wrap'];
+        if ($withContainer) {
+            $wrapClasses[] = 'hx-container';
+        }
+        if ($extraWrapClass !== '') {
+            $wrapClasses[] = $extraWrapClass;
+        }
+        $label = $count > 1 ? 'تبلیغات' : 'تبلیغ';
+
+        $cardsHtml = '';
+        foreach ($validBanners as $banner) {
+            $cardsHtml .= '<a class="hx-ad-banner" data-hx-banner-id="' . (int)$banner['id']
+                . '" href="' . Response::e((string)$banner['target_url'])
+                . '" target="_blank" rel="sponsored noopener noreferrer">'
+                . '<img src="' . Response::e((string)$banner['file_path_1200'])
+                . '" alt="' . Response::e((string)$banner['alt_text'])
+                . '" loading="lazy" decoding="async" width="' . max(1, (int)$banner['width'])
+                . '" height="' . max(1, (int)$banner['height']) . '">'
+                . '</a>';
+        }
+
+        $html = '<aside class="' . Response::e(implode(' ', $wrapClasses)) . '" aria-label="تبلیغات">'
+            . '<span class="hx-ad-label">' . $label . '</span>'
+            . '<div class="' . $gridClass . '">' . $cardsHtml . '</div>'
+            . '</aside>';
+
+        return ['html' => $html, 'until' => $until];
     }
 }

@@ -110,6 +110,9 @@ final class PublicSiteController
             ],
         ];
 
+        $belowHeroAd = AdvertisingService::placement('home_below_hero', null, null);
+        $midAd = AdvertisingService::placement('home_mid', null, null, null, false, 'hx-ad-wrap-inline');
+
         ob_start();
         ?>
         <section class="hx-hero">
@@ -133,6 +136,8 @@ final class PublicSiteController
                 </div>
             </div>
         </section>
+
+        <?= $belowHeroAd['html'] ?>
 
         <main class="hx-container">
             <?php if (!empty($articles)): ?>
@@ -170,6 +175,8 @@ final class PublicSiteController
             </section>
             <?php endif; ?>
 
+            <?= $midAd['html'] ?>
+
             <section class="hx-section">
                 <div class="hx-section-head">
                     <div>
@@ -182,7 +189,7 @@ final class PublicSiteController
                 </div>
                 <?php if (empty($businesses)): ?>
                     <div class="hx-card">
-                        <p class="hx-card-desc">هنوز کسب‌وکار منتشرشده‌ای ثبت نشده است. از پنل مدیریت (/admin/) یا صندوق بازبینی (/admin/review) کسب‌وکارها را تایید و منتشر کنید.</p>
+                        <p class="hx-card-desc">به‌زودی فهرست کسب‌وکارهای منتخب استان گیلان در این بخش نمایش داده می‌شود.</p>
                     </div>
                 <?php else: ?>
                     <div class="hx-grid hx-grid-3">
@@ -226,13 +233,14 @@ final class PublicSiteController
         $bodyHtml = (string)ob_get_clean();
 
         $fullHtml = self::renderLayout([
-            'title'       => 'حامی‌هاب گیلان (HamiHubX) | بهترین کافه‌ها، رستوران‌ها و خدمات استان گیلان',
-            'description' => 'پلتفرم هوشمند معرفی و رتبه‌بندی بهترین کسب‌وکارها، کافه‌ها، رستوران‌ها و مراکز خدماتی در رشت، انزلی، لاهیجان و سراسر استان گیلان.',
-            'canonical'   => $baseUrl . '/',
-            'og_type'     => 'website',
-            'schemas'     => $schemas,
-            'ad_placement'=> 'home',
-            'body'        => $bodyHtml,
+            'title'          => 'حامی‌هاب گیلان (HamiHubX) | بهترین کافه‌ها، رستوران‌ها و خدمات استان گیلان',
+            'description'    => 'پلتفرم هوشمند معرفی و رتبه‌بندی بهترین کسب‌وکارها، کافه‌ها، رستوران‌ها و مراکز خدماتی در رشت، انزلی، لاهیجان و سراسر استان گیلان.',
+            'canonical'      => $baseUrl . '/',
+            'og_type'        => 'website',
+            'schemas'        => $schemas,
+            'ad_placement'   => 'home',
+            'extra_ad_until' => AdvertisingService::earliestBoundary((int)$belowHeroAd['until'], (int)$midAd['until']),
+            'body'           => $bodyHtml,
         ]);
 
         Cache::putPage('/', $fullHtml);
@@ -1834,6 +1842,8 @@ final class PublicSiteController
         $body = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)($data['body'] ?? ''));
         $baseUrl = self::baseUrl();
         $ad = AdvertisingService::placement((string)($data['ad_placement'] ?? ''), $data['ad_city_id'] ?? null, $data['ad_category_id'] ?? null);
+        $footerAd = AdvertisingService::placement('footer_above', $data['ad_city_id'] ?? null, $data['ad_category_id'] ?? null, null, true, 'hx-ad-wrap-footer');
+        $adUntil = AdvertisingService::earliestBoundary((int)$ad['until'], (int)$footerAd['until'], (int)($data['extra_ad_until'] ?? 0));
         $advertisingReady = AdvertisingService::schemaReady();
 
         ob_start();
@@ -1867,8 +1877,8 @@ final class PublicSiteController
     <meta name="twitter:image" content="<?= self::e($baseUrl) ?>/assets/img/logo-hx-card.webp">
     <link rel="preload" href="/assets/fonts/Vazirmatn-Regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/Vazirmatn-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/css/public.css?v=s10.2">
-    <!-- hhx-ad-until:<?= (int)$ad['until'] ?> -->
+    <link rel="stylesheet" href="/assets/css/public.css?v=s10.3">
+    <!-- hhx-ad-until:<?= $adUntil ?> -->
     <!-- hhx-sponsor-until:<?= max(0, (int)($data['sponsor_until'] ?? 0)) ?> -->
     <?php foreach ($schemas as $schema):
         $schemaJson = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT));
@@ -1892,13 +1902,13 @@ final class PublicSiteController
                 <a href="/city/rasht/"><?= self::icon('location', 'hx-icon hx-icon-sm') ?> شهر رشت</a>
                 <a href="/city/bandar-anzali/">بندر انزلی</a>
                 <a href="/city/lahijan/">لاهیجان</a>
-                <a href="/admin/" class="hx-nav-admin">پنل مدیریت</a>
             </nav>
         </div>
     </header>
 
     <?= $ad['html'] ?>
     <?= $body ?>
+    <?= $footerAd['html'] ?>
 
     <footer class="hx-footer">
         <div class="hx-container hx-footer-inner">
@@ -1925,11 +1935,6 @@ final class PublicSiteController
                 </form>
             </details>
             <?php endif; ?>
-            <div style="display:flex;gap:1.15rem;">
-                <a href="/sitemap.xml">نقشه سایت (Sitemap)</a>
-                <a href="/robots.txt">Robots.txt</a>
-                <a href="/admin/">ورود مدیران</a>
-            </div>
         </div>
     </footer>
     <script src="/assets/js/public.js?v=s11.0" defer></script>

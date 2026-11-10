@@ -133,4 +133,10 @@ foreach (['javascript:alert(1)','//bad.example/','http://bad.example/',"https://
 foreach (['https://example.com/','/city/rasht/'] as $url) check(AdvertisingService::validTarget($url), 'Valid ad URL rejected');
 check(!AdvertisingService::validImagePath('/uploads/../evil.webp'), 'Path traversal accepted');
 check(AdvertisingService::validImagePath('/uploads/2026/11/img_abc_1200.webp'), 'Normal media path rejected');
+check(array_keys(AdvertisingService::PLACEMENTS) === ['home', 'home_below_hero', 'home_mid', 'city', 'category', 'business', 'article', 'footer_above'], 'Expected 8 advertising placements');
+check(AdvertisingService::HOME_ONLY_SLOTS === ['home', 'home_below_hero', 'home_mid'], 'Home-only slots mismatch');
+check(AdvertisingService::MAX_BANNERS_PER_SLOT === 2, 'Max banners per slot must be 2');
+check(AdvertisingService::earliestBoundary(0, 0, 0) === 0, 'Empty boundaries must yield 0');
+check(AdvertisingService::earliestBoundary(0, 500, 300, 0) === 300, 'Earliest non-zero boundary wrong');
+check(AdvertisingService::earliestBoundary(120, 450) === 120, 'First earliest boundary wrong');
 echo "PASS: synthetic provider adapters, free-model restrictions, consent prerequisites and safe ad URL validation.\n";

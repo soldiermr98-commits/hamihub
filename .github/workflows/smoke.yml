@@ -47,6 +47,8 @@ jobs:
           (cd release-files/media-tab-500-hotfix && sha256sum -c SHA256SUMS.txt)
           python3 tests/media_library_opcache_fix_smoke.py
           (cd release-files/media-library-opcache-fix && sha256sum -c SHA256SUMS.txt)
+          python3 tests/ad_slots_header_footer_update_smoke.py
+          (cd release-files/ad-slots-and-header-footer-update && sha256sum -c SHA256SUMS.txt)
 
   frontend:
     name: Admin build and synthetic UI
@@ -213,3 +215,4 @@ jobs:
           php "$root/tests/article_item_display_db_smoke.php"
           node "$root/tests/article_rich_http_smoke.mjs"
           node "$root/tests/media_and_business_delete_http_smoke.mjs"
+          node "$root/tests/ai_ads_quality_http_smoke.mjs"

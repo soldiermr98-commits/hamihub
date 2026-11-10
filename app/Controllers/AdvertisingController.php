@@ -79,7 +79,7 @@ final class AdvertisingController
         }
         if ($cityId > 0 && !DB::fetchOne('SELECT id FROM cities WHERE id=:id', ['id'=>$cityId])) Response::json(['ok'=>false, 'error'=>'شهر انتخاب‌شده یافت نشد.'], 422);
         if ($categoryId > 0 && !DB::fetchOne('SELECT id FROM categories WHERE id=:id', ['id'=>$categoryId])) Response::json(['ok'=>false, 'error'=>'دسته انتخاب‌شده یافت نشد.'], 422);
-        if ($slot === 'home' && ($cityId > 0 || $categoryId > 0)) Response::json(['ok'=>false, 'error'=>'برای صفحه اصلی فیلتر شهر و دسته را خالی بگذارید.'], 422);
+        if (in_array($slot, AdvertisingService::HOME_ONLY_SLOTS, true) && ($cityId > 0 || $categoryId > 0)) Response::json(['ok'=>false, 'error'=>'برای جایگاه‌های صفحه اصلی فیلتر شهر و دسته را خالی بگذارید.'], 422);
         if ($slot === 'city' && $categoryId > 0) Response::json(['ok'=>false, 'error'=>'صفحه شهر دسته مشخصی ندارد؛ فیلتر دسته را بردارید.'], 422);
         $start = self::parseDate(self::text($request, 'starts_at'));
         $end = self::parseDate(self::text($request, 'ends_at'));
