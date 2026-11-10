@@ -45,6 +45,8 @@ jobs:
           (cd release-files/after-rc2-worker-cache && sha256sum -c SHA256SUMS.txt)
           python3 tests/media_tab_500_hotfix_smoke.py
           (cd release-files/media-tab-500-hotfix && sha256sum -c SHA256SUMS.txt)
+          python3 tests/media_library_opcache_fix_smoke.py
+          (cd release-files/media-library-opcache-fix && sha256sum -c SHA256SUMS.txt)
 
   frontend:
     name: Admin build and synthetic UI
@@ -82,7 +84,8 @@ jobs:
             tests/article_sponsor_ui_smoke.tsx \
             tests/article_editor_ui_smoke.tsx \
             tests/ai_article_ui_smoke.tsx \
-            tests/ai_provider_ui_smoke.tsx; do
+            tests/ai_provider_ui_smoke.tsx \
+            tests/business_delete_and_media_ui_smoke.tsx; do
             ./node_modules/.bin/tsx "$test"
           done
           node tests/advertising_banner_client_smoke.mjs

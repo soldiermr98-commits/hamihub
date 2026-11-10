@@ -798,16 +798,16 @@ export async function fetchMediaLibrary(params: { page?: number; per_page?: numb
     usage: params.usage ?? 'all',
     q: params.q ?? '',
   });
-  return request('/api/v1/media?' + qs.toString(), { cache: 'no-store' });
+  return request('/api/media-library.php?' + qs.toString(), { cache: 'no-store' });
 }
 export async function updateMediaAltText(id: number, altText: string, csrf: string): Promise<any> {
-  return action('/api/v1/media/update', { id, alt_text: altText }, csrf);
+  return action('/api/media-library.php?action=update', { id, alt_text: altText }, csrf);
 }
 export async function deleteMediaItems(
   payload: { ids?: number[]; detach_usages?: boolean; purge_orphans?: boolean },
   csrf: string
 ): Promise<any> {
-  return action('/api/v1/media/delete', payload, csrf);
+  return action('/api/media-library.php?action=delete', payload, csrf);
 }
 export function formatBytesFa(bytes: number): string {
   const b = Math.max(0, Number(bytes) || 0);

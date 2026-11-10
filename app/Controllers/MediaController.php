@@ -8,7 +8,7 @@ use App\Core\Cache;
 use App\Core\Csrf;
 use App\Core\Request;
 use App\Core\Response;
-use App\Services\MediaService;
+use App\Services\MediaLibraryService;
 use InvalidArgumentException;
 use Throwable;
 
@@ -31,7 +31,7 @@ final class MediaController
         $q = isset($_GET['q']) && is_scalar($_GET['q']) ? (string) $_GET['q'] : '';
 
         try {
-            $data = MediaService::listLibrary([
+            $data = MediaLibraryService::listLibrary([
                 'page' => $page,
                 'per_page' => $perPage,
                 'usage' => $usage,
@@ -49,7 +49,7 @@ final class MediaController
             error_log('Media index failed: ' . get_class($e) . ': ' . $e->getMessage());
             Response::json([
                 'ok' => false,
-                'error' => 'خطا در خواندن کتابخانه رسانه از دیتابیس یا پوشه آپلود.',
+                'error' => 'خطا در خواندن کتابخانه رسانه از دیتابیس یا پوشه آپلود (' . basename($e->getFile()) . ':' . $e->getLine() . ').',
             ], 500);
         }
     }
@@ -68,7 +68,7 @@ final class MediaController
         $altText = (string) ($input['alt_text'] ?? '');
 
         try {
-            $updated = MediaService::updateAltText($id, $altText);
+            $updated = MediaLibraryService::updateAltText($id, $altText);
             if (!$updated) {
                 Response::json(['ok' => false, 'error' => 'تصویر موردنظر در دیتابیس یافت نشد.'], 404);
             }
@@ -98,7 +98,7 @@ final class MediaController
         $purgeOrphans = !empty($input['purge_orphans']);
         if ($purgeOrphans) {
             try {
-                $orphanRes = MediaService::purgeOrphanUploadFiles();
+                $orphanRes = MediaLibraryService::purgeOrphanUploadFiles();
                 Response::json([
                     'ok' => true,
                     'orphan_result' => $orphanRes,
@@ -120,7 +120,7 @@ final class MediaController
         $detachUsages = !empty($input['detach_usages']);
 
         try {
-            $result = MediaService::deleteMediaItems($rawIds, $detachUsages);
+            $result = MediaLibraryService::deleteMediaItems($rawIds, $detachUsages);
             if ($result['deleted_count'] === 0 && !empty($result['blocked'])) {
                 Response::json([
                     'ok' => false,
