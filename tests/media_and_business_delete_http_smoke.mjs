@@ -3,6 +3,12 @@
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
 
+process.on('unhandledRejection', (err) => {
+  const msg = String(err?.stack || err).replace(/\r?\n/g, '%0A');
+  console.error(`::error title=media_http_smoke::${msg}`);
+  process.exit(1);
+});
+
 const base = process.env.HHX_TEST_URL || '';
 const nonce = process.env.HHX_TEST_NONCE || '';
 const password = process.env.HHX_TEST_PASSWORD || '';
@@ -160,6 +166,7 @@ assert.equal(r.json?.ok, true);
 const citiesRes = await admin.request('GET', '/api/v1/cities');
 assert.equal(citiesRes.status, 200, citiesRes.text);
 const cityId = citiesRes.json.cities[0].id;
+const citySlug = citiesRes.json.cities[0].slug;
 const catsRes = await admin.request('GET', '/api/v1/categories');
 assert.equal(catsRes.status, 200, catsRes.text);
 const categoryId = catsRes.json.categories[0].id;
@@ -204,40 +211,42 @@ r = await admin.request('POST', '/api/v1/businesses', {
 assert.equal(r.status, 200, r.text);
 const idTarget = r.json.business.id;
 
-// 5. SEO-safe delete with 410 Gone
+// 5. SEO-safe delete with 410 Gone (auto_seo on published business)
 r = await admin.request('POST', '/api/v1/businesses/delete', {
   ids: [id410],
-  seo_action: '410',
-  reason: 'تعطیلی دائمی آزمایشی',
+  seo_mode: 'auto_seo',
 });
 assert.equal(r.status, 200, r.text);
 assert.equal(r.json?.ok, true);
 
-const gonePage = await fetch(`${base}/b/${slug410}`, { redirect: 'manual' });
-assert.equal(gonePage.status, 410, 'Deleted business URL must return HTTP 410 Gone');
+for (const goneUrl of [`${base}/${citySlug}/${slug410}`, `${base}/b/${slug410}`]) {
+  const gonePage = await fetch(goneUrl, { redirect: 'manual' });
+  assert.equal(gonePage.status, 410, `Deleted business URL ${goneUrl} must return HTTP 410 Gone`);
+}
 
-// 6. SEO-safe delete with 301 Redirect
+// 6. SEO-safe delete with 301 Redirect to replacement published business
 r = await admin.request('POST', '/api/v1/businesses/delete', {
   ids: [id301],
-  seo_action: '301',
-  redirect_to: `/b/${slugTarget}`,
-  reason: 'ادغام آزمایشی',
+  seo_mode: 'redirect_business',
+  redirect_business_id: idTarget,
 });
 assert.equal(r.status, 200, r.text);
 assert.equal(r.json?.ok, true);
 
-const movedPage = await fetch(`${base}/b/${slug301}`, { redirect: 'manual' });
-assert.equal(movedPage.status, 301, 'Redirected business URL must return HTTP 301');
-assert.equal(movedPage.headers.get('location'), `/b/${slugTarget}`);
+for (const movedUrl of [`${base}/${citySlug}/${slug301}`, `${base}/b/${slug301}`]) {
+  const movedPage = await fetch(movedUrl, { redirect: 'manual' });
+  assert.equal(movedPage.status, 301, `Redirected business URL ${movedUrl} must return HTTP 301`);
+  assert.match(movedPage.headers.get('location') || '', new RegExp(`/${citySlug}/${slugTarget}/?$`));
+}
 
 // Sitemap must exclude deleted slugs and include live target
 const sitemap = await fetch(`${base}/sitemap.xml`).then((res) => res.text());
-assert(!sitemap.includes(`/b/${slug410}`), '410 business must not remain in sitemap');
-assert(!sitemap.includes(`/b/${slug301}`), '301 business must not remain in sitemap');
-assert(sitemap.includes(`/b/${slugTarget}`), 'Live target business must appear in sitemap');
+assert(!sitemap.includes(slug410), '410 business must not remain in sitemap');
+assert(!sitemap.includes(slug301), '301 business must not remain in sitemap');
+assert(sitemap.includes(`/${citySlug}/${slugTarget}`), 'Live target business must appear in sitemap');
 
 // Clean up target business too
-r = await admin.request('POST', '/api/v1/businesses/delete', { ids: [idTarget], seo_action: '410' });
+r = await admin.request('POST', '/api/v1/businesses/delete', { ids: [idTarget], seo_mode: 'purge_clean' });
 assert.equal(r.status, 200, r.text);
 
 // 7. Delete WebP media item from DB and physical disk
