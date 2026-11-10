@@ -43,6 +43,8 @@ jobs:
           (cd release-files/after-v2026.11.07.5-rc2 && sha256sum -c SHA256SUMS.txt)
           (cd release-files/rc2-directadmin-filecheck && sha256sum -c SHA256SUMS.txt)
           (cd release-files/after-rc2-worker-cache && sha256sum -c SHA256SUMS.txt)
+          python3 tests/media_tab_500_hotfix_smoke.py
+          (cd release-files/media-tab-500-hotfix && sha256sum -c SHA256SUMS.txt)
 
   frontend:
     name: Admin build and synthetic UI
@@ -154,7 +156,7 @@ jobs:
       - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: '8.3'
-          extensions: mbstring, curl, fileinfo, pdo, pdo_mysql
+          extensions: mbstring, curl, fileinfo, gd, pdo, pdo_mysql
           coverage: none
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -207,3 +209,4 @@ jobs:
           node "$root/tests/sponsorship_cache_smoke.mjs"
           php "$root/tests/article_item_display_db_smoke.php"
           node "$root/tests/article_rich_http_smoke.mjs"
+          node "$root/tests/media_and_business_delete_http_smoke.mjs"

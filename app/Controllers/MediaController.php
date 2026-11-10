@@ -25,20 +25,33 @@ final class MediaController
     {
         Auth::requireRole(['admin', 'editor']);
 
-        $data = MediaService::listLibrary([
-            'page' => $request->query('page', '1'),
-            'per_page' => $request->query('per_page', '24'),
-            'usage' => $request->query('usage', 'all'),
-            'q' => $request->query('q', ''),
-        ]);
+        $page = isset($_GET['page']) && is_scalar($_GET['page']) ? (string) $_GET['page'] : '1';
+        $perPage = isset($_GET['per_page']) && is_scalar($_GET['per_page']) ? (string) $_GET['per_page'] : '24';
+        $usage = isset($_GET['usage']) && is_scalar($_GET['usage']) ? (string) $_GET['usage'] : 'all';
+        $q = isset($_GET['q']) && is_scalar($_GET['q']) ? (string) $_GET['q'] : '';
 
-        Response::json([
-            'ok' => true,
-            'items' => $data['items'],
-            'pagination' => $data['pagination'],
-            'summary' => $data['summary'],
-            'dimension_guides' => $data['dimension_guides'],
-        ]);
+        try {
+            $data = MediaService::listLibrary([
+                'page' => $page,
+                'per_page' => $perPage,
+                'usage' => $usage,
+                'q' => $q,
+            ]);
+
+            Response::json([
+                'ok' => true,
+                'items' => $data['items'],
+                'pagination' => $data['pagination'],
+                'summary' => $data['summary'],
+                'dimension_guides' => $data['dimension_guides'],
+            ]);
+        } catch (Throwable $e) {
+            error_log('Media index failed: ' . get_class($e) . ': ' . $e->getMessage());
+            Response::json([
+                'ok' => false,
+                'error' => 'خطا در خواندن کتابخانه رسانه از دیتابیس یا پوشه آپلود.',
+            ], 500);
+        }
     }
 
     /**
