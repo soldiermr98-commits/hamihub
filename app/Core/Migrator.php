@@ -206,4 +206,30 @@ final class Migrator
         Cache::flushAll();
         return ['ok'=>true, 'applied'=>[$file], 'skipped'=>[], 'total_applied'=>1];
     }
+
+    /** Apply only the additive SEO tombstone/redirect rules table; never execute legacy migrations. */
+    public static function runSeoUpdate(): array
+    {
+        $pdo = DB::connection();
+        if (DB::fetchOne("SHOW TABLES LIKE 'businesses'") === null) {
+            throw new RuntimeException('جدول کسب‌وکارها پیدا نشد؛ ابتدا وضعیت نصب را بررسی کنید.');
+        }
+        $pdo->exec("CREATE TABLE IF NOT EXISTS schema_migrations (
+            migration VARCHAR(190) NOT NULL, executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (migration)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $file = '012_seo_url_rules.sql';
+        if (DB::fetchOne('SELECT migration FROM schema_migrations WHERE migration=:m', ['m'=>$file])) {
+            \App\Services\BusinessSeoService::migrateFallbackRulesToTable();
+            return ['ok'=>true, 'applied'=>[], 'skipped'=>[$file], 'total_applied'=>0];
+        }
+        $base = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
+        $sql = @file_get_contents($base . '/database/migrations/' . $file);
+        if (!is_string($sql) || trim($sql) === '') throw new RuntimeException('فایل به‌روزرسانی قوانین سئو یافت نشد.');
+        $pdo->exec($sql);
+        \App\Services\BusinessSeoService::migrateFallbackRulesToTable();
+        DB::query('INSERT IGNORE INTO schema_migrations (migration,executed_at) VALUES (:m,NOW())', ['m'=>$file]);
+        Cache::flushAll();
+        return ['ok'=>true, 'applied'=>[$file], 'skipped'=>[], 'total_applied'=>1];
+    }
 }

@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, ExternalLink, Eye, FileText, Plus, Save, Trash2, Upload } from 'lucide-react';
+import { ArrowDown, ArrowUp, ExternalLink, Eye, FileText, FolderOpen, Plus, Save, Trash2, Upload } from 'lucide-react';
 import { AiArticleAssistant } from './AiArticleAssistant';
 import { ArticleEditor } from './ArticleEditor';
+import { MediaDimensionGuideBox } from './MediaDimensionGuideBox';
+import { MediaLibraryPickerModal } from './MediaLibraryPickerModal';
 import { insertArticleSuggestion, isRichArticleText } from '../services/articleText';
 import {
   ArticleBizRow, ArticleData, ArticleFaqRow, ArticleItem, ArticleItemDisplay, ArticleTopicTag, BusinessItem, CategoryItem, CityItem,
@@ -93,6 +95,7 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
   },[mode,pickerOpen,page,query,form.city_id,form.category_id]);
 
   const change = (patch:Partial<ArticleData>) => {setForm(f=>({...f,...patch}));setDirty(true);setMessage(null);};
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const canLeave = () => !dirty || window.confirm('تغییرات ذخیره نشده‌اند. از این صفحه خارج شوید؟');
   const openArticle = (a:ArticleItem|null) => {
     if(!canLeave()) return;
@@ -246,9 +249,11 @@ export const ArticlesManagerView:React.FC<Props> = ({cities,categories,csrfToken
             {!!tagCatalog.length&&<p className="text-xs text-slate-500">برچسب‌های موجود: {tagCatalog.map(t=>t.name_fa).join('، ')}</p>}
           </> : <p className="text-xs text-amber-800">ابتدا مدیر باید ساختار برچسب‌ها را آماده کند؛ پس از آن این بخش فعال می‌شود.</p>}
         </section>
-        <div className="rounded-lg border border-slate-200 p-4"><div className="font-bold text-sm">تصویر اصلی <span className="font-normal text-slate-500">(اختیاری)</span></div>
-          {form.cover_url && <img src={form.cover_url} alt="تصویر اصلی مقاله" className="w-full max-w-sm h-40 object-cover rounded-lg mt-3"/>}
-          <div className="flex flex-wrap gap-2 mt-3"><label className={`${secondary} cursor-pointer`}><Upload size={15}/> انتخاب تصویر<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={busy} onChange={e=>{void upload(e.target.files?.[0]);e.target.value='';}}/></label>{form.cover_media_id&&<button className={secondary} onClick={()=>change({cover_media_id:null,cover_url:null})}>حذف تصویر</button>}</div>
+        <div className="rounded-lg border border-slate-200 p-4 space-y-3"><div className="font-bold text-sm">تصویر اصلی مقاله <span className="font-normal text-slate-500">(اختیاری · تبدیل خودکار به WebP)</span></div>
+          <MediaDimensionGuideBox slot="article_cover" compact />
+          {form.cover_url && <img src={form.cover_url} alt="تصویر اصلی مقاله" className="w-full max-w-sm h-40 object-cover rounded-lg"/>}
+          <div className="flex flex-wrap gap-2"><label className={`${secondary} cursor-pointer`}><Upload size={15}/> انتخاب تصویر و تبدیل به WebP<input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/avif" className="sr-only" disabled={busy} onChange={e=>{void upload(e.target.files?.[0]);e.target.value='';}}/></label><button type="button" className={secondary} disabled={busy} onClick={()=>setMediaPickerOpen(true)}><FolderOpen size={15}/> انتخاب از کتابخانه رسانه</button>{form.cover_media_id&&<button type="button" className={secondary} onClick={()=>change({cover_media_id:null,cover_url:null})}>حذف تصویر</button>}</div>
+          <MediaLibraryPickerModal open={mediaPickerOpen} onClose={()=>setMediaPickerOpen(false)} onSelect={item=>{change({cover_media_id:item.id,cover_url:item.file_path_800||item.file_path_1200||item.file_path_480});setMessage({error:false,text:`تصویر #${item.id} از کتابخانه انتخاب شد. برای نگه‌داشتن آن، پیش‌نویس را ذخیره کنید.`});}} />
         </div>
         <section aria-labelledby="article-sponsor-heading" className="rounded-lg border border-amber-200 bg-amber-50/40 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">

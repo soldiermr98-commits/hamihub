@@ -681,6 +681,140 @@ export async function saveCategoryItem(payload:Partial<CategoryItem>, csrf:strin
 export async function saveCategoryPackItem(payload:Partial<CategoryPackItem>, csrf:string): Promise<any> { return action('/api/v1/category-packs',payload,csrf); }
 export async function saveBusinessItem(payload:any, csrf:string): Promise<any> { return action('/api/v1/businesses',payload,csrf); }
 export async function publishSavedBusiness(businessId:number, csrf:string):Promise<any> { return action('/api/v1/businesses/publish',{business_id:businessId},csrf); }
+export type BusinessSeoDeleteMode = 'auto_seo' | 'redirect_category' | 'redirect_business' | 'purge_clean';
+export interface DeleteBusinessesPayload {
+  ids: number[];
+  seo_mode: BusinessSeoDeleteMode;
+  redirect_business_id?: number;
+  delete_unused_media?: boolean;
+}
+export async function deleteBusinesses(payload: DeleteBusinessesPayload, csrf: string): Promise<any> {
+  return action('/api/v1/businesses/delete', payload, csrf);
+}
+export async function updateSeoSchema(csrf: string): Promise<any> {
+  return action('/api/v1/system/update-seo-schema', {}, csrf);
+}
+
+export type MediaSlotKey = 'business_cover' | 'article_cover' | 'advertising_banner';
+export interface MediaDimensionGuide {
+  slot: MediaSlotKey;
+  title: string;
+  recommended_px: string;
+  aspect_ratio: string;
+  min_px: string;
+  fit_mode: string;
+  note: string;
+}
+export const MEDIA_DIMENSION_GUIDES: Record<MediaSlotKey, MediaDimensionGuide> = {
+  business_cover: {
+    slot: 'business_cover',
+    title: 'تصویر شاخص (کاور) کسب‌وکار',
+    recommended_px: '1200 × 800',
+    aspect_ratio: '3:2 افقی (یا 16:9 معادل 1200×675)',
+    min_px: '800 × 530',
+    fit_mode: 'برش هوشمند از مرکز در کارت‌ها (object-fit: cover)',
+    note: 'سوژه اصلی یا تابلو را در مرکز کادر قرار دهید. هر فرمتی (JPG/PNG/WebP/GIF/BMP/AVIF) آپلود شود، به‌صورت خودکار و ۱۰۰٪ به ۳ نسخه WebP کم‌حجم (480، 800 و 1200 پیکسل) تبدیل می‌شود و هیچ فایل JPEG یا PNG روی هاست ذخیره نخواهد شد.',
+  },
+  article_cover: {
+    slot: 'article_cover',
+    title: 'تصویر شاخص مقاله و کارت شبکه‌های اجتماعی',
+    recommended_px: '1200 × 630',
+    aspect_ratio: '1.91:1 یا 16:9 افقی (1200×675)',
+    min_px: '960 × 500',
+    fit_mode: 'پوشش کامل هدر مقاله و کارت OpenGraph (object-fit: cover)',
+    note: 'ابعاد 1200×630 بهترین نمایش را هم در بالای مقاله و هم هنگام اشتراک‌گذاری لینک در تلگرام، واتساپ و گوگل ایجاد می‌کند. خروجی روی هاست منحصراً به WebP بهینه تبدیل می‌شود.',
+  },
+  advertising_banner: {
+    slot: 'advertising_banner',
+    title: 'بنر تبلیغاتی جایگاه‌های عمومی سایت',
+    recommended_px: '1200 × 250',
+    aspect_ratio: 'افقی عریض 5:1 تا 4:1 (بازه 1200×240 تا 1200×300)',
+    min_px: '960 × 200',
+    fit_mode: 'نمایش کامل بدون برش (max-height: 260px, object-fit: contain)',
+    note: 'بنرها برش نمی‌خورند؛ برای خوانایی در موبایل، متن روی بنر را درشت و خلاصه طراحی کنید. تصویر آپلودی به‌صورت خودکار به WebP بهینه تبدیل می‌شود.',
+  },
+};
+
+export interface MediaVariantInfo {
+  web_path: string;
+  host_path: string;
+  exists: boolean;
+  bytes: number;
+  is_webp: boolean;
+}
+export interface MediaUsageInfo {
+  type: 'business_cover' | 'business_photo' | 'article_cover' | 'article_revision' | 'advertising_banner';
+  label: string;
+  entity_id: number;
+  title: string;
+  status: string;
+}
+export interface MediaLibraryItem {
+  id: number;
+  file_path_1200: string;
+  file_path_800: string;
+  file_path_480: string;
+  url_1200: string;
+  url_800: string;
+  url_480: string;
+  host_path_1200: string;
+  mime_type: string;
+  width: number;
+  height: number;
+  alt_text: string;
+  uploaded_by_name: string;
+  created_at: string;
+  variants: Record<'1200' | '800' | '480', MediaVariantInfo>;
+  total_bytes: number;
+  all_files_present: boolean;
+  all_webp: boolean;
+  usages: MediaUsageInfo[];
+  usage_count: number;
+  can_force_detach: boolean;
+}
+export interface MediaLibrarySummary {
+  total_db_records: number;
+  used_db_records: number;
+  unused_db_records: number;
+  missing_files_records: number;
+  non_webp_db_records: number;
+  uploads_host_root: string;
+  disk_webp_files: number;
+  disk_non_webp_files: number;
+  disk_orphan_files: number;
+  disk_total_bytes: number;
+}
+export interface MediaLibraryResponse {
+  ok: boolean;
+  items: MediaLibraryItem[];
+  pagination: { page: number; per_page: number; total: number; total_pages: number };
+  summary: MediaLibrarySummary;
+  dimension_guides?: Record<string, MediaDimensionGuide>;
+}
+export async function fetchMediaLibrary(params: { page?: number; per_page?: number; usage?: string; q?: string } = {}): Promise<MediaLibraryResponse> {
+  const qs = new URLSearchParams({
+    page: String(params.page ?? 1),
+    per_page: String(params.per_page ?? 24),
+    usage: params.usage ?? 'all',
+    q: params.q ?? '',
+  });
+  return request('/api/v1/media?' + qs.toString(), { cache: 'no-store' });
+}
+export async function updateMediaAltText(id: number, altText: string, csrf: string): Promise<any> {
+  return action('/api/v1/media/update', { id, alt_text: altText }, csrf);
+}
+export async function deleteMediaItems(
+  payload: { ids?: number[]; detach_usages?: boolean; purge_orphans?: boolean },
+  csrf: string
+): Promise<any> {
+  return action('/api/v1/media/delete', payload, csrf);
+}
+export function formatBytesFa(bytes: number): string {
+  const b = Math.max(0, Number(bytes) || 0);
+  if (b < 1024) return `${b.toLocaleString('fa-IR')} بایت`;
+  if (b < 1024 * 1024) return `${(b / 1024).toLocaleString('fa-IR', { maximumFractionDigits: 1 })} KB`;
+  return `${(b / (1024 * 1024)).toLocaleString('fa-IR', { maximumFractionDigits: 2 })} MB`;
+}
 export async function uploadMediaWebp(file:File, altText:string, csrf:string): Promise<any> {
   try {
     const body = new FormData(); body.append('image',file); body.append('alt_text',altText);

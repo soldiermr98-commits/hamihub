@@ -10,10 +10,12 @@ use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
 use App\Services\BusinessDataReviewService;
+use App\Services\BusinessSeoService;
 use App\Services\BusinessUrlService;
 use App\Services\MediaService;
 use App\Services\MediaUploadException;
 use App\Services\SlugService;
+use InvalidArgumentException;
 use Throwable;
 
 /**
@@ -133,13 +135,20 @@ final class BusinessController
         $pdo = DB::connection();
         $pdo->beginTransaction();
         try {
-            $business = DB::fetchOne('SELECT id FROM businesses WHERE id=:id FOR UPDATE', ['id'=>$id]);
+            $business = DB::fetchOne(
+                'SELECT b.id, b.slug, c.slug AS city_slug
+                 FROM businesses b
+                 LEFT JOIN cities c ON c.id = b.city_id
+                 WHERE b.id = :id FOR UPDATE',
+                ['id' => $id]
+            );
             if (!$business) {
                 $pdo->rollBack();
                 Response::json(['ok'=>false,'error'=>'کسب‌وکار پیدا نشد.'], 404);
             }
             DB::query("UPDATE businesses SET status='published',updated_at=NOW() WHERE id=:id", ['id'=>$id]);
             DB::query("UPDATE review_queue SET status='approved',decided_by=:user,decided_at=NOW() WHERE kind='business' AND target_id=:id AND status='pending'", ['user'=>(int)$user['id'],'id'=>$id]);
+            BusinessSeoService::clearForLiveBusiness((string)($business['city_slug'] ?? ''), (string)($business['slug'] ?? ''));
             $pdo->commit();
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
@@ -475,6 +484,9 @@ final class BusinessController
         } else {
             DB::query("UPDATE review_queue SET status=:status,decided_by=:user,decided_at=NOW() WHERE kind='business' AND target_id=:id AND status='pending'", ['status'=>$requestedStatus === 'published' ? 'approved' : 'rejected','user'=>(int)$user['id'],'id'=>$bizId]);
         }
+        if ($requestedStatus === 'published') {
+            BusinessSeoService::clearForLiveBusiness((string)($selectedCity['slug'] ?? ''), $uniqueSlug);
+        }
         $pdo->commit();
 
         // ابطال کش صفحات عمومی (صفحه کسب‌وکار، صفحه شهر، دسته و مقالات لیستی) در صورت تغییر
@@ -495,18 +507,316 @@ final class BusinessController
     }
 
     /**
-     * آپلود تصویر و تبدیل خودکار به WebP در اندازه‌های 480 / 800 / 1200 با GD
+     * حذف تکی یا دسته‌ای کسب‌وکارها با استراتژی سئوی امن (۴۱۰ Gone / ریدایرکت ۳۰۱ / پاک‌سازی کامل پیش‌نویس‌ها)
+     * POST /api/v1/businesses/delete
+     */
+    public static function deleteBusinesses(Request $request): void
+    {
+        Csrf::verifyOrFail($request);
+        Auth::requireRole(['admin']);
+        $input = $request->json();
+
+        $rawIds = $input['ids'] ?? (isset($input['id']) ? [$input['id']] : []);
+        if (!is_array($rawIds)) {
+            Response::json(['ok' => false, 'error' => 'لیست شناسه‌های کسب‌وکار معتبر نیست.'], 422);
+        }
+
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn($v): int => (int) $v, $rawIds),
+            static fn(int $id): bool => $id > 0
+        )));
+
+        if (!$ids) {
+            Response::json(['ok' => false, 'error' => 'هیچ کسب‌وکاری برای حذف انتخاب نشده است.'], 422);
+        }
+        if (count($ids) > 200) {
+            Response::json(['ok' => false, 'error' => 'در هر نوبت حداکثر ۲۰۰ کسب‌وکار قابل حذف است.'], 422);
+        }
+
+        $seoMode = trim((string) ($input['seo_mode'] ?? 'auto_seo'));
+        if (!in_array($seoMode, ['auto_seo', 'redirect_category', 'redirect_business', 'purge_clean'], true)) {
+            Response::json(['ok' => false, 'error' => 'استراتژی سئوی انتخاب‌شده معتبر نیست.'], 422);
+        }
+
+        $redirectBusinessId = (int) ($input['redirect_business_id'] ?? 0);
+        $replacementTarget = null;
+        if ($seoMode === 'redirect_business') {
+            if ($redirectBusinessId <= 0 || in_array($redirectBusinessId, $ids, true)) {
+                Response::json([
+                    'ok' => false,
+                    'error' => 'برای ریدایرکت ۳۰۱ به کسب‌وکار جایگزین، یک کسب‌وکار منتشرشدهٔ دیگر انتخاب کنید.',
+                ], 422);
+            }
+            $replacementTarget = DB::fetchOne(
+                "SELECT b.id, b.name, b.slug, c.slug AS city_slug
+                 FROM businesses b
+                 INNER JOIN cities c ON c.id = b.city_id
+                 WHERE b.id = :id AND b.status = 'published'
+                 LIMIT 1",
+                ['id' => $redirectBusinessId]
+            );
+            if (!$replacementTarget) {
+                Response::json([
+                    'ok' => false,
+                    'error' => 'کسب‌وکار جایگزین باید در وضعیت «منتشرشده» باشد تا ریدایرکت ۳۰۱ به خطای ۴۰۴ ختم نشود.',
+                ], 422);
+            }
+        }
+
+        $deleteUnusedMedia = !empty($input['delete_unused_media']);
+
+        $placeholders = [];
+        $params = [];
+        foreach ($ids as $idx => $id) {
+            $k = 'b' . $idx;
+            $placeholders[] = ':' . $k;
+            $params[$k] = $id;
+        }
+        $inClause = implode(',', $placeholders);
+
+        $pdo = DB::connection();
+        $pdo->beginTransaction();
+
+        try {
+            $businesses = DB::fetchAll(
+                "SELECT b.id, b.name, b.slug, b.status, b.cover_media_id,
+                        c.slug AS city_slug, c.name_fa AS city_name,
+                        cat.slug AS category_slug, cat.name_fa AS category_name
+                 FROM businesses b
+                 LEFT JOIN cities c ON c.id = b.city_id
+                 LEFT JOIN categories cat ON cat.id = b.category_id
+                 WHERE b.id IN ({$inClause})
+                 FOR UPDATE",
+                $params
+            );
+
+            if (!$businesses) {
+                $pdo->rollBack();
+                Response::json(['ok' => false, 'error' => 'هیچ‌یک از کسب‌وکارهای انتخاب‌شده در دیتابیس یافت نشد.'], 404);
+            }
+
+            $foundIds = [];
+            $candidateMediaIds = [];
+            $publishedDeletedCount = 0;
+            $draftDeletedCount = 0;
+            $seoRulesRecorded = 0;
+
+            foreach ($businesses as $biz) {
+                $bid = (int) $biz['id'];
+                $foundIds[] = $bid;
+                if (!empty($biz['cover_media_id'])) {
+                    $candidateMediaIds[] = (int) $biz['cover_media_id'];
+                }
+
+                $isPublished = ((string) ($biz['status'] ?? '')) === 'published';
+                if ($isPublished) {
+                    $publishedDeletedCount++;
+                } else {
+                    $draftDeletedCount++;
+                }
+
+                if ($isPublished && $seoMode !== 'purge_clean') {
+                    $citySlug = trim((string) ($biz['city_slug'] ?? ''));
+                    $catSlug = trim((string) ($biz['category_slug'] ?? ''));
+                    $bizSlug = trim((string) ($biz['slug'] ?? ''));
+                    $cityName = trim((string) ($biz['city_name'] ?? ''));
+                    $catName = trim((string) ($biz['category_name'] ?? ''));
+
+                    if ($citySlug !== '' && $catSlug !== '') {
+                        $fallbackPath = '/city/' . rawurlencode($citySlug) . '/' . rawurlencode($catSlug) . '/';
+                        $fallbackLabel = 'مشاهده سایر ' . ($catName !== '' ? $catName : 'کسب‌وکارها') . ($cityName !== '' ? ' در ' . $cityName : '');
+                    } elseif ($citySlug !== '') {
+                        $fallbackPath = '/city/' . rawurlencode($citySlug) . '/';
+                        $fallbackLabel = 'مشاهده کسب‌وکارهای ' . ($cityName !== '' ? $cityName : $citySlug);
+                    } else {
+                        $fallbackPath = '/';
+                        $fallbackLabel = 'بازگشت به صفحه اصلی حامی‌هاب گیلان';
+                    }
+
+                    $paths = BusinessSeoService::collectBusinessPaths($bid, $citySlug, $bizSlug);
+
+                    if ($seoMode === 'auto_seo') {
+                        $seoRulesRecorded += BusinessSeoService::recordRules(
+                            $paths,
+                            410,
+                            null,
+                            null,
+                            $fallbackPath,
+                            $fallbackLabel,
+                            (string) ($biz['name'] ?? '')
+                        );
+                    } elseif ($seoMode === 'redirect_category') {
+                        $seoRulesRecorded += BusinessSeoService::recordRules(
+                            $paths,
+                            301,
+                            $fallbackPath,
+                            null,
+                            $fallbackPath,
+                            $fallbackLabel,
+                            (string) ($biz['name'] ?? '')
+                        );
+                    } elseif ($seoMode === 'redirect_business' && $replacementTarget !== null) {
+                        $targetPath = BusinessUrlService::path(
+                            (string) $replacementTarget['city_slug'],
+                            (string) $replacementTarget['slug']
+                        );
+                        $seoRulesRecorded += BusinessSeoService::recordRules(
+                            $paths,
+                            301,
+                            $targetPath,
+                            (int) $replacementTarget['id'],
+                            $fallbackPath,
+                            $fallbackLabel,
+                            (string) ($biz['name'] ?? '')
+                        );
+                    }
+                }
+            }
+
+            $delPlaceholders = [];
+            $delParams = [];
+            foreach ($foundIds as $idx => $fid) {
+                $k = 'd' . $idx;
+                $delPlaceholders[] = ':' . $k;
+                $delParams[$k] = $fid;
+            }
+            $delIn = implode(',', $delPlaceholders);
+
+            if ($deleteUnusedMedia) {
+                $galleryRows = DB::fetchAll(
+                    "SELECT media_id FROM business_photos WHERE business_id IN ({$delIn})",
+                    $delParams
+                );
+                foreach ($galleryRows as $gr) {
+                    if (!empty($gr['media_id'])) {
+                        $candidateMediaIds[] = (int) $gr['media_id'];
+                    }
+                }
+            }
+
+            $sourceRows = DB::fetchAll(
+                "SELECT id FROM business_sources WHERE business_id IN ({$delIn})",
+                $delParams
+            );
+            if ($sourceRows) {
+                $srcPlaceholders = [];
+                $srcParams = [];
+                foreach ($sourceRows as $idx => $sr) {
+                    $k = 's' . $idx;
+                    $srcPlaceholders[] = ':' . $k;
+                    $srcParams[$k] = (int) $sr['id'];
+                }
+                $srcIn = implode(',', $srcPlaceholders);
+                if (self::optionalTableExists('business_source_history')) {
+                    DB::query("DELETE FROM business_source_history WHERE business_source_id IN ({$srcIn})", $srcParams);
+                }
+                if (self::optionalTableExists('business_source_rating_dates')) {
+                    DB::query("DELETE FROM business_source_rating_dates WHERE business_source_id IN ({$srcIn})", $srcParams);
+                }
+            }
+
+            DB::query("DELETE FROM business_sources WHERE business_id IN ({$delIn})", $delParams);
+            DB::query("DELETE FROM business_contacts WHERE business_id IN ({$delIn})", $delParams);
+            DB::query("DELETE FROM business_photos WHERE business_id IN ({$delIn})", $delParams);
+
+            if (self::optionalTableExists('business_promotions')) {
+                DB::query("DELETE FROM business_promotions WHERE business_id IN ({$delIn})", $delParams);
+            }
+            if (self::optionalTableExists('business_data_reviews')) {
+                DB::query("DELETE FROM business_data_reviews WHERE business_id IN ({$delIn})", $delParams);
+            }
+            if (BusinessUrlService::schemaReady()) {
+                DB::query("DELETE FROM business_url_aliases WHERE business_id IN ({$delIn})", $delParams);
+            }
+            if (self::optionalTableExists('seo_url_rules')) {
+                DB::query("UPDATE seo_url_rules SET target_business_id = NULL WHERE target_business_id IN ({$delIn})", $delParams);
+            }
+
+            DB::query("DELETE FROM article_items WHERE business_id IN ({$delIn})", $delParams);
+            DB::query("DELETE FROM review_queue WHERE kind = 'business' AND target_id IN ({$delIn})", $delParams);
+            DB::query("DELETE FROM change_log WHERE business_id IN ({$delIn})", $delParams);
+            DB::query("DELETE FROM claims WHERE business_id IN ({$delIn})", $delParams);
+            DB::query("DELETE FROM reports WHERE business_id IN ({$delIn})", $delParams);
+            DB::query("DELETE FROM ai_tasks WHERE type = 'business_text' AND target_id IN ({$delIn})", $delParams);
+            DB::query("DELETE FROM events_daily WHERE business_id IN ({$delIn})", $delParams);
+            DB::query("DELETE FROM businesses WHERE id IN ({$delIn})", $delParams);
+
+            $pdo->commit();
+        } catch (InvalidArgumentException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 422);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log('Business delete failed: ' . $e->getMessage());
+            Response::json(['ok' => false, 'error' => 'حذف کسب‌وکارها با خطا مواجه شد؛ هیچ تغییری اعمال نشد.'], 500);
+        }
+
+        $mediaCleanResult = null;
+        if ($deleteUnusedMedia && $candidateMediaIds) {
+            try {
+                $mediaCleanResult = MediaService::deleteMediaItems($candidateMediaIds, false);
+            } catch (Throwable $e) {
+                error_log('Optional media cleanup after business delete failed: ' . $e->getMessage());
+            }
+        }
+
+        Cache::flushAll();
+
+        $parts = [sprintf('%d کسب‌وکار با موفقیت حذف شد.', count($foundIds))];
+        if ($publishedDeletedCount > 0) {
+            if ($seoMode === 'auto_seo') {
+                $parts[] = sprintf('برای %d کسب‌وکار منتشرشده قانون سئوی 410 Gone ثبت شد.', $publishedDeletedCount);
+            } elseif ($seoMode === 'redirect_category' || $seoMode === 'redirect_business') {
+                $parts[] = sprintf('برای %d کسب‌وکار منتشرشده ریدایرکت دائمی 301 ثبت شد.', $publishedDeletedCount);
+            }
+        }
+        if ($draftDeletedCount > 0) {
+            $parts[] = sprintf('اسلاگ %d مورد پیش‌نویس/منتشرنشده برای ایمپورت مجدد آزاد شد.', $draftDeletedCount);
+        }
+        if (is_array($mediaCleanResult) && ($mediaCleanResult['deleted_count'] ?? 0) > 0) {
+            $parts[] = sprintf('%d تصویر بلااستفاده نیز از هاست پاک شد.', (int) $mediaCleanResult['deleted_count']);
+        }
+
+        Response::json([
+            'ok' => true,
+            'deleted_ids' => $foundIds,
+            'deleted_count' => count($foundIds),
+            'published_deleted_count' => $publishedDeletedCount,
+            'draft_deleted_count' => $draftDeletedCount,
+            'seo_mode' => $seoMode,
+            'seo_rules_recorded' => $seoRulesRecorded,
+            'media_cleanup' => $mediaCleanResult,
+            'message' => implode(' ', $parts),
+        ]);
+    }
+
+    private static function optionalTableExists(string $table): bool
+    {
+        try {
+            return DB::fetchOne("SHOW TABLES LIKE '{$table}'") !== null;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * آپلود تصویر و تبدیل اجباری ۱۰۰٪ به WebP بهینه در اندازه‌های 480 / 800 / 1200 با GD
      * POST /api/v1/media/upload
      */
     public static function uploadMedia(Request $request): void
     {
         Csrf::verifyOrFail($request);
-        Auth::requireRole(['admin', 'editor']);
+        $user = Auth::requireRole(['admin', 'editor']);
 
-        if (empty($_FILES['image'])) {
+        $uploadedFile = $_FILES['image'] ?? $_FILES['file'] ?? null;
+        if (empty($uploadedFile) || !is_array($uploadedFile)) {
             Response::json([
                 'ok' => false,
-                'error' => 'هیچ فایلی برای آپلود ارسال نشده است. لطفاً یک تصویر JPG، PNG یا WebP انتخاب کنید.',
+                'error' => 'هیچ فایلی برای آپلود ارسال نشده است. لطفاً یک تصویر استاندارد (JPG، PNG، WebP، GIF، BMP یا AVIF) انتخاب کنید.',
                 'field' => 'cover_media_id',
             ], 422);
         }
@@ -521,20 +831,20 @@ final class BusinessController
         }
 
         try {
-            $media = MediaService::handleUpload($_FILES['image'], $altText);
+            $media = MediaService::handleUpload($uploadedFile, $altText);
             Response::json([
                 'ok' => true,
-                'message' => 'تصویر با موفقیت بررسی و به ۳ سایز WebP (۴۸۰، ۸۰۰ و ۱۲۰۰ پیکسل) تبدیل شد.',
+                'message' => 'تصویر با موفقیت به فرمت بهینه WebP (در ۳ سایز ۴۸۰، ۸۰۰ و ۱۲۰۰ پیکسل) تبدیل و ذخیره شد.',
                 'media' => $media,
             ]);
-        } catch (MediaUploadException $e) {
+        } catch (MediaUploadException | InvalidArgumentException $e) {
             Response::json([
                 'ok' => false,
                 'error' => $e->getMessage(),
                 'field' => 'cover_media_id',
             ], 422);
         } catch (Throwable $e) {
-            error_log('Unexpected media upload error: ' . get_class($e));
+            error_log('Unexpected media upload error: ' . get_class($e) . ': ' . $e->getMessage());
             Response::json([
                 'ok' => false,
                 'error' => 'خطای غیرمنتظره در پردازش تصویر؛ وضعیت سرور را بررسی کنید.',

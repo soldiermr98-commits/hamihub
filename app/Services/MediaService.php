@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Core\DB;
+use GdImage;
+use InvalidArgumentException;
 use PDO;
 use RuntimeException;
 use Throwable;
@@ -11,16 +13,62 @@ use Throwable;
 final class MediaUploadException extends RuntimeException {}
 
 /**
- * Validate and re-encode uploads as real WebP images; never trust the filename
- * or report success when a derivative or its database record could not be saved.
+ * Validate and re-encode all uploads strictly as optimized WebP images (480w, 800w, 1200w),
+ * never storing any JPEG/PNG/GIF/BMP/AVIF original on disk, and manage the Media Library.
  */
 final class MediaService
 {
-    private const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+    private const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
     private const MAX_DIMENSION = 10000;
-    private const MAX_PIXELS = 16000000;
-    private const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+    private const MAX_PIXELS = 20000000;
+    private const ALLOWED_MIMES = [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/gif',
+        'image/bmp',
+        'image/x-ms-bmp',
+        'image/avif',
+    ];
     private const TARGET_WIDTHS = [480, 800, 1200];
+
+    /**
+     * راهنمای استاندارد ابعاد پیشنهادی برای تمام بخش‌های آپلود تصویر در پنل مدیریت
+     *
+     * @return array<string, array<string, string>>
+     */
+    public static function dimensionGuides(): array
+    {
+        return [
+            'business_cover' => [
+                'slot' => 'business_cover',
+                'title' => 'تصویر شاخص (کاور) کسب‌وکار',
+                'recommended_px' => '1200 × 800',
+                'aspect_ratio' => '3:2 افقی (یا 16:9 معادل 1200×675)',
+                'min_px' => '800 × 530',
+                'fit_mode' => 'برش هوشمند از مرکز در کارت‌ها (object-fit: cover)',
+                'note' => 'سوژه اصلی یا تابلو را در مرکز کادر قرار دهید. هر فرمتی آپلود شود، به‌صورت خودکار و ۱۰۰٪ به ۳ نسخه WebP کم‌حجم (480، 800 و 1200 پیکسل) تبدیل می‌شود و هیچ فایل JPEG یا PNG روی هاست ذخیره نخواهد شد.',
+            ],
+            'article_cover' => [
+                'slot' => 'article_cover',
+                'title' => 'تصویر شاخص مقاله و پیش‌نمایش شبکه‌های اجتماعی',
+                'recommended_px' => '1200 × 630',
+                'aspect_ratio' => '1.91:1 یا 16:9 افقی (1200×675)',
+                'min_px' => '960 × 500',
+                'fit_mode' => 'پوشش کامل هدر مقاله و کارت OpenGraph (object-fit: cover)',
+                'note' => 'ابعاد 1200×630 بهترین نمایش را هم در بالای مقاله و هم هنگام اشتراک‌گذاری لینک در شبکه‌های اجتماعی ایجاد می‌کند.',
+            ],
+            'advertising_banner' => [
+                'slot' => 'advertising_banner',
+                'title' => 'بنر تبلیغاتی جایگاه‌های عمومی سایت',
+                'recommended_px' => '1200 × 250',
+                'aspect_ratio' => 'افقی عریض 5:1 تا 4:1 (بازه 1200×240 تا 1200×300)',
+                'min_px' => '960 × 200',
+                'fit_mode' => 'نمایش کامل بدون برش (max-height: 260px, object-fit: contain)',
+                'note' => 'بنرها برش نمی‌خورند؛ برای خوانایی در موبایل، متن روی بنر را درشت و خلاصه طراحی کنید. خروجی به‌صورت خودکار WebP ذخیره می‌شود.',
+            ],
+        ];
+    }
 
     /**
      * @param array<string, mixed> $uploadedFile
@@ -31,56 +79,83 @@ final class MediaService
         if (!isset($uploadedFile['error']) || is_array($uploadedFile['error'])) {
             throw new MediaUploadException('ساختار فایل ارسالی نامعتبر است. لطفاً یک فایل تصویر انتخاب کنید.');
         }
-        if ((int)$uploadedFile['error'] !== UPLOAD_ERR_OK) {
-            throw new MediaUploadException('خطا در دریافت فایل آپلودشده. حجم فایل نباید بیشتر از ۵ مگابایت باشد.');
+        if ((int) $uploadedFile['error'] !== UPLOAD_ERR_OK) {
+            throw new MediaUploadException('خطا در دریافت فایل آپلودشده. حجم فایل نباید بیشتر از ۸ مگابایت باشد.');
         }
-        $tmpPath = (string)($uploadedFile['tmp_name'] ?? '');
-        $reportedSize = (int)($uploadedFile['size'] ?? 0);
+        $tmpPath = (string) ($uploadedFile['tmp_name'] ?? '');
+        $reportedSize = (int) ($uploadedFile['size'] ?? 0);
         if ($tmpPath === '' || !is_uploaded_file($tmpPath) || !is_file($tmpPath)) {
             throw new MediaUploadException('فایل موقت آپلود در سرور یافت نشد یا معتبر نیست.');
         }
         $actualSize = @filesize($tmpPath);
-        if ($reportedSize <= 0 || $reportedSize > self::MAX_UPLOAD_BYTES || !is_int($actualSize) || $actualSize <= 0 || $actualSize > self::MAX_UPLOAD_BYTES) {
-            throw new MediaUploadException('حجم تصویر باید حداکثر ۵ مگابایت باشد. لطفاً تصویر سبک‌تری انتخاب کنید.');
+        if (
+            $reportedSize <= 0
+            || $reportedSize > self::MAX_UPLOAD_BYTES
+            || !is_int($actualSize)
+            || $actualSize <= 0
+            || $actualSize > self::MAX_UPLOAD_BYTES
+        ) {
+            throw new MediaUploadException('حجم تصویر باید حداکثر ۸ مگابایت باشد. لطفاً تصویر سبک‌تری انتخاب کنید.');
         }
         if (!function_exists('mb_check_encoding') || !function_exists('mb_strlen')) {
             throw new MediaUploadException('افزونه mbstring روی سرور فعال نیست.');
         }
         $altText = trim($altText);
-        if (!mb_check_encoding($altText, 'UTF-8') || mb_strlen($altText, 'UTF-8') > 255 || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $altText)) {
+        if (
+            !mb_check_encoding($altText, 'UTF-8')
+            || mb_strlen($altText, 'UTF-8') > 255
+            || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $altText)
+        ) {
             throw new MediaUploadException('متن جایگزین تصویر باید معتبر و حداکثر ۲۵۵ نویسه باشد.');
         }
         if (!class_exists(\finfo::class)) {
             throw new MediaUploadException('افزونه Fileinfo روی سرور فعال نیست.');
         }
         $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $realMime = (string)$finfo->file($tmpPath);
+        $realMime = (string) $finfo->file($tmpPath);
         if (!in_array($realMime, self::ALLOWED_MIMES, true)) {
-            throw new MediaUploadException('فرمت تصویر مجاز نیست. فقط تصاویر واقعی با فرمت JPG، PNG یا WebP قابل قبول هستند.');
+            throw new MediaUploadException('فرمت تصویر مجاز نیست. فقط تصاویر واقعی با فرمت JPG، PNG، WebP، GIF، BMP یا AVIF قابل قبول هستند و همگی به WebP بهینه تبدیل می‌شوند.');
         }
         if (!extension_loaded('gd')) {
             throw new MediaUploadException('افزونه GD روی سرور فعال نیست. لطفاً وضعیت آن را بررسی کنید.');
         }
-        // Do not fall back to JPEG under a .webp filename: callers and database
-        // explicitly rely on the three derivatives being WebP.
-        if (!function_exists('imagewebp') || !function_exists('imagecreatefromwebp') || !function_exists('imagetypes') || !defined('IMG_WEBP') || (imagetypes() & IMG_WEBP) === 0) {
-            throw new MediaUploadException('پشتیبانی WebP در افزونه GD فعال نیست؛ از مدیر هاست بخواهید آن را فعال کند.');
+        // Never fall back to JPEG or PNG: every saved file on disk must be real WebP.
+        if (
+            !function_exists('imagewebp')
+            || !function_exists('imagecreatefromwebp')
+            || !function_exists('imagetypes')
+            || !defined('IMG_WEBP')
+            || (imagetypes() & IMG_WEBP) === 0
+        ) {
+            throw new MediaUploadException('پشتیبانی WebP در افزونه GD فعال نیست؛ برای جلوگیری از ذخیره فرمت غیر WebP عملیات متوقف شد.');
         }
         $info = @getimagesize($tmpPath);
-        if (!is_array($info) || ($info['mime'] ?? '') !== $realMime || !isset($info[0], $info[1])) {
+        if (!is_array($info) || !isset($info[0], $info[1])) {
             throw new MediaUploadException('تصویر ارسالی آسیب‌دیده است و قابل پردازش نیست.');
         }
-        $origWidth = (int)$info[0]; $origHeight = (int)$info[1];
+        $infoMime = (string) ($info['mime'] ?? '');
+        $mimeCompatible = $infoMime === $realMime
+            || ($realMime === 'image/x-ms-bmp' && $infoMime === 'image/bmp')
+            || ($realMime === 'image/bmp' && $infoMime === 'image/x-ms-bmp');
+        if (!$mimeCompatible) {
+            throw new MediaUploadException('تصویر ارسالی آسیب‌دیده است یا هدر آن با نوع فایل هم‌خوانی ندارد.');
+        }
+
+        $origWidth = (int) $info[0];
+        $origHeight = (int) $info[1];
         if ($origWidth < 100 || $origHeight < 100) {
             throw new MediaUploadException('ابعاد تصویر بسیار کوچک است (حداقل ۱۰۰×۱۰۰ پیکسل الزامی است).');
         }
-        if ($origWidth > self::MAX_DIMENSION || $origHeight > self::MAX_DIMENSION || $origWidth * $origHeight > self::MAX_PIXELS) {
-            throw new MediaUploadException('ابعاد تصویر بسیار بزرگ است؛ هر ضلع حداکثر ۱۰٬۰۰۰ و مساحت حداکثر ۱۶ میلیون پیکسل است.');
+        if (
+            $origWidth > self::MAX_DIMENSION
+            || $origHeight > self::MAX_DIMENSION
+            || $origWidth * $origHeight > self::MAX_PIXELS
+        ) {
+            throw new MediaUploadException('ابعاد تصویر بسیار بزرگ است؛ هر ضلع حداکثر ۱۰٬۰۰۰ و مساحت حداکثر ۲۰ میلیون پیکسل است.');
         }
-        // A small compressed file can expand to a large bitmap. This estimate is
-        // intentionally conservative, but cannot guarantee availability on every host.
+
         $largestWidth = min($origWidth, max(self::TARGET_WIDTHS));
-        $largestHeight = max(1, (int)round($origHeight * ($largestWidth / $origWidth)));
+        $largestHeight = max(1, (int) round($origHeight * ($largestWidth / $origWidth)));
         $estimatedBytes = ($origWidth * $origHeight + $largestWidth * $largestHeight) * 6 + 16 * 1024 * 1024;
         $limit = self::memoryLimitBytes();
         if ($limit !== null && $estimatedBytes > max(0, $limit - memory_get_usage(true))) {
@@ -91,11 +166,24 @@ final class MediaService
             'image/jpeg' => function_exists('imagecreatefromjpeg') ? @imagecreatefromjpeg($tmpPath) : false,
             'image/png' => function_exists('imagecreatefrompng') ? @imagecreatefrompng($tmpPath) : false,
             'image/webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($tmpPath) : false,
+            'image/gif' => function_exists('imagecreatefromgif') ? @imagecreatefromgif($tmpPath) : false,
+            'image/bmp', 'image/x-ms-bmp' => function_exists('imagecreatefrombmp') ? @imagecreatefrombmp($tmpPath) : false,
+            'image/avif' => function_exists('imagecreatefromavif') ? @imagecreatefromavif($tmpPath) : false,
             default => false,
         };
-        if ($srcImage === false || imagesx($srcImage) !== $origWidth || imagesy($srcImage) !== $origHeight) {
-            throw new MediaUploadException('تصویر ارسالی آسیب‌دیده است یا فرمت آن در GD پشتیبانی نمی‌شود.');
+        if (!$srcImage instanceof GdImage || imagesx($srcImage) !== $origWidth || imagesy($srcImage) !== $origHeight) {
+            throw new MediaUploadException('تصویر ارسالی آسیب‌دیده است یا فرمت آن در GD سرور پشتیبانی نمی‌شود.');
         }
+
+        if ($realMime === 'image/jpeg') {
+            $srcImage = self::applyExifOrientation($srcImage, $tmpPath);
+            $origWidth = imagesx($srcImage);
+            $origHeight = imagesy($srcImage);
+        }
+        if (function_exists('imageistruecolor') && !imageistruecolor($srcImage) && function_exists('imagepalettetotruecolor')) {
+            @imagepalettetotruecolor($srcImage);
+        }
+
         $subDir = date('Y/m');
         $base = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
         $uploadDir = $base . '/public_html/uploads/' . $subDir;
@@ -104,33 +192,49 @@ final class MediaService
         }
 
         $token = bin2hex(random_bytes(8));
-        $generatedPaths = []; $ownedFiles = [];
-        $finalWidth800 = 0; $finalHeight800 = 0; $finalSizeBytes = 0;
-        $pdo = null; $transactionOwned = false; $commitAttempted = false;
+        $generatedPaths = [];
+        $variantSizes = [];
+        $ownedFiles = [];
+        $finalWidth800 = 0;
+        $finalHeight800 = 0;
+        $finalSizeBytes = 0;
+        $pdo = null;
+        $transactionOwned = false;
+        $commitAttempted = false;
+
         try {
             foreach (self::TARGET_WIDTHS as $targetW) {
                 $newW = min($origWidth, $targetW);
-                $newH = max(1, (int)round($origHeight * ($newW / $origWidth)));
+                $newH = max(1, (int) round($origHeight * ($newW / $origWidth)));
                 $canvas = @imagecreatetruecolor($newW, $newH);
-                if ($canvas === false) throw new MediaUploadException('پردازش اندازه تصویر ناموفق بود.');
-                if (!@imagealphablending($canvas, false) || !@imagesavealpha($canvas, true) ||
-                    !@imagecopyresampled($canvas, $srcImage, 0, 0, 0, 0, $newW, $newH, $origWidth, $origHeight)) {
+                if (!$canvas instanceof GdImage) {
                     throw new MediaUploadException('پردازش اندازه تصویر ناموفق بود.');
                 }
+                if (!@imagealphablending($canvas, false) || !@imagesavealpha($canvas, true)) {
+                    throw new MediaUploadException('پردازش شفافیت تصویر ناموفق بود.');
+                }
+                $transparent = imagecolorallocatealpha($canvas, 0, 0, 0, 127);
+                imagefilledrectangle($canvas, 0, 0, $newW, $newH, $transparent);
+                if (!@imagecopyresampled($canvas, $srcImage, 0, 0, 0, 0, $newW, $newH, $origWidth, $origHeight)) {
+                    throw new MediaUploadException('پردازش اندازه تصویر ناموفق بود.');
+                }
+
                 $relPath = "/uploads/{$subDir}/img_{$token}_{$targetW}.webp";
                 $absPath = $base . '/public_html' . $relPath;
-                // Exclusive creation avoids overwriting or cleaning up another image
-                // even in the unlikely event of a filename collision.
                 $file = @fopen($absPath, 'xb');
-                if ($file === false) throw new MediaUploadException('امکان ذخیره تصویر وجود ندارد. فضای دیسک و دسترسی پوشه را بررسی کنید.');
+                if ($file === false) {
+                    throw new MediaUploadException('امکان ذخیره تصویر وجود ندارد. فضای دیسک و دسترسی پوشه را بررسی کنید.');
+                }
                 $ownedFiles[] = $absPath;
-                $written = false; $flushed = false; $closed = false;
+                $quality = $targetW === 480 ? 80 : 82;
+                $written = false;
+                $flushed = false;
+                $closed = false;
                 try {
-                    $written = @imagewebp($canvas, $file, 82);
+                    $written = @imagewebp($canvas, $file, $quality);
                     $flushed = @fflush($file);
                 } finally {
                     $closed = @fclose($file);
-                    // GD images are objects on PHP 8; avoid deprecated imagedestroy().
                     unset($canvas);
                 }
                 if (!$written || !$flushed || !$closed) {
@@ -139,26 +243,31 @@ final class MediaService
                 clearstatcache(true, $absPath);
                 $outputSize = @filesize($absPath);
                 $outputInfo = @getimagesize($absPath);
-                if (!is_int($outputSize) || $outputSize <= 0 || !is_array($outputInfo) ||
-                    ($outputInfo['mime'] ?? '') !== 'image/webp' || (int)$outputInfo[0] !== $newW || (int)$outputInfo[1] !== $newH) {
+                if (
+                    !is_int($outputSize)
+                    || $outputSize <= 0
+                    || !is_array($outputInfo)
+                    || ($outputInfo['mime'] ?? '') !== 'image/webp'
+                    || (int) $outputInfo[0] !== $newW
+                    || (int) $outputInfo[1] !== $newH
+                ) {
                     throw new MediaUploadException('فایل WebP تولیدشده معتبر نیست؛ ذخیره تصویر متوقف شد.');
                 }
-                // Header inspection alone can accept a truncated file. Decode the
-                // completed derivative before a database row can refer to it.
                 $verified = @imagecreatefromwebp($absPath);
-                if ($verified === false || imagesx($verified) !== $newW || imagesy($verified) !== $newH) {
+                if (!$verified instanceof GdImage || imagesx($verified) !== $newW || imagesy($verified) !== $newH) {
                     throw new MediaUploadException('فایل WebP تولیدشده معتبر نیست؛ ذخیره تصویر متوقف شد.');
                 }
                 unset($verified);
+                @chmod($absPath, 0644);
                 $generatedPaths[$targetW] = $relPath;
+                $variantSizes[$targetW] = $outputSize;
                 if ($targetW === 800) {
-                    $finalWidth800 = $newW; $finalHeight800 = $newH; $finalSizeBytes = $outputSize;
+                    $finalWidth800 = $newW;
+                    $finalHeight800 = $newH;
+                    $finalSizeBytes = $outputSize;
                 }
             }
 
-            // The media table is InnoDB. Roll back a failed insert before removing
-            // newly created files. A lost connection during COMMIT is ambiguous:
-            // keep the files for review rather than risk breaking a committed row.
             $pdo = DB::connection();
             if ($pdo->inTransaction() || !$pdo->beginTransaction()) {
                 throw new MediaUploadException('ثبت تصویر در پایگاه داده آماده نیست.');
@@ -167,30 +276,45 @@ final class MediaService
             DB::query(
                 "INSERT INTO media (file_path_480, file_path_800, file_path_1200, mime_type, width, height, size_bytes, alt_text, created_at)
                  VALUES (:p480, :p800, :p1200, 'image/webp', :w, :h, :sz, :alt, NOW())",
-                ['p480'=>$generatedPaths[480], 'p800'=>$generatedPaths[800], 'p1200'=>$generatedPaths[1200],
-                 'w'=>$finalWidth800, 'h'=>$finalHeight800, 'sz'=>$finalSizeBytes, 'alt'=>$altText]
+                [
+                    'p480' => $generatedPaths[480],
+                    'p800' => $generatedPaths[800],
+                    'p1200' => $generatedPaths[1200],
+                    'w' => $finalWidth800,
+                    'h' => $finalHeight800,
+                    'sz' => $finalSizeBytes,
+                    'alt' => $altText,
+                ]
             );
-            $mediaId = (int)DB::lastInsertId();
-            if ($mediaId <= 0) throw new MediaUploadException('ثبت تصویر در پایگاه داده کامل نشد.');
+            $mediaId = (int) DB::lastInsertId();
+            if ($mediaId <= 0) {
+                throw new MediaUploadException('ثبت تصویر در پایگاه داده کامل نشد.');
+            }
             $commitAttempted = true;
-            if (!$pdo->commit()) throw new MediaUploadException('نتیجه ثبت تصویر نامشخص است؛ پیش از تلاش دوباره وضعیت را بررسی کنید.');
+            if (!$pdo->commit()) {
+                throw new MediaUploadException('نتیجه ثبت تصویر نامشخص است؛ پیش از تلاش دوباره وضعیت را بررسی کنید.');
+            }
             $transactionOwned = false;
         } catch (Throwable $error) {
             $safeToRemove = !$commitAttempted;
             if ($transactionOwned && $pdo instanceof PDO) {
                 try {
-                    // A successful rollback after a failed COMMIT cannot prove
-                    // that the server did not already commit the earlier request.
                     if ($pdo->inTransaction()) {
                         $rolledBack = $pdo->rollBack();
-                        if (!$commitAttempted) $safeToRemove = $rolledBack;
+                        if (!$commitAttempted) {
+                            $safeToRemove = $rolledBack;
+                        }
                     }
-                } catch (Throwable $ignored) { $safeToRemove = false; }
+                } catch (Throwable) {
+                    $safeToRemove = false;
+                }
             }
             $cleanupFailed = false;
             if ($safeToRemove) {
                 foreach ($ownedFiles as $filePath) {
-                    if (!@unlink($filePath) && is_file($filePath)) $cleanupFailed = true;
+                    if (!@unlink($filePath) && is_file($filePath)) {
+                        $cleanupFailed = true;
+                    }
                 }
             }
             if ($commitAttempted) {
@@ -202,27 +326,728 @@ final class MediaService
             if ($cleanupFailed) {
                 throw new MediaUploadException('ذخیره تصویر انجام نشد و پاک‌سازی فایل ناقص بود؛ از مدیر هاست بخواهید وضعیت را بررسی کند.', 0, $error);
             }
-            if ($error instanceof MediaUploadException) throw $error;
+            if ($error instanceof MediaUploadException) {
+                throw $error;
+            }
             throw new MediaUploadException('امکان ذخیره تصویر وجود ندارد؛ وضعیت سرور و پایگاه داده را بررسی کنید.', 0, $error);
         } finally {
             unset($srcImage);
         }
 
         return [
-            'id'=>$mediaId, 'file_path_480'=>$generatedPaths[480], 'file_path_800'=>$generatedPaths[800],
-            'file_path_1200'=>$generatedPaths[1200], 'mime_type'=>'image/webp', 'width'=>$finalWidth800,
-            'height'=>$finalHeight800, 'size_bytes'=>$finalSizeBytes, 'alt_text'=>$altText,
+            'id' => $mediaId,
+            'file_path_480' => $generatedPaths[480],
+            'file_path_800' => $generatedPaths[800],
+            'file_path_1200' => $generatedPaths[1200],
+            'url_480' => $generatedPaths[480],
+            'url_800' => $generatedPaths[800],
+            'url_1200' => $generatedPaths[1200],
+            'mime_type' => 'image/webp',
+            'width' => $finalWidth800,
+            'height' => $finalHeight800,
+            'size_bytes' => $finalSizeBytes,
+            'alt_text' => $altText,
+            'source_mime_type' => $realMime,
+            'original_bytes' => $actualSize,
+            'webp_1200_bytes' => $variantSizes[1200] ?? $finalSizeBytes,
+            'webp_total_bytes' => array_sum($variantSizes),
+            'host_dir' => 'public_html/uploads/' . $subDir,
         ];
+    }
+
+    /**
+     * فهرست کامل کتابخانه رسانه با اطلاعات مسیر دقیق روی هاست، حجم دیسک و محل‌های استفاده در دیتابیس
+     *
+     * @param array<string, mixed> $filters
+     * @return array<string, mixed>
+     */
+    public static function listLibrary(array $filters = []): array
+    {
+        $page = max(1, (int) ($filters['page'] ?? 1));
+        $perPage = min(100, max(12, (int) ($filters['per_page'] ?? 24)));
+        $usageFilter = trim((string) ($filters['usage'] ?? 'all'));
+        $search = trim((string) ($filters['q'] ?? ''));
+
+        $rows = DB::fetchAll('SELECT m.* FROM media m ORDER BY m.id DESC');
+
+        $allIds = array_map(static fn(array $r): int => (int) $r['id'], $rows);
+        $usageMap = self::collectUsageMap($allIds);
+
+        $enriched = [];
+        $unusedCount = 0;
+        $usedCount = 0;
+        $missingFilesCount = 0;
+        $nonWebpDbCount = 0;
+        $knownRelativePaths = [];
+
+        foreach ($rows as $row) {
+            $id = (int) $row['id'];
+            $usages = $usageMap[$id] ?? [];
+            $variants = self::inspectMediaVariants($row);
+
+            foreach ($variants as $v) {
+                if ($v['web_path'] !== '') {
+                    $knownRelativePaths[$v['web_path']] = true;
+                }
+            }
+
+            $totalBytes = 0;
+            $allPresent = true;
+            $allWebp = strtolower((string) ($row['mime_type'] ?? '')) === 'image/webp';
+            foreach ($variants as $v) {
+                $totalBytes += $v['bytes'];
+                if (!$v['exists']) {
+                    $allPresent = false;
+                }
+                if (!$v['is_webp']) {
+                    $allWebp = false;
+                }
+            }
+
+            $isUsed = count($usages) > 0;
+            if ($isUsed) {
+                $usedCount++;
+            } else {
+                $unusedCount++;
+            }
+            if (!$allPresent) {
+                $missingFilesCount++;
+            }
+            if (!$allWebp) {
+                $nonWebpDbCount++;
+            }
+
+            $hasBannerLock = false;
+            foreach ($usages as $u) {
+                if ($u['type'] === 'advertising_banner') {
+                    $hasBannerLock = true;
+                    break;
+                }
+            }
+
+            $item = [
+                'id' => $id,
+                'file_path_1200' => (string) ($row['file_path_1200'] ?? ''),
+                'file_path_800' => (string) ($row['file_path_800'] ?? ''),
+                'file_path_480' => (string) ($row['file_path_480'] ?? ''),
+                'url_1200' => (string) ($row['file_path_1200'] ?? ''),
+                'url_800' => (string) ($row['file_path_800'] ?? ''),
+                'url_480' => (string) ($row['file_path_480'] ?? ''),
+                'host_path_1200' => $variants['1200']['host_path'],
+                'mime_type' => (string) ($row['mime_type'] ?? 'image/webp'),
+                'width' => (int) ($row['width'] ?? 0),
+                'height' => (int) ($row['height'] ?? 0),
+                'alt_text' => (string) ($row['alt_text'] ?? ''),
+                'uploaded_by_name' => '',
+                'created_at' => (string) ($row['created_at'] ?? ''),
+                'variants' => $variants,
+                'total_bytes' => $totalBytes,
+                'all_files_present' => $allPresent,
+                'all_webp' => $allWebp,
+                'usages' => $usages,
+                'usage_count' => count($usages),
+                'can_force_detach' => !$hasBannerLock,
+            ];
+
+            if ($usageFilter === 'used' && !$isUsed) {
+                continue;
+            }
+            if ($usageFilter === 'unused' && $isUsed) {
+                continue;
+            }
+            if ($usageFilter === 'missing_files' && $allPresent) {
+                continue;
+            }
+            if ($usageFilter === 'non_webp' && $allWebp) {
+                continue;
+            }
+
+            if ($search !== '') {
+                $haystack = implode(' ', [
+                    (string) $id,
+                    $item['alt_text'],
+                    $item['file_path_1200'],
+                    $item['host_path_1200'],
+                    implode(' ', array_map(static fn(array $u): string => (string) ($u['title'] ?? ''), $usages)),
+                ]);
+                if (mb_stripos($haystack, $search) === false) {
+                    continue;
+                }
+            }
+
+            $enriched[] = $item;
+        }
+
+        $totalFiltered = count($enriched);
+        $offset = ($page - 1) * $perPage;
+        $pagedItems = array_slice($enriched, $offset, $perPage);
+
+        $diskStats = self::scanUploadsDirectory($knownRelativePaths);
+
+        return [
+            'items' => $pagedItems,
+            'pagination' => [
+                'page' => $page,
+                'per_page' => $perPage,
+                'total' => $totalFiltered,
+                'total_pages' => max(1, (int) ceil($totalFiltered / $perPage)),
+            ],
+            'summary' => [
+                'total_db_records' => count($rows),
+                'used_db_records' => $usedCount,
+                'unused_db_records' => $unusedCount,
+                'missing_files_records' => $missingFilesCount,
+                'non_webp_db_records' => $nonWebpDbCount,
+                'uploads_host_root' => 'public_html/uploads',
+                'disk_webp_files' => $diskStats['webp_files'],
+                'disk_non_webp_files' => $diskStats['non_webp_files'],
+                'disk_orphan_files' => $diskStats['orphan_files'],
+                'disk_total_bytes' => $diskStats['total_bytes'],
+            ],
+            'dimension_guides' => self::dimensionGuides(),
+        ];
+    }
+
+    /**
+     * ویرایش متن جایگزین سئو (alt_text) برای یک تصویر در جدول media
+     */
+    public static function updateAltText(int $mediaId, string $altText): bool
+    {
+        if ($mediaId <= 0) {
+            throw new InvalidArgumentException('شناسه رسانه نامعتبر است.');
+        }
+        $exists = DB::fetchOne('SELECT id FROM media WHERE id = :id LIMIT 1', ['id' => $mediaId]);
+        if (!$exists) {
+            return false;
+        }
+        $cleanAlt = mb_substr(trim($altText), 0, 220);
+        DB::query(
+            'UPDATE media SET alt_text = :alt WHERE id = :id',
+            ['alt' => $cleanAlt, 'id' => $mediaId]
+        );
+        return true;
+    }
+
+    /**
+     * حذف امن یک یا چند تصویر از دیتابیس و حذف فیزیکی فایل‌های WebP آن‌ها از هاست
+     *
+     * @param int[] $mediaIds
+     * @return array<string, mixed>
+     */
+    public static function deleteMediaItems(array $mediaIds, bool $detachUsages = false): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn($v): int => (int) $v, $mediaIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if (!$ids) {
+            throw new InvalidArgumentException('هیچ تصویری برای حذف انتخاب نشده است.');
+        }
+        if (count($ids) > 200) {
+            throw new InvalidArgumentException('در هر نوبت حداکثر ۲۰۰ تصویر قابل حذف است.');
+        }
+
+        $placeholders = [];
+        $params = [];
+        foreach ($ids as $idx => $id) {
+            $k = 'm' . $idx;
+            $placeholders[] = ':' . $k;
+            $params[$k] = $id;
+        }
+
+        $rows = DB::fetchAll(
+            'SELECT * FROM media WHERE id IN (' . implode(',', $placeholders) . ')',
+            $params
+        );
+        if (!$rows) {
+            return [
+                'deleted_ids' => [],
+                'deleted_count' => 0,
+                'deleted_files_count' => 0,
+                'freed_bytes' => 0,
+                'blocked' => [],
+            ];
+        }
+
+        $foundIds = array_map(static fn(array $r): int => (int) $r['id'], $rows);
+        $usageMap = self::collectUsageMap($foundIds);
+
+        $blocked = [];
+        $deletableRows = [];
+
+        foreach ($rows as $row) {
+            $id = (int) $row['id'];
+            $usages = $usageMap[$id] ?? [];
+
+            if ($usages) {
+                $bannerUsages = array_values(array_filter(
+                    $usages,
+                    static fn(array $u): bool => $u['type'] === 'advertising_banner'
+                ));
+                if ($bannerUsages) {
+                    $blocked[] = [
+                        'id' => $id,
+                        'reason' => 'این تصویر به بنر تبلیغاتی متصل است؛ ابتدا تصویر بنر را تغییر دهید یا بنر را حذف کنید.',
+                        'usages' => $usages,
+                    ];
+                    continue;
+                }
+                if (!$detachUsages) {
+                    $blocked[] = [
+                        'id' => $id,
+                        'reason' => 'این تصویر در کسب‌وکار یا مقاله استفاده شده است.',
+                        'usages' => $usages,
+                    ];
+                    continue;
+                }
+            }
+
+            $deletableRows[] = $row;
+        }
+
+        if (!$deletableRows) {
+            return [
+                'deleted_ids' => [],
+                'deleted_count' => 0,
+                'deleted_files_count' => 0,
+                'freed_bytes' => 0,
+                'blocked' => $blocked,
+            ];
+        }
+
+        $pdo = DB::connection();
+        $inOuterTx = $pdo->inTransaction();
+        if (!$inOuterTx) {
+            $pdo->beginTransaction();
+        }
+
+        $hasArticleExtras = self::tableExists('article_extras');
+        $deletedIds = [];
+        $filesToUnlink = [];
+
+        try {
+            foreach ($deletableRows as $row) {
+                $id = (int) $row['id'];
+                if ($detachUsages) {
+                    DB::query('UPDATE businesses SET cover_media_id = NULL WHERE cover_media_id = :id', ['id' => $id]);
+                    DB::query('DELETE FROM business_photos WHERE media_id = :id', ['id' => $id]);
+                    if ($hasArticleExtras) {
+                        DB::query('UPDATE article_extras SET cover_media_id = NULL WHERE cover_media_id = :id', ['id' => $id]);
+                    }
+                }
+
+                DB::query('DELETE FROM media WHERE id = :id', ['id' => $id]);
+                $deletedIds[] = $id;
+
+                foreach (['file_path_1200', 'file_path_800', 'file_path_480'] as $col) {
+                    $webPath = trim((string) ($row[$col] ?? ''));
+                    if ($webPath !== '') {
+                        $filesToUnlink[$webPath] = true;
+                    }
+                }
+            }
+
+            if (!$inOuterTx) {
+                $pdo->commit();
+            }
+        } catch (Throwable $e) {
+            if (!$inOuterTx && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        $deletedFilesCount = 0;
+        $freedBytes = 0;
+        foreach (array_keys($filesToUnlink) as $webPath) {
+            $res = self::safeUnlinkUploadFile($webPath);
+            if ($res['deleted']) {
+                $deletedFilesCount++;
+                $freedBytes += $res['bytes'];
+            }
+        }
+
+        return [
+            'deleted_ids' => $deletedIds,
+            'deleted_count' => count($deletedIds),
+            'deleted_files_count' => $deletedFilesCount,
+            'freed_bytes' => $freedBytes,
+            'blocked' => $blocked,
+        ];
+    }
+
+    /**
+     * حذف فایل‌های orphan (بدون رکورد دیتابیس) باقی‌مانده در پوشه uploads
+     *
+     * @return array{deleted_files: int, freed_bytes: int}
+     */
+    public static function purgeOrphanUploadFiles(): array
+    {
+        $rows = DB::fetchAll('SELECT file_path_1200, file_path_800, file_path_480 FROM media');
+        $known = [];
+        foreach ($rows as $row) {
+            foreach (['file_path_1200', 'file_path_800', 'file_path_480'] as $col) {
+                $p = trim((string) ($row[$col] ?? ''));
+                if ($p !== '') {
+                    $known[$p] = true;
+                }
+            }
+        }
+
+        $uploadsDir = self::uploadsRootFullPath();
+        if ($uploadsDir === null || !is_dir($uploadsDir)) {
+            return ['deleted_files' => 0, 'freed_bytes' => 0];
+        }
+
+        $deleted = 0;
+        $freed = 0;
+        $it = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($uploadsDir, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($it as $fileInfo) {
+            if (!$fileInfo->isFile() || $fileInfo->isLink()) {
+                continue;
+            }
+            $name = $fileInfo->getFilename();
+            if (in_array(strtolower($name), ['.htaccess', 'index.html', 'index.php', '.gitkeep'], true)) {
+                continue;
+            }
+            $full = $fileInfo->getPathname();
+            $relFromUploads = ltrim(str_replace('\\', '/', substr($full, strlen($uploadsDir))), '/');
+            $webPath = '/uploads/' . $relFromUploads;
+
+            if (!isset($known[$webPath])) {
+                $res = self::safeUnlinkUploadFile($webPath);
+                if ($res['deleted']) {
+                    $deleted++;
+                    $freed += $res['bytes'];
+                }
+            }
+        }
+
+        return ['deleted_files' => $deleted, 'freed_bytes' => $freed];
+    }
+
+    /**
+     * بررسی محل‌های مصرف شناسه‌های media در تمام جداول مرتبط
+     *
+     * @param int[] $mediaIds
+     * @return array<int, array<int, array<string, mixed>>>
+     */
+    public static function collectUsageMap(array $mediaIds): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn($v): int => (int) $v, $mediaIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if (!$ids) {
+            return [];
+        }
+
+        $map = [];
+
+        $bizCovers = DB::fetchAll(
+            'SELECT id, name, status, cover_media_id FROM businesses WHERE cover_media_id IS NOT NULL'
+        );
+        foreach ($bizCovers as $row) {
+            $mid = (int) ($row['cover_media_id'] ?? 0);
+            if ($mid > 0) {
+                $map[$mid][] = [
+                    'type' => 'business_cover',
+                    'label' => 'کاور کسب‌وکار',
+                    'entity_id' => (int) $row['id'],
+                    'title' => (string) ($row['name'] ?? ''),
+                    'status' => (string) ($row['status'] ?? ''),
+                ];
+            }
+        }
+
+        $bizPhotos = DB::fetchAll(
+            'SELECT bp.media_id, b.id AS business_id, b.name, b.status
+             FROM business_photos bp
+             INNER JOIN businesses b ON b.id = bp.business_id'
+        );
+        foreach ($bizPhotos as $row) {
+            $mid = (int) ($row['media_id'] ?? 0);
+            if ($mid > 0) {
+                $map[$mid][] = [
+                    'type' => 'business_photo',
+                    'label' => 'گالری کسب‌وکار',
+                    'entity_id' => (int) $row['business_id'],
+                    'title' => (string) ($row['name'] ?? ''),
+                    'status' => (string) ($row['status'] ?? ''),
+                ];
+            }
+        }
+
+        if (self::tableExists('article_extras')) {
+            $artCovers = DB::fetchAll(
+                'SELECT ae.cover_media_id, a.id AS article_id, a.title, a.status
+                 FROM article_extras ae
+                 INNER JOIN articles a ON a.id = ae.article_id
+                 WHERE ae.cover_media_id IS NOT NULL'
+            );
+            foreach ($artCovers as $row) {
+                $mid = (int) ($row['cover_media_id'] ?? 0);
+                if ($mid > 0) {
+                    $map[$mid][] = [
+                        'type' => 'article_cover',
+                        'label' => 'تصویر شاخص مقاله',
+                        'entity_id' => (int) $row['article_id'],
+                        'title' => (string) ($row['title'] ?? ''),
+                        'status' => (string) ($row['status'] ?? ''),
+                    ];
+                }
+            }
+        }
+
+        if (self::tableExists('article_revisions')) {
+            $revRows = DB::fetchAll(
+                "SELECT ar.article_id, ar.payload_json, a.title
+                 FROM article_revisions ar
+                 INNER JOIN articles a ON a.id = ar.article_id
+                 WHERE ar.status IN ('draft', 'pending_review')"
+            );
+            foreach ($revRows as $row) {
+                $payload = json_decode((string) ($row['payload_json'] ?? ''), true);
+                $mid = is_array($payload) ? (int) ($payload['cover_media_id'] ?? 0) : 0;
+                if ($mid > 0) {
+                    $alreadyListed = false;
+                    foreach ($map[$mid] ?? [] as $existing) {
+                        if ($existing['type'] === 'article_cover' && $existing['entity_id'] === (int) $row['article_id']) {
+                            $alreadyListed = true;
+                            break;
+                        }
+                    }
+                    if (!$alreadyListed) {
+                        $map[$mid][] = [
+                            'type' => 'article_revision',
+                            'label' => 'پیش‌نویس/بازبینی مقاله',
+                            'entity_id' => (int) $row['article_id'],
+                            'title' => (string) ($row['title'] ?? ''),
+                            'status' => 'draft',
+                        ];
+                    }
+                }
+            }
+        }
+
+        if (self::tableExists('advertising_banners')) {
+            $banners = DB::fetchAll(
+                'SELECT id, title, placement, active, media_id FROM advertising_banners WHERE media_id IS NOT NULL'
+            );
+            foreach ($banners as $row) {
+                $mid = (int) ($row['media_id'] ?? 0);
+                if ($mid > 0) {
+                    $map[$mid][] = [
+                        'type' => 'advertising_banner',
+                        'label' => 'بنر تبلیغاتی (' . (string) ($row['placement'] ?? '') . ')',
+                        'entity_id' => (int) $row['id'],
+                        'title' => (string) ($row['title'] ?? ''),
+                        'status' => ((int) ($row['active'] ?? 0) === 1) ? 'active' : 'inactive',
+                    ];
+                }
+            }
+        }
+
+        $filtered = [];
+        foreach ($ids as $id) {
+            $filtered[$id] = $map[$id] ?? [];
+        }
+        return $filtered;
+    }
+
+    private static function applyExifOrientation(GdImage $image, string $filePath): GdImage
+    {
+        if (!function_exists('exif_read_data')) {
+            return $image;
+        }
+        try {
+            $exif = @exif_read_data($filePath);
+            $orientation = is_array($exif) ? (int) ($exif['Orientation'] ?? 1) : 1;
+            $rotated = match ($orientation) {
+                3 => @imagerotate($image, 180, 0),
+                6 => @imagerotate($image, -90, 0),
+                8 => @imagerotate($image, 90, 0),
+                default => false,
+            };
+            if ($rotated instanceof GdImage) {
+                return $rotated;
+            }
+        } catch (Throwable) {
+        }
+        return $image;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, array{web_path: string, host_path: string, exists: bool, bytes: int, is_webp: bool}>
+     */
+    private static function inspectMediaVariants(array $row): array
+    {
+        $base = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
+        $result = [];
+        foreach (['1200' => 'file_path_1200', '800' => 'file_path_800', '480' => 'file_path_480'] as $size => $col) {
+            $webPath = trim((string) ($row[$col] ?? ''));
+            $cleanRel = ltrim($webPath, '/');
+            $hostPath = $cleanRel !== '' ? 'public_html/' . $cleanRel : '';
+            $fullPath = $cleanRel !== '' ? $base . '/public_html/' . $cleanRel : '';
+            $exists = $fullPath !== '' && is_file($fullPath);
+            $bytes = $exists ? (int) (@filesize($fullPath) ?: 0) : 0;
+            $isWebp = $webPath !== '' && str_ends_with(strtolower($webPath), '.webp');
+
+            $result[$size] = [
+                'web_path' => $webPath,
+                'host_path' => $hostPath,
+                'exists' => $exists,
+                'bytes' => $bytes,
+                'is_webp' => $isWebp,
+            ];
+        }
+        return $result;
+    }
+
+    /**
+     * @param array<string, bool> $knownRelativePaths
+     * @return array{webp_files: int, non_webp_files: int, orphan_files: int, total_bytes: int}
+     */
+    private static function scanUploadsDirectory(array $knownRelativePaths): array
+    {
+        $uploadsDir = self::uploadsRootFullPath();
+        if ($uploadsDir === null || !is_dir($uploadsDir)) {
+            return ['webp_files' => 0, 'non_webp_files' => 0, 'orphan_files' => 0, 'total_bytes' => 0];
+        }
+
+        $webpFiles = 0;
+        $nonWebpFiles = 0;
+        $orphanFiles = 0;
+        $totalBytes = 0;
+
+        try {
+            $it = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($uploadsDir, \FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($it as $fileInfo) {
+                if (!$fileInfo->isFile() || $fileInfo->isLink()) {
+                    continue;
+                }
+                $name = $fileInfo->getFilename();
+                if (in_array(strtolower($name), ['.htaccess', 'index.html', 'index.php', '.gitkeep'], true)) {
+                    continue;
+                }
+                $bytes = (int) $fileInfo->getSize();
+                $totalBytes += $bytes;
+                if (str_ends_with(strtolower($name), '.webp')) {
+                    $webpFiles++;
+                } else {
+                    $nonWebpFiles++;
+                }
+
+                $full = $fileInfo->getPathname();
+                $relFromUploads = ltrim(str_replace('\\', '/', substr($full, strlen($uploadsDir))), '/');
+                $webPath = '/uploads/' . $relFromUploads;
+                if (!isset($knownRelativePaths[$webPath])) {
+                    $orphanFiles++;
+                }
+            }
+        } catch (Throwable) {
+        }
+
+        return [
+            'webp_files' => $webpFiles,
+            'non_webp_files' => $nonWebpFiles,
+            'orphan_files' => $orphanFiles,
+            'total_bytes' => $totalBytes,
+        ];
+    }
+
+    private static function uploadsRootFullPath(): ?string
+    {
+        $base = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
+        $path = $base . '/public_html/uploads';
+        if (!is_dir($path)) {
+            return null;
+        }
+        $real = realpath($path);
+        return $real !== false ? $real : null;
+    }
+
+    /**
+     * @return array{deleted: bool, bytes: int}
+     */
+    private static function safeUnlinkUploadFile(string $webPath): array
+    {
+        $clean = trim($webPath);
+        if (
+            $clean === ''
+            || !str_starts_with($clean, '/uploads/')
+            || str_contains($clean, '..')
+            || str_contains($clean, '\\')
+            || str_contains($clean, "\0")
+        ) {
+            return ['deleted' => false, 'bytes' => 0];
+        }
+
+        $uploadsRoot = self::uploadsRootFullPath();
+        if ($uploadsRoot === null) {
+            return ['deleted' => false, 'bytes' => 0];
+        }
+
+        $base = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
+        $candidate = $base . '/public_html/' . ltrim($clean, '/');
+        if (!is_file($candidate) || is_link($candidate)) {
+            return ['deleted' => false, 'bytes' => 0];
+        }
+
+        $realFile = realpath($candidate);
+        if ($realFile === false || !str_starts_with($realFile, $uploadsRoot . DIRECTORY_SEPARATOR)) {
+            return ['deleted' => false, 'bytes' => 0];
+        }
+
+        $baseName = strtolower(basename($realFile));
+        if (in_array($baseName, ['.htaccess', 'index.html', 'index.php', '.gitkeep'], true)) {
+            return ['deleted' => false, 'bytes' => 0];
+        }
+
+        $bytes = (int) (@filesize($realFile) ?: 0);
+        $deleted = @unlink($realFile);
+
+        if ($deleted) {
+            $parentDir = dirname($realFile);
+            if ($parentDir !== $uploadsRoot && str_starts_with($parentDir, $uploadsRoot . DIRECTORY_SEPARATOR)) {
+                @rmdir($parentDir);
+            }
+        }
+
+        return ['deleted' => $deleted, 'bytes' => $deleted ? $bytes : 0];
+    }
+
+    private static function tableExists(string $table): bool
+    {
+        try {
+            return DB::fetchOne("SHOW TABLES LIKE '{$table}'") !== null;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /** Parse conventional PHP memory_limit values; -1 means unlimited. */
     private static function memoryLimitBytes(): ?int
     {
-        $value = trim((string)ini_get('memory_limit'));
-        if ($value === '' || $value === '-1' || !preg_match('/\A(\d+)\s*([kmg]?)\z/i', $value, $match)) return null;
-        $amount = (int)$match[1];
-        $factor = match (strtolower($match[2])) { 'k'=>1024, 'm'=>1048576, 'g'=>1073741824, default=>1 };
-        if ($amount > intdiv(PHP_INT_MAX, $factor)) return null;
+        $value = trim((string) ini_get('memory_limit'));
+        if ($value === '' || $value === '-1' || !preg_match('/\A(\d+)\s*([kmg]?)\z/i', $value, $match)) {
+            return null;
+        }
+        $amount = (int) $match[1];
+        $factor = match (strtolower($match[2])) {
+            'k' => 1024,
+            'm' => 1048576,
+            'g' => 1073741824,
+            default => 1,
+        };
+        if ($amount > intdiv(PHP_INT_MAX, $factor)) {
+            return null;
+        }
         return $amount * $factor;
     }
 }
