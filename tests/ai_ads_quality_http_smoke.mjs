@@ -1,6 +1,8 @@
 // Synthetic integration only: requires the guarded local fixture router and a disposable hhx_test_* DB.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+process.on('uncaughtException', err => { console.log(`::error title=ai_ads_http_smoke::${String(err?.stack||err).replace(/\r?\n/g,'%0A')}`); process.exit(1); });
+process.on('unhandledRejection', err => { console.log(`::error title=ai_ads_http_smoke::${String(err?.stack||err).replace(/\r?\n/g,'%0A')}`); process.exit(1); });
 const base=process.env.HHX_TEST_URL||'', nonce=process.env.HHX_TEST_NONCE||'', password=process.env.HHX_TEST_PASSWORD||'';
 if(process.env.HHX_ALLOW_TEST_FIXTURES!=='1'||!/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(base)||nonce.length<16||password.length<12) throw new Error('A guarded loopback fixture server and disposable DB are required.');
 const guard=await fetch(base+'/__article_fixture_guard__').then(r=>r.json());
@@ -72,8 +74,35 @@ for (const [slot,path] of [
   const label=`بنر ساختگی ${slot}`;
   r=await admin.request('POST','/api/v1/advertising/banner',{...ad,title:label,alt_text:label,placement:slot,starts_at:'',ends_at:'',active:true});assert.equal(r.status,200,r.text);
   r=await guest.request('GET',path);assert.equal(r.status,200,`${slot} ${path}: ${r.text}`);assert(r.text.includes(label),`banner must appear in ${slot}`);
+  for (const forbidden of ['href="/admin/"','پنل مدیریت','ورود مدیران','نقشه سایت (Sitemap)','Robots.txt']) {
+    assert(!r.text.includes(forbidden), `public page ${path} must not contain ${forbidden}`);
+  }
 }
-console.log('PASS: independent placements render on home, city, category, business, and article pages');
+for (const seoPath of ['/sitemap.xml','/robots.txt']) {
+  const seoRes=await guest.request('GET',seoPath);assert.equal(seoRes.status,200,`${seoPath} must remain reachable for crawlers`);
+}
+for (const homeSlot of ['home_below_hero','home_mid']) {
+  r=await admin.request('POST','/api/v1/advertising/banner',{...ad,placement:homeSlot,city_id:Number(city.id),starts_at:'',ends_at:'',active:true});
+  assert.equal(r.status,422,`${homeSlot} must reject city filter`);
+}
+r=await admin.request('POST','/api/v1/advertising/banner',{...ad,title:'بنر زیر هیرو ۱',alt_text:'بنر زیر هیرو اول',placement:'home_below_hero',starts_at:'',ends_at:'',active:true,priority:50});assert.equal(r.status,200,r.text);
+r=await guest.request('GET','/');assert.equal(r.status,200);
+assert(r.text.includes('hx-ad-grid-1') && r.text.includes('بنر زیر هیرو اول'),'single active banner renders in hx-ad-grid-1');
+for (const forbidden of ['href="/admin/"','پنل مدیریت','ورود مدیران','نقشه سایت (Sitemap)','Robots.txt']) {
+  assert(!r.text.includes(forbidden), `home page must not contain ${forbidden}`);
+}
+r=await admin.request('POST','/api/v1/advertising/banner',{...ad,title:'بنر زیر هیرو ۲',alt_text:'بنر زیر هیرو دوم',placement:'home_below_hero',starts_at:'',ends_at:'',active:true,priority:30});assert.equal(r.status,200,r.text);
+r=await admin.request('POST','/api/v1/advertising/banner',{...ad,title:'بنر زیر هیرو ۳',alt_text:'بنر زیر هیرو سوم',placement:'home_below_hero',starts_at:'',ends_at:'',active:true,priority:10});assert.equal(r.status,200,r.text);
+r=await admin.request('POST','/api/v1/advertising/banner',{...ad,title:'بنر میانی صفحه اصلی',alt_text:'بنر بین مقالات و کسب‌وکارها',placement:'home_mid',starts_at:'',ends_at:'',active:true,priority:20});assert.equal(r.status,200,r.text);
+r=await admin.request('POST','/api/v1/advertising/banner',{...ad,title:'بنر بالای فوتر',alt_text:'بنر آزمایشی بالای فوتر',placement:'footer_above',starts_at:'',ends_at:'',active:true,priority:15});assert.equal(r.status,200,r.text);
+r=await guest.request('GET','/');assert.equal(r.status,200);
+assert(r.text.includes('hx-ad-grid-2'),'two active banners in slot must render hx-ad-grid-2');
+assert(r.text.includes('بنر زیر هیرو اول') && r.text.includes('بنر زیر هیرو دوم'),'top 2 priority banners must render side by side');
+assert(!r.text.includes('بنر زیر هیرو سوم'),'3rd banner in same slot must not exceed max 2 per slot');
+assert(r.text.includes('hx-ad-wrap-inline') && r.text.includes('بنر بین مقالات و کسب‌وکارها'),'home_mid slot must render inline');
+assert(r.text.includes('hx-ad-wrap-footer') && r.text.includes('بنر آزمایشی بالای فوتر'),'footer_above slot must render above footer');
+assert(r.text.indexOf('بنر آزمایشی بالای فوتر') < r.text.indexOf('<footer class="hx-footer">'),'footer_above banner must appear before <footer>');
+console.log('PASS: independent placements, 2-up banner grids, new slots (home_below_hero, home_mid, footer_above), and clean public header/footer verified');
 const biz={name:'کسب و کار آزمایشی کیفیت',slug:'fixture-quality',city_id:Number(city.id),category_id:Number(cat.id),address:'آدرس آزمایشی',short_desc:'توضیح آزمایشی',phone:'09120000000',cover_media_id:mediaId,status:'draft',tier:'C'};
 r=await admin.request('POST','/api/v1/businesses',biz);assert.equal(r.status,200,r.text);const id=Number(r.json.business.id);
 const find=async()=>{const q=await admin.request('GET','/api/v1/businesses?page=1&q=fixture-quality');assert.equal(q.status,200,q.text);return q.json.businesses.find(b=>Number(b.id)===id);};
