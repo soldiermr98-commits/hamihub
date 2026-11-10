@@ -66,10 +66,13 @@ final class ReviewQueueController
                     b.internal_score AS business_score,
                     b.tier AS business_tier,
                     b.confidence AS business_confidence,
+                    b.category_id AS business_category_id,
+                    cat.name_fa AS category_name,
                     c.name_fa AS city_name
              FROM review_queue rq
              LEFT JOIN businesses b ON (rq.kind IN ('business', 'change', 'duplicate') AND b.id = rq.target_id)
              LEFT JOIN cities c ON c.id = b.city_id
+             LEFT JOIN categories cat ON cat.id = b.category_id
              WHERE {$whereSql}
              ORDER BY rq.id DESC
              LIMIT 250",
@@ -132,8 +135,9 @@ final class ReviewQueueController
         }
 
         $decision = (string) $request->input('decision', 'approved');
-        if (!in_array($decision, ['approved', 'rejected'], true)) {
-            Response::json(['ok' => false, 'error' => 'تصمیم ارسالی باید approved یا rejected باشد.'], 422);
+        $mergeIntoId = (int) $request->input('merge_into_id', 0);
+        if (!in_array($decision, ['approved', 'rejected', 'merge'], true)) {
+            Response::json(['ok' => false, 'error' => 'تصمیم ارسالی باید approved، rejected یا merge باشد.'], 422);
         }
 
         $cleanIds = array_values(array_filter(array_map('intval', $idsInput), static fn(int $v): bool => $v > 0));
@@ -154,10 +158,70 @@ final class ReviewQueueController
                 $kind = (string)$item['kind'];
                 $targetId = (int)$item['target_id'];
                 $payload = json_decode((string)($item['payload_json'] ?? '{}'), true) ?: [];
-                if ($kind === 'business') {
+                $finalQueueStatus = $decision === 'merge' ? 'approved' : $decision;
+                if ($decision === 'merge' || ($kind === 'duplicate' && $decision === 'approved')) {
+                    $destId = $mergeIntoId > 0 ? $mergeIntoId : (int)($payload['primary_candidate_id'] ?? 0);
+                    if ($destId <= 0 || $destId === $targetId || !in_array($kind, ['business', 'duplicate'], true)) {
+                        $pdo->rollBack(); $skipped++; continue;
+                    }
+                    $lockedPair = DB::fetchAll("SELECT * FROM businesses WHERE id IN (:a, :b) ORDER BY id ASC FOR UPDATE", ['a'=>$targetId, 'b'=>$destId]);
+                    $dupBiz = null;
+                    $destBiz = null;
+                    foreach ($lockedPair as $lb) {
+                        if ((int)$lb['id'] === $targetId) $dupBiz = $lb;
+                        if ((int)$lb['id'] === $destId) $destBiz = $lb;
+                    }
+                    if (!$dupBiz || !$destBiz || (int)$dupBiz['city_id'] !== (int)$destBiz['city_id'] || !in_array((string)$dupBiz['status'], ['pending_review', 'draft', 'rejected'], true)) {
+                        $pdo->rollBack(); $skipped++; continue;
+                    }
+                    // Move non-conflicting sources & contacts from duplicate pending row into canonical business
+                    $dupSources = DB::fetchAll("SELECT * FROM business_sources WHERE business_id=:id FOR UPDATE", ['id'=>$targetId]);
+                    foreach ($dupSources as $ds) {
+                        $alreadyOnDest = DB::fetchOne("SELECT id FROM business_sources WHERE business_id=:bid AND provider=:p AND source_id=:sid LIMIT 1",
+                            ['bid'=>$destId, 'p'=>(string)$ds['provider'], 'sid'=>(string)$ds['source_id']]);
+                        if ($alreadyOnDest) {
+                            self::deleteIfTableExists('business_source_rating_dates', 'business_source_id=:sid', ['sid'=>(int)$ds['id']]);
+                            DB::query("DELETE FROM business_sources WHERE id=:id", ['id'=>(int)$ds['id']]);
+                        } else {
+                            DB::query("UPDATE business_sources SET business_id=:dest WHERE id=:id", ['dest'=>$destId, 'id'=>(int)$ds['id']]);
+                        }
+                    }
+                    $dupContacts = DB::fetchAll("SELECT * FROM business_contacts WHERE business_id=:id", ['id'=>$targetId]);
+                    foreach ($dupContacts as $dc) {
+                        $existsContact = DB::fetchOne("SELECT id FROM business_contacts WHERE business_id=:bid AND value=:v LIMIT 1",
+                            ['bid'=>$destId, 'v'=>(string)$dc['value']]);
+                        if (!$existsContact) {
+                            DB::query("UPDATE business_contacts SET business_id=:dest, is_primary=0 WHERE id=:id", ['dest'=>$destId, 'id'=>(int)$dc['id']]);
+                        } else {
+                            DB::query("DELETE FROM business_contacts WHERE id=:id", ['id'=>(int)$dc['id']]);
+                        }
+                    }
+                    DB::query("UPDATE businesses SET last_collected_at=NOW(), updated_at=NOW() WHERE id=:id", ['id'=>$destId]);
+                    DB::query("UPDATE review_queue SET status='approved', decided_by=:uid, decided_at=NOW() WHERE target_id=:tid AND kind IN ('business','duplicate','change') AND status='pending'",
+                        ['uid'=>(int)$user['id'], 'tid'=>$targetId]);
+                    self::deleteIfTableExists('business_promotions', 'business_id=:tid', ['tid'=>$targetId]);
+                    self::deleteIfTableExists('business_data_reviews', 'business_id=:tid', ['tid'=>$targetId]);
+                    self::deleteIfTableExists('business_url_aliases', 'business_id=:tid', ['tid'=>$targetId]);
+                    if (self::tableExists('seo_url_rules')) {
+                        DB::query("UPDATE seo_url_rules SET target_business_id=NULL WHERE target_business_id=:tid", ['tid'=>$targetId]);
+                    }
+                    DB::query("DELETE FROM article_items WHERE business_id=:tid", ['tid'=>$targetId]);
+                    DB::query("DELETE FROM change_log WHERE business_id=:tid", ['tid'=>$targetId]);
+                    DB::query("DELETE FROM claims WHERE business_id=:tid", ['tid'=>$targetId]);
+                    DB::query("DELETE FROM reports WHERE business_id=:tid", ['tid'=>$targetId]);
+                    DB::query("DELETE FROM ai_tasks WHERE type='business_text' AND target_id=:tid", ['tid'=>$targetId]);
+                    DB::query("DELETE FROM events_daily WHERE business_id=:tid", ['tid'=>$targetId]);
+                    DB::query("DELETE FROM business_photos WHERE business_id=:tid", ['tid'=>$targetId]);
+                    DB::query("DELETE FROM businesses WHERE id=:tid", ['tid'=>$targetId]);
+                } elseif ($kind === 'duplicate' && $decision === 'rejected') {
+                    // Reviewer marked borderline duplicate warning as distinct ("مجزا است") — keep business intact
+                } elseif ($kind === 'business') {
                     $target = DB::fetchOne("SELECT status FROM businesses WHERE id=:id FOR UPDATE", ['id'=>$targetId]);
                     if (!$target || $target['status'] !== 'pending_review') { $pdo->rollBack(); $skipped++; continue; }
                     DB::query("UPDATE businesses SET status=:status,publish_reason=:reason,last_verified_at=NOW(),updated_at=NOW() WHERE id=:id", ['status'=>$decision === 'approved'?'published':'rejected','reason'=>$decision . '_in_review_queue','id'=>$targetId]);
+                    if ($decision === 'rejected') {
+                        DB::query("UPDATE review_queue SET status='rejected',decided_by=:uid,decided_at=NOW() WHERE target_id=:tid AND kind='duplicate' AND status='pending'", ['uid'=>(int)$user['id'],'tid'=>$targetId]);
+                    }
                 } elseif ($kind === 'article') {
                     $result = ArticleService::decideReview($targetId, $decision);
                     if ($result !== 'applied') {
@@ -202,7 +266,7 @@ final class ReviewQueueController
                 } elseif ($kind === 'claim') DB::query("UPDATE claims SET status=:status WHERE id=:id AND status='pending'", ['status'=>$decision,'id'=>$targetId]);
                 elseif ($kind === 'report') DB::query("UPDATE reports SET status=:status WHERE id=:id AND status='pending'", ['status'=>$decision==='approved'?'resolved':'rejected','id'=>$targetId]);
                 else { $pdo->rollBack(); $skipped++; continue; }
-                DB::query("UPDATE review_queue SET status=:status,decided_by=:uid,decided_at=NOW() WHERE id=:id", ['status'=>$decision,'uid'=>(int)$user['id'],'id'=>$rqId]);
+                DB::query("UPDATE review_queue SET status=:status,decided_by=:uid,decided_at=NOW() WHERE id=:id", ['status'=>$finalQueueStatus,'uid'=>(int)$user['id'],'id'=>$rqId]);
                 // The connection can fail while COMMIT's outcome is unknown.
                 // Invalidate even then, and before processing the next item.
                 $commitAttempted = true;
@@ -216,6 +280,7 @@ final class ReviewQueueController
             }
         }
 
+        $actionLabel = $decision === 'merge' ? 'ادغام در کسب‌وکار اصلی' : ($decision === 'approved' ? 'تأیید' : 'رد');
         Response::json([
             'ok' => true,
             'processed_count' => $processedCount,
@@ -225,7 +290,7 @@ final class ReviewQueueController
             'message' => sprintf(
                 '%d مورد «%s» شد؛ %d مورد قبلاً بررسی شده یا تغییر کرده و اعمال نشد.%s',
                 $processedCount,
-                $decision === 'approved' ? 'تأیید' : 'رد',
+                $actionLabel,
                 $skipped,
                 $conflicts ? ' نسخه منتشرشده یا نشانی بعضی مقالات تغییر کرده است؛ ابتدا نسخه‌ها را بررسی کنید.' : ''
             ),
@@ -241,5 +306,24 @@ final class ReviewQueueController
         Csrf::verifyOrFail($request);
         Auth::requireRole(['admin']);
         Response::json(['ok' => false, 'error' => 'بنچمارک داده‌ساز در محیط عملیاتی غیرفعال است.'], 410);
+    }
+
+    private static function tableExists(string $table): bool
+    {
+        if (!preg_match('/^[a-z0-9_]+$/', $table)) {
+            return false;
+        }
+        $row = DB::fetchOne(
+            'SELECT 1 AS ok FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = :t LIMIT 1',
+            ['t' => $table]
+        );
+        return (bool)$row;
+    }
+
+    private static function deleteIfTableExists(string $table, string $whereSql, array $params): void
+    {
+        if (self::tableExists($table)) {
+            DB::query("DELETE FROM {$table} WHERE {$whereSql}", $params);
+        }
     }
 }

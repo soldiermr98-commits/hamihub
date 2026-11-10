@@ -49,6 +49,9 @@ export interface CategoryPackItem {
   name: string;
   queries_json: string;
   is_active: number;
+  category_id?: number | null;
+  category_name_fa?: string | null;
+  category_slug?: string | null;
 }
 
 export interface BusinessContactItem {
@@ -159,6 +162,8 @@ export interface ReviewQueueItem {
   business_score?: number | null;
   business_tier?: 'A' | 'B' | 'C' | null;
   business_confidence?: 'low' | 'medium' | 'high' | null;
+  business_category_id?: number | null;
+  category_name?: string | null;
   city_name?: string | null;
 }
 
@@ -823,7 +828,7 @@ export async function uploadMediaWebp(file:File, altText:string, csrf:string): P
   } catch(e) { return {ok:false,error:e instanceof Error ? e.message : 'خطای آپلود'}; }
 }
 export async function fetchCollectorQueueState(): Promise<{jobs:CollectorJobItem[];providers:ProviderStateItem[];collector_bearer_token:string;photo_policy:string}> { return request('/api/v1/collector/jobs'); }
-export async function createCollectorJob(payload:{city_id:number;pack_id:number;provider:string;custom_query?:string},csrf:string): Promise<any> { return action('/api/v1/collector/jobs',payload,csrf); }
+export async function createCollectorJob(payload:{city_id:number;category_id?:number;pack_id?:number;provider:string;custom_query?:string},csrf:string): Promise<any> { return action('/api/v1/collector/jobs',payload,csrf); }
 export async function updateCollectorProvider(payload:{provider:string;enabled:number;priority:number;clear_pause?:boolean},csrf:string): Promise<any> { return action('/api/v1/collector/providers',payload,csrf); }
 export async function triggerCollectorJobRun(csrf:string): Promise<{ok:boolean;logLines:string[]}> {
   const result=await action('/api/v1/collector/run-next',{},csrf);
@@ -832,7 +837,9 @@ export async function triggerCollectorJobRun(csrf:string): Promise<{ok:boolean;l
 export async function fetchReviewQueueState(status='pending',kind='all',query=''): Promise<{items:ReviewQueueItem[];change_logs:ChangeLogItem[];pending_counts:Record<string,number>}> {
   return request('/api/v1/review-queue?' + new URLSearchParams({status,kind,q:query}));
 }
-export async function decideReviewQueueItems(ids:number[],decision:'approved'|'rejected',csrf:string): Promise<any> { return action('/api/v1/review-queue/decide',{ids,decision},csrf); }
+export async function decideReviewQueueItems(ids:number[],decision:'approved'|'rejected'|'merge',csrf:string,mergeIntoId?:number): Promise<any> {
+  return action('/api/v1/review-queue/decide',{ids,decision,...(mergeIntoId?{merge_into_id:mergeIntoId}:{})},csrf);
+}
 export async function fetchArticlesList(): Promise<{articles:ArticleItem[];schema_ready:boolean;article_tags_ready?:boolean;tag_catalog?:ArticleTopicTag[];rich_editor_available?:boolean}> { return request('/api/v1/articles', {cache:'no-store'}); }
 export async function saveArticleItem(payload:Partial<Omit<ArticleItem,'tags'>> & {tags?:string[]},csrf:string): Promise<any> { return action('/api/v1/articles',payload,csrf); }
 export async function updateArticleSchema(csrf:string):Promise<any> { return action('/api/v1/system/update-article-schema',{},csrf); }

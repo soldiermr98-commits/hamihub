@@ -165,16 +165,29 @@ final class ManualImportService
             if ($sourceTime <= (string)$source['fetched_at']) return self::row($index, $item, 'stale', 'داده ثبت‌شده هم‌زمان یا جدیدتر است.');
             return self::row($index, $item, 'update', 'به‌روزرسانی منبع متصل به ' . $source['name'], ['business_id'=>(int)$source['business_id'], 'source_time'=>$sourceTime]);
         }
+        $coreKey = PipelineService::coreBusinessNameKey($name);
         $params = ['city'=>$options['city_id'], 'name'=>PipelineService::canonicalNameKey($name), 'name_exact'=>$name];
         $nearSql = '';
         if ($lat !== null) {
-            $nearSql = ' OR (b.lat BETWEEN :minlat AND :maxlat AND b.lng BETWEEN :minlng AND :maxlng)';
-            $params += ['minlat'=>(float)$lat-0.001,'maxlat'=>(float)$lat+0.001,'minlng'=>(float)$lng-0.0015,'maxlng'=>(float)$lng+0.0015];
+            $nearSql .= ' OR (b.lat BETWEEN :minlat AND :maxlat AND b.lng BETWEEN :minlng AND :maxlng)';
+            $params += ['minlat'=>(float)$lat-0.0018,'maxlat'=>(float)$lat+0.0018,'minlng'=>(float)$lng-0.0022,'maxlng'=>(float)$lng+0.0022];
         }
         $found = DB::fetchAll("SELECT b.id,b.name,b.address,b.lat,b.lng,b.status,b.category_id,cat.name_fa AS category_name FROM businesses b
             LEFT JOIN categories cat ON cat.id=b.category_id
             WHERE b.city_id=:city AND (b.normalized_name=:name OR b.name=:name_exact {$nearSql}) ORDER BY b.id ASC LIMIT 101", $params);
         if (count($found) > 100) return self::row($index, $item, 'conflict', 'تعداد نام‌های مشابه زیاد است؛ ابتدا رکورد را دستی بررسی کنید.');
+        if (mb_strlen($coreKey, 'UTF-8') >= 3 && $coreKey !== $params['name']) {
+            $escapedCoreKey = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $coreKey);
+            $coreRows = DB::fetchAll("SELECT b.id,b.name,b.address,b.lat,b.lng,b.status,b.category_id,cat.name_fa AS category_name FROM businesses b
+                LEFT JOIN categories cat ON cat.id=b.category_id
+                WHERE b.city_id=:city AND b.normalized_name LIKE :ck ORDER BY b.id ASC LIMIT 50",
+                ['city'=>$options['city_id'], 'ck'=>'%' . $escapedCoreKey]);
+            foreach ($coreRows as $cr) {
+                if (PipelineService::coreBusinessNameKey((string)$cr['name']) === $coreKey) {
+                    $found[] = $cr;
+                }
+            }
+        }
         $matchedPhones = [];
         $phones = array_values(array_unique(array_filter(array_map([SlugService::class, 'normalizePhone'], $item['phones'] ?? []))));
         if ($phones) {
@@ -192,9 +205,13 @@ final class ManualImportService
             $seenCandidates[(int)$b['id']] = true;
             $distance = PipelineService::distanceMeters($lat === null ? null : (float)$lat, $lng === null ? null : (float)$lng,
                 $b['lat'] === null ? null : (float)$b['lat'], $b['lng'] === null ? null : (float)$b['lng']);
-            // Same name, a nearby place, or a shared valid phone are clues, never proof.
+            // Same name, same core name (without generic category prefix), a nearby place, or a shared valid phone are clues, never proof.
             $samePhone = isset($matchedPhones[(int)$b['id']]);
-            if (!$samePhone && PipelineService::canonicalNameKey((string)$b['name']) !== $params['name'] && ($distance === null || $distance > 80)) continue;
+            $sameExactName = PipelineService::canonicalNameKey((string)$b['name']) === $params['name'];
+            $sameCoreName = $coreKey !== '' && mb_strlen($coreKey, 'UTF-8') >= 3
+                && PipelineService::coreBusinessNameKey((string)$b['name']) === $coreKey
+                && ($distance === null || $distance <= 150);
+            if (!$samePhone && !$sameExactName && !$sameCoreName && ($distance === null || $distance > 80)) continue;
             $candidates[] = ['id'=>(int)$b['id'], 'name'=>$b['name'], 'address'=>$b['address'], 'status'=>$b['status'], 'distance'=>$distance,
                 'category_id'=>(int)$b['category_id'], 'category_name'=>$b['category_name'], 'same_phone'=>$samePhone];
         }

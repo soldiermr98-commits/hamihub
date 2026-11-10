@@ -50,11 +50,11 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
   // تب‌های داخلی صفحه «شهرها و جمع‌آوری»
   const [subTab, setSubTab] = useState<'collector_queue' | 'cities_packs'>('collector_queue');
 
-  // وضعیت صف جمع‌آوری (مرحله S2)
+  // وضعیت صف جمع‌آوری (مرحله S2) — یکپارچه با دسته‌بندی‌های اصلی سایت
   const [jobs, setJobs] = useState<CollectorJobItem[]>([]);
   const [providers, setProviders] = useState<ProviderStateItem[]>([]);
   const [selectedCityId, setSelectedCityId] = useState<number>(cities[0]?.id || 1);
-  const [selectedPackId, setSelectedPackId] = useState<number>(packs[0]?.id || 1);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number>(categories[0]?.id || 1);
   const [selectedProvider, setSelectedProvider] = useState<string>('osm');
   const [customQuery, setCustomQuery] = useState<string>('');
   const [queueMsg, setQueueMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -73,11 +73,12 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
   const [catSort, setCatSort] = useState<number>(categories.length + 1);
   const [catMsg, setCatMsg] = useState<{ type: 'ok' | 'err'; text: string; field?: string } | null>(null);
 
-  // ۳. افزودن/ویرایش بسته دسته (Category Pack)
+  // ۳. افزودن/ویرایش بسته جمع‌آوری OSM متصل به دسته‌بندی
   const [packId, setPackId] = useState<number>(0);
+  const [packCategoryId, setPackCategoryId] = useState<number>(categories[0]?.id || 1);
   const [packName, setPackName] = useState<string>('');
   const [packQueriesJson, setPackQueriesJson] = useState<string>(
-    '{\n  "gosom": ["کافه", "قهوه"],\n  "osm": ["amenity=cafe"],\n  "neshan": ["کافه"]\n}'
+    '{\n  "osm": ["amenity=cafe", "amenity=restaurant", "amenity=fast_food"],\n  "neshan": ["کافه و رستوران", "کافه", "رستوران"]\n}'
   );
   const [packMsg, setPackMsg] = useState<{ type: 'ok' | 'err'; text: string; field?: string } | null>(null);
 
@@ -96,10 +97,14 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
     e.preventDefault();
     setQueueMsg(null);
 
+    const matchedPack = packs.find((p) => Number(p.category_id) === Number(selectedCategoryId))
+      || packs.find((p) => Number(p.id) === Number(selectedCategoryId));
+
     const res = await createCollectorJob(
       {
         city_id: selectedCityId,
-        pack_id: selectedPackId,
+        category_id: selectedCategoryId,
+        pack_id: matchedPack ? Number(matchedPack.id) : undefined,
         provider: selectedProvider,
         custom_query: customQuery,
       },
@@ -216,10 +221,12 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
     e.preventDefault();
     setPackMsg(null);
 
+    const targetCat = categories.find((c) => Number(c.id) === Number(packCategoryId));
     const res = await saveCategoryPackItem(
       {
         id: packId > 0 ? packId : undefined,
-        name: packName,
+        category_id: packCategoryId,
+        name: packName.trim() || targetCat?.name_fa || '',
         queries_json: packQueriesJson,
         is_active: 1,
       },
@@ -227,15 +234,28 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
     );
 
     if (!res.ok) {
-      setPackMsg({ type: 'err', text: res.error || 'خطا در ذخیره بسته دسته', field: res.field });
+      setPackMsg({ type: 'err', text: res.error || 'خطا در ذخیره تنظیمات جمع‌آوری دسته', field: res.field });
       return;
     }
 
     setPackId(0);
     setPackName('');
-    setPackMsg({ type: 'ok', text: res.message || 'بسته دسته ذخیره شد.' });
+    setPackMsg({ type: 'ok', text: res.message || 'تنظیمات تگ‌های جمع‌آوری ذخیره شد.' });
     await onRefreshData();
   };
+
+  const activeCategories = categories.filter((c) => Number(c.is_active) === 1);
+  const selectedPackPreview = packs.find((p) => Number(p.category_id) === Number(selectedCategoryId))
+    || packs.find((p) => Number(p.id) === Number(selectedCategoryId));
+  let selectedOsmTags: string[] = [];
+  if (selectedPackPreview?.queries_json) {
+    try {
+      const parsedQ = JSON.parse(selectedPackPreview.queries_json);
+      if (Array.isArray(parsedQ?.osm)) selectedOsmTags = parsedQ.osm.map(String);
+    } catch {
+      selectedOsmTags = [];
+    }
+  }
 
   // محاسبه آمار کلی پیشرفت صف (در حال اجرا / یافت‌شده / تکراری / خطا)
   const queueStats = jobs.reduce(
@@ -349,10 +369,10 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
             </div>
           )}
 
-          {/* فرم ساخت Job جدید («رشت + کافه») */}
+          {/* فرم ساخت Job جدید یکپارچه با دسته‌بندی‌های اصلی */}
           <section className="bg-white border border-slate-200 rounded-xl p-6">
             <h2 className="text-base font-bold text-slate-900 pb-4 mb-4 border-b border-slate-200">
-              ۱. افزودن Job جمع‌آوری به صف (مثلاً: رشت + بسته کافه‌ها)
+              ۱. افزودن کار جمع‌آوری به صف (یکپارچه با دسته‌بندی‌های اصلی سایت و جمع‌آوری و ورود)
             </h2>
 
             <form onSubmit={handleCreateJob} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
@@ -363,7 +383,7 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                   onChange={(e) => setSelectedCityId(Number(e.target.value))}
                   className="mt-1 w-full px-3 py-2.5 text-sm bg-white border border-slate-300 rounded-lg"
                 >
-                  {cities.map((c) => (
+                  {cities.filter((c) => Number(c.is_active) === 1).map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name_fa} ({c.slug})
                     </option>
@@ -372,15 +392,15 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700">بسته دسته (Category Pack)</label>
+                <label className="block text-xs font-semibold text-slate-700">دسته‌بندی (مشترک در کل سایت)</label>
                 <select
-                  value={selectedPackId}
-                  onChange={(e) => setSelectedPackId(Number(e.target.value))}
+                  value={selectedCategoryId}
+                  onChange={(e) => setSelectedCategoryId(Number(e.target.value))}
                   className="mt-1 w-full px-3 py-2.5 text-sm bg-white border border-slate-300 rounded-lg"
                 >
-                  {packs.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
+                  {(activeCategories.length > 0 ? activeCategories : categories).map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name_fa}
                     </option>
                   ))}
                 </select>
@@ -407,6 +427,18 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                 </button>
               </div>
             </form>
+
+            <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3.5 py-2.5 text-xs text-slate-600 leading-6">
+              {selectedOsmTags.length > 0 && selectedProvider === 'osm' && (
+                <div>
+                  <strong className="text-slate-800">تگ‌های فعال OpenStreetMap برای این دسته:</strong>{' '}
+                  <span className="font-mono text-emerald-800" dir="ltr">{selectedOsmTags.join(' · ')}</span>
+                </div>
+              )}
+              <div>
+                کسب‌وکارهای دریافتی مستقیماً در همین دسته‌بندی ذخیره می‌شوند و در کل شهر (بدون وابستگی به دسته، بر اساس نام، شماره تماس و فاصله زیر ۸۰ متر) با ورودی‌های Google Maps / CSV / JSON تطبیق تکراری می‌شوند.
+              </div>
+            </div>
           </section>
 
           {/* جدول صف Jobها + دکمه اجرای مستقیم چرخه Pull -> Ingest */}
@@ -447,7 +479,7 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500 text-xs">
                     <th className="py-2.5 px-3 text-right font-semibold">شناسه</th>
-                    <th className="py-2.5 px-3 text-right font-semibold">شهر و بسته دسته</th>
+                    <th className="py-2.5 px-3 text-right font-semibold">شهر و دسته‌بندی</th>
                     <th className="py-2.5 px-3 text-right font-semibold">پرووایدر</th>
                     <th className="py-2.5 px-3 text-right font-semibold">وضعیت</th>
                     <th className="py-2.5 px-3 text-right font-semibold">نتیجه (یافت‌شده / جدید / تکراری / خطا)</th>
@@ -457,7 +489,7 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                   {jobs.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="py-8 text-center text-xs text-slate-500">
-                        هیچ Job در صف ثبت نشده است. از فرم بالا «رشت + بسته کافه و رستوران» را ثبت کنید.
+                        هیچ Job در صف ثبت نشده است. از فرم بالا شهر و دسته‌بندی مورد نظر (مثلاً «رشت + کافه و رستوران») را ثبت کنید.
                       </td>
                     </tr>
                   ) : (
@@ -715,9 +747,9 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
             <section className="bg-white border border-slate-200 rounded-xl p-6">
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-4 mb-4 border-b border-slate-200">
                 <Tag className="w-4 h-4 text-emerald-700" />
-                ۲. دسته‌بندی‌های کسب‌وکار
+                ۲. دسته‌بندی‌های یکپارچه سایت، جمع‌آوری و ورود
               </h2>
-              {catMsg && <div className="mb-3 text-xs text-emerald-800">{catMsg.text}</div>}
+              {catMsg && <div className={`mb-3 text-xs ${catMsg.type === 'err' ? 'text-rose-700' : 'text-emerald-800'}`}>{catMsg.text}</div>}
               <form onSubmit={handleSaveCategory} className="space-y-3 mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input
@@ -739,18 +771,34 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
                     className="px-3 py-2 text-sm font-mono bg-white border border-slate-300 rounded-lg"
                   />
                 </div>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  {catId > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => { setCatId(0); setCatNameFa(''); setCatSlug(''); }}
+                      className="px-3 py-2 text-xs text-slate-600"
+                    >
+                      انصراف
+                    </button>
+                  )}
                   <button type="submit" className="px-4 py-2 bg-slate-900 text-white text-xs font-semibold rounded-lg">
-                    ذخیره دسته
+                    {catId > 0 ? 'ذخیره ویرایش دسته' : 'افزودن دسته'}
                   </button>
                 </div>
               </form>
               <div className="divide-y divide-slate-200 text-sm">
                 {categories.map((cat) => (
-                  <div key={cat.id} className="py-2.5 flex items-center justify-between">
+                  <div key={cat.id} className="py-2.5 flex items-center justify-between gap-2">
                     <span>
-                      {cat.name_fa} · <code className="font-mono text-xs">{cat.slug}</code>
+                      <strong>{cat.name_fa}</strong> · <code className="font-mono text-xs">{cat.slug}</code>
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => { setCatId(cat.id); setCatNameFa(cat.name_fa); setCatSlug(cat.slug); setCatSort(cat.sort); }}
+                      className="text-xs text-emerald-700 hover:text-emerald-900 font-medium"
+                    >
+                      ویرایش
+                    </button>
                   </div>
                 ))}
               </div>
@@ -759,37 +807,87 @@ export const CitiesAndCategoriesView: React.FC<CitiesAndCategoriesViewProps> = (
             <section className="bg-white border border-slate-200 rounded-xl p-6">
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-4 mb-4 border-b border-slate-200">
                 <Layers className="w-4 h-4 text-emerald-700" />
-                ۳. بسته‌های دسته (Category Packs)
+                ۳. تنظیمات تگ‌های OSM هر دسته‌بندی (۱ به ۱ متصل به دسته‌ها)
               </h2>
-              {packMsg && <div className="mb-3 text-xs text-emerald-800">{packMsg.text}</div>}
+              {packMsg && <div className={`mb-3 text-xs ${packMsg.type === 'err' ? 'text-rose-700' : 'text-emerald-800'}`}>{packMsg.text}</div>}
               <form onSubmit={handleSavePack} className="space-y-3 mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
-                <input
-                  type="text"
-                  value={packName}
-                  onChange={(e) => setPackName(e.target.value)}
-                  placeholder="عنوان بسته دسته"
-                  className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg"
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="text-xs font-semibold text-slate-700">
+                    دسته‌بندی متصل
+                    <select
+                      value={packCategoryId}
+                      onChange={(e) => {
+                        const cid = Number(e.target.value);
+                        setPackCategoryId(cid);
+                        const found = categories.find((c) => Number(c.id) === cid);
+                        if (found && !packId) setPackName(found.name_fa);
+                      }}
+                      className="mt-1 w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg"
+                    >
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name_fa}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700">
+                    عنوان نمایشی (پیش‌فرض هم‌نام با دسته)
+                    <input
+                      type="text"
+                      value={packName}
+                      onChange={(e) => setPackName(e.target.value)}
+                      placeholder="خالی بگذارید تا دقیقاً هم‌نام دسته شود"
+                      className="mt-1 w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg"
+                    />
+                  </label>
+                </div>
                 <textarea
-                  rows={2}
+                  rows={3}
                   dir="ltr"
                   value={packQueriesJson}
                   onChange={(e) => setPackQueriesJson(e.target.value)}
                   className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-lg"
                 />
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  {packId > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => { setPackId(0); setPackName(''); }}
+                      className="px-3 py-2 text-xs text-slate-600"
+                    >
+                      انصراف
+                    </button>
+                  )}
                   <button type="submit" className="px-4 py-2 bg-slate-900 text-white text-xs font-semibold rounded-lg">
-                    ذخیره بسته دسته
+                    {packId > 0 ? 'ذخیره ویرایش تگ‌ها' : 'ذخیره تنظیمات دسته'}
                   </button>
                 </div>
               </form>
               <div className="divide-y divide-slate-200 text-xs">
                 {packs.map((pk) => (
-                  <div key={pk.id} className="py-2.5">
-                    <div className="font-bold text-slate-900">{pk.name}</div>
-                    <div className="font-mono text-slate-500 mt-0.5" dir="ltr">
-                      {pk.queries_json}
+                  <div key={pk.id} className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900">
+                        {pk.category_name_fa || pk.name}
+                        {pk.category_slug && <span className="font-mono font-normal text-slate-500 mr-1.5" dir="ltr">({pk.category_slug})</span>}
+                      </div>
+                      <div className="font-mono text-slate-500 mt-0.5 break-all" dir="ltr">
+                        {pk.queries_json}
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPackId(pk.id);
+                        setPackCategoryId(Number(pk.category_id || pk.id || 1));
+                        setPackName(pk.name);
+                        setPackQueriesJson(pk.queries_json);
+                      }}
+                      className="text-emerald-700 hover:text-emerald-900 font-medium shrink-0"
+                    >
+                      ویرایش تگ‌ها
+                    </button>
                   </div>
                 ))}
               </div>

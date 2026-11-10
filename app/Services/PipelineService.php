@@ -25,6 +25,58 @@ final class PipelineService
     }
 
     /**
+     * کلید هسته نام کسب‌وکار بدون پیشوندهای عمومی صنفی (کافه، رستوران، سالن زیبایی، هتل و...)
+     * برای تشخیص تکراری بین OSM («کافه بهار») و Google Maps/CSV («کافه و رستوران بهار»).
+     */
+    public static function coreBusinessNameKey(string $name): string
+    {
+        $clean = mb_strtolower(SlugService::toEnglishDigits(SlugService::normalizePersianText($name)), 'UTF-8');
+        $clean = (string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $clean);
+        $clean = trim((string) preg_replace('/\s+/u', ' ', $clean));
+        $prefixes = [
+            'کافه و رستوران', 'کافه رستوران', 'رستوران سنتی', 'کافه قنادی', 'کافه بستنی',
+            'فست فود', 'کافه', 'رستوران', 'کبابی',
+            'سالن زیبایی و مراقبت پوست', 'سالن زیبایی', 'آرایشگاه زنانه', 'آرایشگاه مردانه', 'آرایشگاه', 'مرکز زیبایی',
+            'کلینیک زیبایی و دندانپزشکی', 'کلینیک دندانپزشکی', 'کلینیک زیبایی', 'مطب دندانپزشکی', 'دندانپزشکی', 'کلینیک',
+            'اقامتگاه بومگردی', 'اقامتگاه بوم گردی', 'مجتمع اقامتی', 'اقامتگاه', 'هتل آپارتمان', 'هتل', 'ویلا', 'کلبه',
+            'جاذبه گردشگری', 'پارک جنگلی', 'موزه',
+            'cafe restaurant', 'cafe', 'restaurant', 'beauty salon', 'dental clinic', 'clinic', 'ecolodge', 'hotel', 'villa',
+        ];
+        foreach ($prefixes as $prefix) {
+            if (str_starts_with($clean, $prefix . ' ')) {
+                $rest = trim(mb_substr($clean, mb_strlen($prefix, 'UTF-8'), null, 'UTF-8'));
+                $compactRest = (string) preg_replace('/[^\p{L}\p{N}]+/u', '', $rest);
+                if (mb_strlen($compactRest, 'UTF-8') >= 3) {
+                    return $compactRest;
+                }
+            }
+        }
+        return (string) preg_replace('/[^\p{L}\p{N}]+/u', '', $clean);
+    }
+
+    /**
+     * استخراج متن ساده هسته نام (با فاصله) برای جستجوی LIKE ایمن در شهر
+     */
+    public static function coreSearchPhrase(string $name): string
+    {
+        $clean = mb_strtolower(SlugService::toEnglishDigits(SlugService::normalizePersianText($name)), 'UTF-8');
+        $clean = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $clean)));
+        foreach ([
+            'کافه و رستوران', 'کافه رستوران', 'رستوران سنتی', 'فست فود', 'کافه', 'رستوران',
+            'سالن زیبایی', 'آرایشگاه زنانه', 'آرایشگاه', 'کلینیک دندانپزشکی', 'کلینیک زیبایی',
+            'مطب دندانپزشکی', 'دندانپزشکی', 'کلینیک', 'اقامتگاه بومگردی', 'اقامتگاه', 'هتل', 'ویلا',
+        ] as $prefix) {
+            if (str_starts_with($clean, $prefix . ' ')) {
+                $rest = trim(mb_substr($clean, mb_strlen($prefix, 'UTF-8'), null, 'UTF-8'));
+                if (mb_strlen($rest, 'UTF-8') >= 3) {
+                    return $rest;
+                }
+            }
+        }
+        return $clean;
+    }
+
+    /**
      * Input source IDs must be stable; a name alone is not a reliable identity.
      * Known sources are updated in place. Cross-source matches require the same name
      * and either close coordinates or a shared, valid phone when coordinates are absent.
@@ -100,19 +152,122 @@ final class PipelineService
                     ['id'=>$targetId,'city'=>$cityId]);
                 if (!$existing) throw new InvalidArgumentException('کسب‌وکار انتخاب‌شده در این شهر یافت نشد.');
             }
+            $borderlineDuplicates = [];
             if (!$manualImport && $existing === null) {
+                $coreKey = self::coreBusinessNameKey($name);
+                $corePhrase = self::coreSearchPhrase($name);
+                $candWhere = ['b.normalized_name = :name'];
+                $candParams = ['city' => $cityId, 'cat_pref' => $defaultCategoryId, 'name' => $key];
+                if ($lat !== null && $lng !== null) {
+                    $candWhere[] = '(b.lat BETWEEN :minlat AND :maxlat AND b.lng BETWEEN :minlng AND :maxlng)';
+                    $candParams += [
+                        'minlat' => $lat - 0.0020,
+                        'maxlat' => $lat + 0.0020,
+                        'minlng' => $lng - 0.0025,
+                        'maxlng' => $lng + 0.0025,
+                    ];
+                }
                 $candidates = DB::fetchAll(
-                    "SELECT * FROM businesses WHERE city_id = :city AND category_id = :cat AND normalized_name = :name ORDER BY id ASC",
-                    ['city' => $cityId, 'cat' => $defaultCategoryId, 'name' => $key]
+                    'SELECT b.*, cat.name_fa AS category_name
+                     FROM businesses b
+                     LEFT JOIN categories cat ON cat.id = b.category_id
+                     WHERE b.city_id = :city AND (' . implode(' OR ', $candWhere) . ')
+                     ORDER BY (b.category_id = :cat_pref) DESC, b.id ASC
+                     LIMIT 80',
+                    $candParams
                 );
+                if (mb_strlen($coreKey, 'UTF-8') >= 3) {
+                    $escapedCoreKey = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $coreKey);
+                    $coreRows = DB::fetchAll(
+                        'SELECT b.*, cat.name_fa AS category_name
+                         FROM businesses b
+                         LEFT JOIN categories cat ON cat.id = b.category_id
+                         WHERE b.city_id = :city AND b.normalized_name LIKE :ck
+                         ORDER BY b.id ASC LIMIT 50',
+                        ['city' => $cityId, 'ck' => '%' . $escapedCoreKey]
+                    );
+                    $seenIds = array_column($candidates, 'id');
+                    foreach ($coreRows as $cr) {
+                        if (!in_array($cr['id'], $seenIds, false) && self::coreBusinessNameKey((string) ($cr['name'] ?? '')) === $coreKey) {
+                            $candidates[] = $cr;
+                            $seenIds[] = $cr['id'];
+                        }
+                    }
+                }
+                $phoneMatchedIds = [];
+                if ($phones) {
+                    $pKeys = [];
+                    $pParams = ['city_p' => $cityId];
+                    foreach ($phones as $pi => $pv) {
+                        $pKeys[] = ':ph' . $pi;
+                        $pParams['ph' . $pi] = $pv;
+                    }
+                    $phoneCands = DB::fetchAll(
+                        "SELECT DISTINCT b.*, cat.name_fa AS category_name
+                         FROM businesses b
+                         INNER JOIN business_contacts bc ON bc.business_id = b.id AND bc.type IN ('phone','mobile')
+                         LEFT JOIN categories cat ON cat.id = b.category_id
+                         WHERE b.city_id = :city_p AND bc.value IN (" . implode(',', $pKeys) . ")
+                         ORDER BY b.id ASC LIMIT 40",
+                        $pParams
+                    );
+                    $seenCandIds = array_column($candidates, 'id');
+                    foreach ($phoneCands as $pc) {
+                        $phoneMatchedIds[(int) $pc['id']] = true;
+                        if (!in_array($pc['id'], $seenCandIds, false)) {
+                            $candidates[] = $pc;
+                        }
+                    }
+                }
+
                 foreach ($candidates as $candidate) {
-                    $distance = self::distanceMeters($lat, $lng,
+                    $candId = (int) $candidate['id'];
+                    $distance = self::distanceMeters(
+                        $lat,
+                        $lng,
                         $candidate['lat'] !== null ? (float) $candidate['lat'] : null,
-                        $candidate['lng'] !== null ? (float) $candidate['lng'] : null);
-                    if ($distance !== null && $distance <= 80) { $existing = $candidate; break; }
-                    if ($distance === null && $phones) {
-                        $known = DB::fetchAll("SELECT value FROM business_contacts WHERE business_id = :id AND type IN ('phone','mobile')", ['id' => (int) $candidate['id']]);
-                        if (array_intersect($phones, array_column($known, 'value'))) { $existing = $candidate; break; }
+                        $candidate['lng'] !== null ? (float) $candidate['lng'] : null
+                    );
+                    $samePhone = isset($phoneMatchedIds[$candId]);
+                    if (!$samePhone && $phones) {
+                        $known = DB::fetchAll("SELECT value FROM business_contacts WHERE business_id = :id AND type IN ('phone','mobile')", ['id' => $candId]);
+                        if (array_intersect($phones, array_column($known, 'value'))) {
+                            $samePhone = true;
+                        }
+                    }
+                    $sameExact = ((string) ($candidate['normalized_name'] ?? '') === $key);
+                    $candCore = self::coreBusinessNameKey((string) ($candidate['name'] ?? ''));
+                    $sameCore = ($coreKey !== '' && mb_strlen($coreKey, 'UTF-8') >= 3 && $candCore === $coreKey);
+
+                    // 1. High-confidence cross-category / cross-source match -> attach source directly without creating duplicate
+                    if ($sameExact && (($distance !== null && $distance <= 80) || ($distance === null && $samePhone))) {
+                        $existing = $candidate;
+                        break;
+                    }
+                    if ($sameCore && (($distance !== null && $distance <= 50) || $samePhone)) {
+                        $existing = $candidate;
+                        break;
+                    }
+
+                    // 2. Borderline duplicate -> surface in Review Queue ("تکراری‌های مرزی") for 1-click human decision
+                    $closeCoreSubstring = false;
+                    if ($distance !== null && $distance <= 35 && mb_strlen($coreKey, 'UTF-8') >= 4 && mb_strlen($candCore, 'UTF-8') >= 4) {
+                        $closeCoreSubstring = str_contains($coreKey, $candCore) || str_contains($candCore, $coreKey);
+                    }
+                    if (
+                        $samePhone
+                        || ($sameCore && ($distance === null || $distance <= 150))
+                        || $closeCoreSubstring
+                    ) {
+                        $borderlineDuplicates[] = [
+                            'id' => $candId,
+                            'name' => (string) $candidate['name'],
+                            'category_id' => (int) $candidate['category_id'],
+                            'category_name' => (string) ($candidate['category_name'] ?? ''),
+                            'distance' => $distance,
+                            'same_phone' => $samePhone,
+                            'status' => (string) $candidate['status'],
+                        ];
                     }
                 }
             }
@@ -174,7 +329,18 @@ final class PipelineService
                 'business_id'=>$id, 'business_name'=>$name, 'address'=>$address, 'phones'=>$phones,
                 'raw_phones'=>(array) ($rawItem['phones'] ?? []), 'provider'=>$provider, 'source_id'=>$sourceId,
                 'source_url'=>(string) ($rawItem['source_url'] ?? ''), 'permanently_closed'=>$closed,
+                'duplicate_candidates'=>$borderlineDuplicates,
             ]);
+            if ($borderlineDuplicates) {
+                self::enqueueReviewIfNotExists('duplicate', $id, 'potential_duplicate', [
+                    'business_id'=>$id,
+                    'business_name'=>$name,
+                    'provider'=>$provider,
+                    'source_id'=>$sourceId,
+                    'primary_candidate_id'=>(int)$borderlineDuplicates[0]['id'],
+                    'candidates'=>array_slice($borderlineDuplicates, 0, 5),
+                ]);
+            }
             if ($ownsTransaction) $pdo->commit();
             return ['outcome'=>'pending_review','reason_code'=>$reason,'business_id'=>$id,'is_new'=>true,'in_review_queue'=>true,'score'=>$score];
         } catch (Throwable $e) {

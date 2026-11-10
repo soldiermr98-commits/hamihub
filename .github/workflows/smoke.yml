@@ -49,6 +49,8 @@ jobs:
           (cd release-files/media-library-opcache-fix && sha256sum -c SHA256SUMS.txt)
           python3 tests/ad_slots_header_footer_update_smoke.py
           (cd release-files/ad-slots-and-header-footer-update && sha256sum -c SHA256SUMS.txt)
+          python3 tests/unified_categories_dedupe_update_smoke.py
+          (cd release-files/unified-categories-and-dedupe && sha256sum -c SHA256SUMS.txt)
 
   frontend:
     name: Admin build and synthetic UI
@@ -87,7 +89,8 @@ jobs:
             tests/article_editor_ui_smoke.tsx \
             tests/ai_article_ui_smoke.tsx \
             tests/ai_provider_ui_smoke.tsx \
-            tests/business_delete_and_media_ui_smoke.tsx; do
+            tests/business_delete_and_media_ui_smoke.tsx \
+            tests/unified_categories_and_dedupe_ui_smoke.tsx; do
             ./node_modules/.bin/tsx "$test"
           done
           node tests/advertising_banner_client_smoke.mjs
@@ -206,6 +209,7 @@ jobs:
           php "$root/tests/setup_article_url_fixture.php"
           php "$root/tests/manual_import_smoke.php"
           php "$root/tests/collector_smoke.php"
+          php "$root/tests/unified_categories_and_dedupe_db_smoke.php"
           php -S 127.0.0.1:18795 -t "$root/public_html" "$root/tests/article_fixture_router.php" > "$RUNNER_TEMP/fixture-server.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
@@ -216,3 +220,5 @@ jobs:
           node "$root/tests/article_rich_http_smoke.mjs"
           node "$root/tests/media_and_business_delete_http_smoke.mjs"
           node "$root/tests/ai_ads_quality_http_smoke.mjs"
+          node "$root/tests/unified_categories_dedupe_http_smoke.mjs"
+          php "$root/tests/apify_direct_smoke.php"

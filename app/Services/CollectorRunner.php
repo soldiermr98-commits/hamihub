@@ -23,6 +23,7 @@ final class CollectorRunner
             return ['ran'=>false, 'status'=>'busy', 'message'=>'یک کار جمع‌آوری در حال اجراست؛ بعداً دوباره تلاش کنید.'];
         }
         try {
+            CategorySyncService::ensureUnified();
             return self::runLocked($providerFactory);
         } finally {
             WorkerLock::release('collector');
@@ -82,12 +83,16 @@ final class CollectorRunner
             $items = $provider->search(['city_name_fa'=>$job['city_name'],'city_slug'=>$job['city_slug'],
                 'lat'=>$job['city_lat'],'lng'=>$job['city_lng'],'bbox'=>json_decode((string)$job['city_bbox'], true), 'queries'=>$queries]);
             self::assertClaim($jobId, $attempt);
+            $linkedCat = !empty($job['pack_id'])
+                ? DB::fetchOne('SELECT category_id FROM category_pack_items WHERE pack_id=:pid ORDER BY id ASC LIMIT 1', ['pid'=>(int)$job['pack_id']])
+                : null;
+            $targetCategoryId = (int)($linkedCat['category_id'] ?? $params['category_id'] ?? 1);
             $summary = ['found'=>count($items),'inserted'=>0,'duplicates'=>0,'pending_review'=>0,'errors'=>0,'last_error'=>null];
             foreach ($items as $item) {
                 self::assertClaim($jobId, $attempt);
                 try {
                     $pipelineAttempted = true;
-                    $r = PipelineService::processIncomingRecord((int)$job['city_id'], (int)($params['category_id'] ?? 1), $providerName, $item, 'manual');
+                    $r = PipelineService::processIncomingRecord((int)$job['city_id'], $targetCategoryId, $providerName, $item, 'manual');
                     if ($r['is_new']) { $summary['inserted']++; $summary['pending_review']++; }
                     else $summary['duplicates']++;
                 } catch (Throwable $e) {
