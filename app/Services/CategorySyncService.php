@@ -210,6 +210,7 @@ final class CategorySyncService
 
         if ($preset !== null) {
             $currentOsm = array_values(array_map('strval', is_array($decodedQueries['osm'] ?? null) ? $decodedQueries['osm'] : []));
+            $presetOsm = $preset['queries']['osm'];
             $legacySets = self::LEGACY_OSM_TAG_SETS[$catSlug] ?? [];
             $isLegacyOsm = empty($currentOsm);
             foreach ($legacySets as $legacySet) {
@@ -218,8 +219,11 @@ final class CategorySyncService
                     break;
                 }
             }
-            if ($isLegacyOsm && $currentOsm !== $preset['queries']['osm']) {
-                $nextQueries['osm'] = $preset['queries']['osm'];
+            if (!$isLegacyOsm && $shouldUnifyName && count($currentOsm) < count($presetOsm) && !array_diff($currentOsm, $presetOsm)) {
+                $isLegacyOsm = true;
+            }
+            if ($isLegacyOsm && $currentOsm !== $presetOsm) {
+                $nextQueries['osm'] = $presetOsm;
                 $nextQueries['neshan'] = $preset['queries']['neshan'];
                 $nextQueries['gosom'] = $preset['queries']['gosom'];
                 $queriesChanged = true;
