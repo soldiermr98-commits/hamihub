@@ -101,7 +101,7 @@ checkUnified(
     'clinic-dental pack includes dentist + healthcare=clinic OSM tags'
 );
 
-$apifyStatus = ApifyAutomationService::status();
+$apifyStatus = (new ApifyAutomationService(''))->status();
 checkUnified(
     ($apifyStatus['search_terms']['3'] ?? null) === 'دندانپزشکی',
     'Apify default search term for category 3 remains دندانپزشکی'
