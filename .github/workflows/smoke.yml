@@ -79,6 +79,7 @@ jobs:
         run: |
           for test in \
             tests/persian_date_input_smoke.tsx \
+            tests/admin_mail_ui_smoke.tsx \
             tests/advertising_reporting_ui_smoke.tsx \
             tests/advertising_finance_ui_smoke.tsx \
             tests/advertising_finance_logout_ui_smoke.tsx \
@@ -124,6 +125,7 @@ jobs:
             tests/ai_advertising_unit_smoke.php \
             tests/ai_provider_settings_smoke.php \
             tests/ai_provider_vault_smoke.php \
+            tests/admin_mail_smoke.php \
             tests/payment_sandbox_flag_smoke.php \
             tests/payment_gateway_protocol_smoke.php \
             tests/cache_generation_concurrency_smoke.php \
@@ -192,6 +194,7 @@ jobs:
           HHX_TEST_NONCE: synthetic-fixture-nonce-only
           HHX_TEST_PASSWORD: synthetic-password-only
           HHX_TEST_URL: http://127.0.0.1:18795
+          HHX_AI_VAULT_KEY: a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=
         run: |
           php -r '$p=new PDO("mysql:host=127.0.0.1;port=33306", "root", "fixture-root-password-only", [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]); $p->exec("CREATE DATABASE hhx_test_public_ci CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
           cat > "$RUNNER_TEMP/public-config.php" <<'PHP'
@@ -221,5 +224,6 @@ jobs:
           node "$root/tests/article_rich_http_smoke.mjs"
           node "$root/tests/media_and_business_delete_http_smoke.mjs"
           node "$root/tests/ai_ads_quality_http_smoke.mjs"
+          node "$root/tests/admin_mail_http_smoke.mjs"
           node "$root/tests/unified_categories_dedupe_http_smoke.mjs"
           php "$root/tests/apify_direct_smoke.php"

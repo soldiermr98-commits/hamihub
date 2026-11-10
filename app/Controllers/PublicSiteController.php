@@ -11,6 +11,7 @@ use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
 use App\Services\AdvertisingService;
+use App\Services\AdminMailService;
 use App\Services\ArticleService;
 use App\Services\ArticleText;
 use App\Services\BusinessSeoService;
@@ -1552,6 +1553,7 @@ final class PublicSiteController
         );
 
         $pdo->commit();
+        AdminMailService::notify('report');
 
         Response::json([
             'ok'        => true,
