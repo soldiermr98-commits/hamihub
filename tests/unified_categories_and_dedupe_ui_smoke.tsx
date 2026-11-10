@@ -32,8 +32,8 @@ const categories = [
   { id: 1, parent_id: null, name_fa: 'کافه و رستوران', slug: 'cafe-restaurant', sort: 1, is_active: 1 },
   { id: 2, parent_id: null, name_fa: 'سالن زیبایی', slug: 'beauty-salon', sort: 2, is_active: 1 },
   { id: 3, parent_id: null, name_fa: 'کلینیک و دندانپزشکی', slug: 'clinic-dental', sort: 3, is_active: 1 },
-  { id: 4, parent_id: null, name_fa: 'ویلا و اقامتگاه', slug: 'villa-stay', sort: 4, is_active: 1 },
-  { id: 5, parent_id: null, name_fa: 'جاذبه گردشگری', slug: 'attraction', sort: 5, is_active: 1 },
+  { id: 4, parent_id: null, name_fa: 'ویلا و اقامتگاه', slug: 'villa-ecolodge', sort: 4, is_active: 1 },
+  { id: 5, parent_id: null, name_fa: 'جاذبه گردشگری', slug: 'tourism-attraction', sort: 5, is_active: 1 },
 ];
 
 const packs = [
@@ -69,7 +69,7 @@ const packs = [
     name: 'ویلا و اقامتگاه',
     category_id: 4,
     category_name_fa: 'ویلا و اقامتگاه',
-    category_slug: 'villa-stay',
+    category_slug: 'villa-ecolodge',
     queries_json: JSON.stringify({ osm: ['tourism=hotel', 'tourism=guest_house', 'tourism=chalet', 'tourism=apartment'] }),
     is_active: 1,
   },
@@ -78,7 +78,7 @@ const packs = [
     name: 'جاذبه گردشگری',
     category_id: 5,
     category_name_fa: 'جاذبه گردشگری',
-    category_slug: 'attraction',
+    category_slug: 'tourism-attraction',
     queries_json: JSON.stringify({ osm: ['tourism=attraction', 'tourism=museum', 'historic=monument', 'leisure=park'] }),
     is_active: 1,
   },
@@ -92,18 +92,20 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : null;
   capturedRequests.push({ url, method, body });
 
-  if (url.startsWith('/api/v1/collector/queue')) {
+  if (url === '/api/v1/collector/jobs' && method === 'GET') {
     return new Response(
       JSON.stringify({
         ok: true,
         jobs: [],
         providers: [{ provider: 'osm', enabled: 1, priority: 1, fail_streak: 0, paused_until: null, last_error: null }],
+        collector_bearer_token: '',
+        photo_policy: 'none',
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   }
   if (url === '/api/v1/collector/jobs' && method === 'POST') {
-    return new Response(JSON.stringify({ ok: true, id: 77, message: 'Job جدید در صف قرار گرفت.' }), {
+    return new Response(JSON.stringify({ ok: true, job: { id: 77 }, message: 'Job جدید در صف قرار گرفت.' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
