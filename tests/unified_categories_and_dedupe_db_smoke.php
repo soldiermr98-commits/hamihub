@@ -210,16 +210,18 @@ try {
         'raw' => ['osm' => true],
     ]);
     checkUnified(
-        $borderlineOsm['is_new'] && !empty($borderlineOsm['duplicate_candidates']),
-        'borderline ~111m cross-category match is held for human review with duplicate_candidates'
+        $borderlineOsm['is_new'] && !empty($borderlineOsm['in_review_queue']),
+        'borderline ~111m cross-category match is held for human review'
     );
     $dupQueueRow = DB::fetchOne(
         "SELECT * FROM review_queue WHERE kind = 'duplicate' AND target_id = :tid AND status = 'pending'",
         ['tid' => (int)$borderlineOsm['business_id']]
     );
+    $dupPayload = json_decode((string)($dupQueueRow['payload_json'] ?? '{}'), true);
     checkUnified(
-        (bool)$dupQueueRow && $dupQueueRow['reason_code'] === 'potential_duplicate',
-        'borderline match creates pending kind=duplicate item in review_queue'
+        (bool)$dupQueueRow && $dupQueueRow['reason_code'] === 'potential_duplicate'
+        && (int)($dupPayload['primary_candidate_id'] ?? 0) === (int)$canonCafe['business_id'],
+        'borderline match creates a pending duplicate review with the correct candidate'
     );
 
     echo "All unified categories & cross-category deduplication DB checks passed; rolling back.\n";
