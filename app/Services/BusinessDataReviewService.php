@@ -16,14 +16,17 @@ final class BusinessDataReviewService
     }
 
     // These are the same first photo and phone that the public catalog renders.
+    // Uses 1-level correlated subqueries so MariaDB 10.x (DirectAdmin) and MySQL 8 both execute cleanly.
     public static function effectivePhotoId(): string
     {
-        return "COALESCE(b.cover_media_id,(SELECT bp.media_id FROM business_photos bp WHERE bp.business_id=b.id AND bp.status='approved' ORDER BY bp.sort ASC,bp.id ASC LIMIT 1))";
+        return "COALESCE(b.cover_media_id,(SELECT qbp.media_id FROM business_photos qbp WHERE qbp.business_id=b.id AND qbp.status='approved' ORDER BY qbp.sort ASC,qbp.id ASC LIMIT 1))";
     }
     public static function imagePath(): string
     {
-        $id = self::effectivePhotoId();
-        return "COALESCE((SELECT qm.file_path_480 FROM media qm WHERE qm.id={$id} LIMIT 1),'')";
+        return "CASE WHEN b.cover_media_id IS NOT NULL "
+            . "THEN COALESCE((SELECT qmc.file_path_480 FROM media qmc WHERE qmc.id=b.cover_media_id LIMIT 1),'') "
+            . "ELSE COALESCE((SELECT qmp.file_path_480 FROM business_photos qbp INNER JOIN media qmp ON qmp.id=qbp.media_id WHERE qbp.business_id=b.id AND qbp.status='approved' ORDER BY qbp.sort ASC,qbp.id ASC LIMIT 1),'') "
+            . "END";
     }
     public static function phone(): string
     {

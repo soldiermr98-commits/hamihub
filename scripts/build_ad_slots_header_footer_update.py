@@ -46,6 +46,7 @@ PACKAGE_FILES = (
     'app/Core/Request.php',
     'app/Core/Response.php',
     'app/Services/AdvertisingService.php',
+    'app/Services/BusinessDataReviewService.php',
     'app/Services/MediaLibraryService.php',
     'app/Services/MediaService.php',
     'public_html/admin/assets/admin.css',
