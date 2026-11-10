@@ -22,6 +22,7 @@ use App\Controllers\CategoryController;
 use App\Controllers\CityController;
 use App\Controllers\CollectorController;
 use App\Controllers\ManualImportController;
+use App\Controllers\MediaController;
 use App\Controllers\PaymentGatewayController;
 use App\Controllers\PublicPaymentController;
 use App\Controllers\PublicSiteController;
@@ -47,6 +48,7 @@ $router->post('/api/v1/system/update-article-schema', [AuthController::class, 'u
 $router->post('/api/v1/system/update-article-tags-schema', [AuthController::class, 'updateArticleTagsSchema']);
 $router->post('/api/v1/system/update-feature-schema', [AuthController::class, 'updateFeatureSchema']);
 $router->post('/api/v1/system/update-advertising-schema', [AuthController::class, 'updateAdvertisingSchema']);
+$router->post('/api/v1/system/update-seo-schema', [AuthController::class, 'updateSeoSchema']);
 
 // ۲. مسیرهای CRUD شهر، دسته، بسته دسته، کسب‌وکار و رسانه WebP (S1)
 $router->get('/api/v1/cities', [CityController::class, 'index']);
@@ -62,6 +64,7 @@ $router->post('/api/v1/businesses', [BusinessController::class, 'storeOrUpdate']
 $router->post('/api/v1/businesses/publish', [BusinessController::class, 'publishSaved']);
 $router->post('/api/v1/businesses/promotion', [BusinessController::class, 'setPromotion']);
 $router->post('/api/v1/businesses/data-review', [BusinessController::class, 'recordDataReview']);
+$router->post('/api/v1/businesses/delete', [BusinessController::class, 'deleteBusinesses']);
 $router->post('/api/v1/import/json/prepare', [ManualImportController::class, 'prepare']);
 $router->post('/api/v1/import/json/preview', [ManualImportController::class, 'preview']);
 $router->post('/api/v1/import/json/apply', [ManualImportController::class, 'apply']);
@@ -74,7 +77,10 @@ $router->get('/api/v1/import/apify/runs/{id}', [ApifyController::class, 'run']);
 $router->post('/api/v1/import/apify/refresh', [ApifyController::class, 'refreshRun']);
 $router->post('/api/v1/import/apify/delete', [ApifyController::class, 'deleteRun']);
 $router->post('/api/v1/import/apify/resolve', [ApifyController::class, 'resolve']);
+$router->get('/api/v1/media', [MediaController::class, 'index']);
 $router->post('/api/v1/media/upload', [BusinessController::class, 'uploadMedia']);
+$router->post('/api/v1/media/update', [MediaController::class, 'update']);
+$router->post('/api/v1/media/delete', [MediaController::class, 'delete']);
 $router->get('/api/v1/slug/suggest', [BusinessController::class, 'suggestSlug']);
 
 // ۳. مسیرهای صف جمع‌آوری خودکار (پنل ادمین + کلاینت collector-remote در مرحله S2)

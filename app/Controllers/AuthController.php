@@ -168,6 +168,20 @@ final class AuthController
         }
     }
 
+    /** Apply only the additive SEO URL rules table (012_seo_url_rules.sql). */
+    public static function updateSeoSchema(Request $request): void
+    {
+        Csrf::verifyOrFail($request);
+        Auth::requireRole(['admin']);
+        try {
+            $result = Migrator::runSeoUpdate();
+            Response::json(['ok'=>true, 'migration_result'=>$result, 'message'=>'جدول قوانین سئو (۴۱۰ و ریدایرکت ۳۰۱) آماده است؛ محتوای قبلی تغییر نکرد.']);
+        } catch (Throwable $e) {
+            error_log('SEO schema update failed: ' . $e->getMessage());
+            Response::json(['ok'=>false, 'error'=>'به‌روزرسانی جدول قوانین سئو انجام نشد: ' . $e->getMessage()], 409);
+        }
+    }
+
     /**
      * اجرای افزایشی مایگریشن‌های جدید دیتابیس از داخل پنل ادمین (مخصوص هاست اشتراکی بدون SSH)
      * POST /api/v1/system/migrate

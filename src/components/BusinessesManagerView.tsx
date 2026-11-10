@@ -8,15 +8,23 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowUpRight,
+  FolderOpen,
   Image as ImageIcon,
+  ShieldCheck,
+  Trash2,
+  X,
 } from 'lucide-react';
 import {
   BusinessItem,
+  BusinessSeoDeleteMode,
   CategoryItem,
   CityItem,
   NeighborhoodItem,
   computeBusinessWarnings,
+  deleteBusinesses,
+  fetchArticleBusinesses,
   fetchBusinessesPage,
+  formatBytesFa,
   publishSavedBusiness,
   normalizeIranPhone,
   recordBusinessDataReview,
@@ -25,6 +33,8 @@ import {
   suggestLatinSlug,
   uploadMediaWebp,
 } from '../services/adminApi';
+import { MediaDimensionGuideBox } from './MediaDimensionGuideBox';
+import { MediaLibraryPickerModal } from './MediaLibraryPickerModal';
 
 interface BusinessesManagerViewProps {
   cities: CityItem[];
@@ -60,6 +70,132 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
   const [listError, setListError] = useState('');
   const [refreshList, setRefreshList] = useState(0);
   const [promotionBusy, setPromotionBusy] = useState(0);
+
+  // انتخاب چندتایی و حذف امن سئو (مخصوص ادمین)
+  type DeleteTargetSummary = Pick<BusinessItem, 'id' | 'name' | 'slug' | 'status'>;
+  const [selectedMap, setSelectedMap] = useState<Record<number, DeleteTargetSummary>>({});
+  const [deleteTargets, setDeleteTargets] = useState<DeleteTargetSummary[] | null>(null);
+  const [seoMode, setSeoMode] = useState<BusinessSeoDeleteMode>('auto_seo');
+  const [deleteUnusedMedia, setDeleteUnusedMedia] = useState<boolean>(true);
+  const [replaceQuery, setReplaceQuery] = useState<string>('');
+  const [replaceCandidates, setReplaceCandidates] = useState<BusinessItem[]>([]);
+  const [replaceBusinessId, setReplaceBusinessId] = useState<number>(0);
+  const [deleteBusy, setDeleteBusy] = useState<boolean>(false);
+  const [deleteError, setDeleteError] = useState<string>('');
+  const [mediaPickerOpen, setMediaPickerOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!deleteTargets || seoMode !== 'redirect_business') return;
+    let cancelled = false;
+    const t = window.setTimeout(async () => {
+      try {
+        const targetIds = new Set(deleteTargets.map((b) => Number(b.id)));
+        const res = await fetchArticleBusinesses(1, replaceQuery, 0, 0);
+        if (!cancelled) {
+          setReplaceCandidates(res.businesses.filter((b) => !targetIds.has(Number(b.id))));
+        }
+      } catch {
+        if (!cancelled) setReplaceCandidates([]);
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [deleteTargets, seoMode, replaceQuery]);
+
+  const toggleSelectBusiness = (biz: BusinessItem) => {
+    const id = Number(biz.id);
+    setSelectedMap((prev) => {
+      const next = { ...prev };
+      if (next[id]) {
+        delete next[id];
+      } else {
+        next[id] = biz;
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllPage = () => {
+    const allOnPageSelected =
+      pageBusinesses.length > 0 && pageBusinesses.every((b) => Boolean(selectedMap[Number(b.id)]));
+    setSelectedMap((prev) => {
+      const next = { ...prev };
+      if (allOnPageSelected) {
+        pageBusinesses.forEach((b) => {
+          delete next[Number(b.id)];
+        });
+      } else {
+        pageBusinesses.forEach((b) => {
+          next[Number(b.id)] = b;
+        });
+      }
+      return next;
+    });
+  };
+
+  const selectDraftsOnPage = () => {
+    setSelectedMap((prev) => {
+      const next = { ...prev };
+      pageBusinesses
+        .filter((b) => b.status !== 'published')
+        .forEach((b) => {
+          next[Number(b.id)] = b;
+        });
+      return next;
+    });
+  };
+
+  const openDeleteDialog = (targets: DeleteTargetSummary[]) => {
+    if (!isAdmin || targets.length === 0) return;
+    setDeleteTargets(targets);
+    setSeoMode('auto_seo');
+    setDeleteUnusedMedia(true);
+    setReplaceQuery('');
+    setReplaceBusinessId(0);
+    setDeleteError('');
+  };
+
+  const confirmDeleteBusinesses = async () => {
+    if (!deleteTargets || deleteTargets.length === 0 || deleteBusy) return;
+    const ids = deleteTargets.map((b) => Number(b.id));
+    if (seoMode === 'redirect_business' && replaceBusinessId <= 0) {
+      setDeleteError('لطفاً یک کسب‌وکار منتشرشده را به‌عنوان مقصد ریدایرکت ۳۰۱ انتخاب کنید.');
+      return;
+    }
+
+    setDeleteBusy(true);
+    setDeleteError('');
+    const res = await deleteBusinesses(
+      {
+        ids,
+        seo_mode: seoMode,
+        redirect_business_id: seoMode === 'redirect_business' ? replaceBusinessId : undefined,
+        delete_unused_media: deleteUnusedMedia,
+      },
+      csrfToken
+    );
+    setDeleteBusy(false);
+
+    if (!res.ok) {
+      setDeleteError(res.error || 'حذف کسب‌وکارها انجام نشد.');
+      return;
+    }
+
+    setSelectedMap((prev) => {
+      const next = { ...prev };
+      ids.forEach((id) => delete next[id]);
+      return next;
+    });
+    setDeleteTargets(null);
+    setSaveSuccess(res.message || 'حذف کسب‌وکارها با موفقیت انجام شد.');
+    if (mode === 'form' && ids.includes(Number(bizId))) {
+      setMode('list');
+    }
+    setRefreshList((v) => v + 1);
+    await onRefreshData();
+  };
   useEffect(() => {
     if (mode !== 'list') return;
     let cancelled = false;
@@ -220,8 +356,14 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
 
     setCoverMediaId(res.media.id);
     setCoverPreviewUrl(res.previewUrl || res.media.file_path_480);
+    const origBytes = Number(res.media.original_bytes || file.size || 0);
+    const webp1200 = Number(res.media.webp_1200_bytes || 0);
+    const sizeInfo =
+      origBytes > 0 && webp1200 > 0
+        ? ` (${formatBytesFa(origBytes)} ← WebP بهینه ${formatBytesFa(webp1200)})`
+        : '';
     setMediaFeedback(
-      res.message || 'تصویر با موفقیت به WebP در سایزهای 480 / 800 / 1200 تبدیل شد.'
+      (res.message || 'تصویر با موفقیت به WebP تبدیل شد.') + sizeInfo
     );
   };
 
@@ -374,6 +516,51 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
           </select></label>
           {!reviewReady&&<p className="text-xs text-amber-800 bg-amber-50 p-3 mb-4 rounded">برای ثبت نتیجه بازبینی، مدیر باید پس از پشتیبان‌گیری جدول‌های بخش جدید را در تنظیمات یا تبلیغات آماده کند. فیلترهای نقص همچنان کار می‌کنند.</p>}
           {listError && <p role="alert" className="text-sm text-rose-800 bg-rose-50 p-3 mb-4 rounded">{listError}</p>}
+
+          {isAdmin && (
+            <div className="mb-4 p-3 rounded-lg border border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleSelectAllPage}
+                  className="px-3 py-1.5 rounded border border-slate-300 bg-white font-semibold hover:bg-slate-100"
+                >
+                  انتخاب / لغو همه این صفحه
+                </button>
+                <button
+                  type="button"
+                  onClick={selectDraftsOnPage}
+                  className="px-3 py-1.5 rounded border border-slate-300 bg-white font-semibold hover:bg-slate-100"
+                >
+                  انتخاب پیش‌نویس‌های این صفحه
+                </button>
+                {Object.keys(selectedMap).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMap({})}
+                    className="px-2.5 py-1.5 rounded text-slate-600 hover:underline"
+                  >
+                    پاک کردن انتخاب‌ها
+                  </button>
+                )}
+                <span className="text-slate-600">
+                  انتخاب‌شده: <strong>{Object.keys(selectedMap).length.toLocaleString('fa-IR')}</strong> مورد
+                </span>
+              </div>
+
+              {Object.keys(selectedMap).length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => openDeleteDialog(Object.values(selectedMap))}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-800 text-white font-bold"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  حذف انتخاب‌شده‌ها ({Object.keys(selectedMap).length.toLocaleString('fa-IR')} مورد) با محافظت سئو
+                </button>
+              )}
+            </div>
+          )}
+
           {reviewTarget&&<section className="mb-4 p-4 rounded-lg border border-blue-200 bg-blue-50/50 space-y-3" aria-label="ثبت بازبینی اطلاعات">
             <h3 className="font-bold">بازبینی انسانی «{reviewTarget.name}»</h3>
             <p className="text-xs leading-6 text-slate-700">پیش از تأیید، موارد زیر را با منبع واقعی تطبیق دهید و مجوز استفاده از تصویر را بررسی کنید. ذخیره معمولی، اطلاعات را تأییدشده محسوب نمی‌کند.</p>
@@ -386,6 +573,20 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500 text-xs">
+                  {isAdmin && (
+                    <th className="py-3 px-2 text-center w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="انتخاب همه کسب‌وکارهای این صفحه"
+                        checked={
+                          filteredBusinesses.length > 0 &&
+                          filteredBusinesses.every((b) => Boolean(selectedMap[Number(b.id)]))
+                        }
+                        onChange={toggleSelectAllPage}
+                        className="w-4 h-4"
+                      />
+                    </th>
+                  )}
                   <th className="py-3 px-3 text-right font-semibold">نام و مسیر (شهر / کسب‌وکار)</th>
                   <th className="py-3 px-3 text-right font-semibold">شهر · محله · دسته</th>
                   <th className="py-3 px-3 text-right font-semibold">وضعیت و Tier</th>
@@ -395,7 +596,23 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {filteredBusinesses.map((biz) => (
-                  <tr key={biz.id} className="hover:bg-slate-50">
+                  <tr
+                    key={biz.id}
+                    className={`hover:bg-slate-50 ${
+                      selectedMap[Number(biz.id)] ? 'bg-blue-50/40' : ''
+                    }`}
+                  >
+                    {isAdmin && (
+                      <td className="py-3.5 px-2 text-center">
+                        <input
+                          type="checkbox"
+                          aria-label={`انتخاب ${biz.name}`}
+                          checked={Boolean(selectedMap[Number(biz.id)])}
+                          onChange={() => toggleSelectBusiness(biz)}
+                          className="w-4 h-4"
+                        />
+                      </td>
+                    )}
                     <td className="py-3.5 px-3">
                       <div className="font-semibold text-slate-900">{biz.name}</div>
                       <div className="font-mono text-xs text-slate-500 mt-0.5" dir="ltr">
@@ -455,6 +672,16 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                         {Number(biz.promoted) ? 'حذف از جایگاه ویژه' : 'قرار دادن در جایگاه ویژه'}
                       </button>}
                       {!!Number(biz.promoted) && <span className="block mt-1 text-xs text-amber-700">جایگاه ویژه فعال است</span>}
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => openDeleteDialog([biz])}
+                          className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-rose-700 hover:underline"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          حذف
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -806,11 +1033,12 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                   />
                 </div>
 
-                <div id="biz_field_cover_media_id">
-                  <label className="block text-xs font-semibold text-slate-800 mb-1">
-                    تصویر کاور (JPG / PNG / WebP حداکثر ۵MB)
+                <div id="biz_field_cover_media_id" className="space-y-2">
+                  <label className="block text-xs font-semibold text-slate-800">
+                    تصویر کاور (تبدیل خودکار ۱۰۰٪ به WebP · حداکثر ۸MB)
                   </label>
-                  <div className="p-4 border border-dashed border-slate-300 rounded-lg bg-slate-50 text-center">
+                  <MediaDimensionGuideBox slot="business_cover" compact />
+                  <div className="p-4 border border-dashed border-slate-300 rounded-lg bg-slate-50 text-center space-y-2">
                     {coverPreviewUrl ? (
                       <div className="space-y-2">
                         <img
@@ -830,16 +1058,48 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
                       </div>
                     )}
 
-                    <label className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>{uploadingMedia ? 'در حال تبدیل به WebP...' : 'انتخاب و تبدیل به WebP'}</span>
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        onChange={handleFileChange}
-                        className="hidden"
-                      />
-                    </label>
+                    <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{uploadingMedia ? 'در حال تبدیل به WebP...' : 'انتخاب و تبدیل به WebP'}</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/avif"
+                          onChange={handleFileChange}
+                          className="hidden"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setMediaPickerOpen(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                      >
+                        <FolderOpen className="w-3.5 h-3.5" />
+                        <span>کتابخانه رسانه</span>
+                      </button>
+                      {coverMediaId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCoverMediaId(null);
+                            setCoverPreviewUrl(null);
+                            setMediaFeedback('');
+                          }}
+                          className="px-2.5 py-1.5 bg-white border border-rose-200 rounded-md text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                        >
+                          حذف کاور
+                        </button>
+                      )}
+                    </div>
+                    <MediaLibraryPickerModal
+                      open={mediaPickerOpen}
+                      onClose={() => setMediaPickerOpen(false)}
+                      onSelect={(item) => {
+                        setCoverMediaId(item.id);
+                        setCoverPreviewUrl(item.file_path_480 || item.file_path_800 || item.file_path_1200);
+                        setMediaFeedback(`تصویر #${item.id} (WebP) از کتابخانه انتخاب شد.`);
+                      }}
+                    />
                   </div>
                 </div>
               </div>
@@ -858,6 +1118,25 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
               )}
             </div>
             <div className="flex items-center gap-3">
+              {isAdmin && bizId > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const current: DeleteTargetSummary =
+                      pageBusinesses.find((b) => Number(b.id) === Number(bizId)) || {
+                        id: bizId,
+                        name,
+                        slug,
+                        status,
+                      };
+                    openDeleteDialog([current]);
+                  }}
+                  className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-rose-300 hover:text-rose-200"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  حذف این کسب‌وکار
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setMode('list')}
@@ -874,6 +1153,211 @@ export const BusinessesManagerView: React.FC<BusinessesManagerViewProps> = ({
             </div>
           </div>
         </form>
+      )}
+
+      {/* پنجره حذف امن تکی / گروهی کسب‌وکارها با محافظت کامل از سئوی سایت */}
+      {deleteTargets && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="حذف کسب‌وکارها و تنظیم استراتژی سئو"
+          className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4"
+        >
+          <div className="bg-white rounded-xl border border-slate-200 max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl p-5 space-y-4">
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-200">
+              <div>
+                <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0" />
+                  حذف {deleteTargets.length.toLocaleString('fa-IR')} کسب‌وکار انتخاب‌شده با استراتژی سئو
+                </h3>
+                <p className="text-xs text-slate-600 mt-1">
+                  گزینهٔ مناسب را انتخاب کنید تا حذف موارد تستی یا واقعی هیچ خطای خزش (Crawl Error) یا افت سئو در گوگل ایجاد نکند.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteTargets(null)}
+                disabled={deleteBusy}
+                className="p-1 rounded hover:bg-slate-100 text-slate-500"
+                aria-label="بستن پنجره حذف"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {(() => {
+              const pubCount = deleteTargets.filter((b) => b.status === 'published').length;
+              const draftCount = deleteTargets.length - pubCount;
+              return (
+                <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs space-y-1.5">
+                  <div className="flex flex-wrap gap-3 font-semibold">
+                    <span className="text-slate-800">
+                      مجموع انتخاب‌شده: {deleteTargets.length.toLocaleString('fa-IR')} مورد
+                    </span>
+                    <span className="text-emerald-800">
+                      پیش‌نویس / منتشرنشده: {draftCount.toLocaleString('fa-IR')} مورد
+                    </span>
+                    <span className={pubCount > 0 ? 'text-amber-800' : 'text-slate-500'}>
+                      منتشرشده در سایت عمومی: {pubCount.toLocaleString('fa-IR')} مورد
+                    </span>
+                  </div>
+                  <div className="text-slate-600 truncate">
+                    نمونه موارد:{' '}
+                    {deleteTargets
+                      .slice(0, 5)
+                      .map((b) => b.name)
+                      .join('، ')}
+                    {deleteTargets.length > 5 ? ' و …' : ''}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {deleteError && (
+              <p role="alert" className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">
+                {deleteError}
+              </p>
+            )}
+
+            <fieldset className="space-y-2.5 text-xs">
+              <legend className="font-bold text-slate-900 mb-1">
+                استراتژی سئو برای نشانی‌های عمومی (مخصوص موارد منتشرشده):
+              </legend>
+
+              <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 hover:border-emerald-600 cursor-pointer bg-emerald-50/30">
+                <input
+                  type="radio"
+                  name="seo_delete_mode"
+                  checked={seoMode === 'auto_seo'}
+                  onChange={() => setSeoMode('auto_seo')}
+                  className="mt-0.5"
+                />
+                <div>
+                  <div className="font-bold text-slate-900">
+                    هوشمند و استاندارد گوگل (پیشنهادی — ۴۱۰ Gone برای منتشرشده‌ها + پاک‌سازی کامل پیش‌نویس‌ها)
+                  </div>
+                  <p className="text-slate-600 mt-0.5 leading-5">
+                    پیش‌نویس‌ها و ایمپورت‌های تستی منتشرنشده کاملاً پاک و اسلاگشان برای ورود مجدد JSON آزاد می‌شود. برای کسب‌وکارهای منتشرشده کد استاندارد <strong>HTTP 410 (Gone) + noindex</strong> همراه با دکمه هدایت کاربر به صفحه شهر و دسته ثبت می‌شود تا گوگل بدون خطای ۴۰۴ آن را از ایندکس خارج کند.
+                  </p>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 hover:border-blue-600 cursor-pointer">
+                <input
+                  type="radio"
+                  name="seo_delete_mode"
+                  checked={seoMode === 'redirect_category'}
+                  onChange={() => setSeoMode('redirect_category')}
+                  className="mt-0.5"
+                />
+                <div>
+                  <div className="font-bold text-slate-900">
+                    ریدایرکت دائمی 301 به صفحه دسته و شهر مرتبط (<span dir="ltr">/city/شهر/دسته/</span>)
+                  </div>
+                  <p className="text-slate-600 mt-0.5 leading-5">
+                    مناسب زمانی که کسب‌وکار منتشرشده لینک خارجی یا ورودی جستجو دارد و می‌خواهید اعتبار سئو به فهرست همان دسته در همان شهر منتقل شود.
+                  </p>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 hover:border-blue-600 cursor-pointer">
+                <input
+                  type="radio"
+                  name="seo_delete_mode"
+                  checked={seoMode === 'redirect_business'}
+                  onChange={() => setSeoMode('redirect_business')}
+                  className="mt-0.5"
+                />
+                <div className="w-full space-y-2">
+                  <div>
+                    <div className="font-bold text-slate-900">
+                      ریدایرکت دائمی 301 به یک کسب‌وکار منتشرشدهٔ جایگزین (ادغام مورد تکراری)
+                    </div>
+                    <p className="text-slate-600 mt-0.5 leading-5">
+                      مناسب زمانی که یک کسب‌وکار دو بار ثبت شده و می‌خواهید نسخهٔ اضافی به نسخهٔ اصلی ریدایرکت شود.
+                    </p>
+                  </div>
+                  {seoMode === 'redirect_business' && (
+                    <div className="p-2.5 rounded bg-slate-50 border border-slate-200 space-y-2">
+                      <input
+                        type="text"
+                        value={replaceQuery}
+                        onChange={(e) => setReplaceQuery(e.target.value)}
+                        placeholder="جستجوی نام کسب‌وکار منتشرشدهٔ مقصد..."
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-xs"
+                      />
+                      <select
+                        aria-label="کسب‌وکار جایگزین مقصد ریدایرکت ۳۰۱"
+                        value={replaceBusinessId}
+                        onChange={(e) => setReplaceBusinessId(Number(e.target.value))}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-xs"
+                      >
+                        <option value={0}>— انتخاب کسب‌وکار منتشرشدهٔ مقصد —</option>
+                        {replaceCandidates.map((cand) => (
+                          <option key={cand.id} value={cand.id}>
+                            {cand.name} ({cand.city_name || ''} · /{cand.city_slug}/{cand.slug}/)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 hover:border-amber-600 cursor-pointer">
+                <input
+                  type="radio"
+                  name="seo_delete_mode"
+                  checked={seoMode === 'purge_clean'}
+                  onChange={() => setSeoMode('purge_clean')}
+                  className="mt-0.5"
+                />
+                <div>
+                  <div className="font-bold text-slate-900">
+                    حذف کامل و آزادسازی اسلاگ بدون ثبت ۴۱۰/۳۰۱ (مخصوص موارد تستی که در گوگل ایندکس نشده‌اند)
+                  </div>
+                  <p className="text-slate-600 mt-0.5 leading-5">
+                    اگر موردی را به‌صورت آزمایشی منتشر کرده‌اید و می‌خواهید بدون باقی‌ماندن قانون URL همان اسلاگ را دوباره وارد کنید، این گزینه را انتخاب کنید.
+                  </p>
+                </div>
+              </label>
+            </fieldset>
+
+            <label className="flex items-start gap-2 text-xs text-slate-800 bg-slate-50 border border-slate-200 rounded-lg p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deleteUnusedMedia}
+                onChange={(e) => setDeleteUnusedMedia(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <strong>پاک‌سازی خودکار تصاویر بلااستفاده روی هاست:</strong> اگر تصویر کاور یا گالری این موارد در هیچ کسب‌وکار، مقاله یا بنر دیگری استفاده نشده باشد، هم از جدول <code className="font-mono">media</code> و هم از پوشه <code className="font-mono">public_html/uploads</code> حذف شود.
+              </span>
+            </label>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                disabled={deleteBusy}
+                onClick={() => setDeleteTargets(null)}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                disabled={deleteBusy}
+                onClick={() => void confirmDeleteBusinesses()}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {deleteBusy
+                  ? 'در حال حذف ایمن…'
+                  : `تأیید و حذف نهایی (${deleteTargets.length.toLocaleString('fa-IR')} مورد)`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

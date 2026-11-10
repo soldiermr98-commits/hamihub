@@ -1,22 +1,24 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { LayoutDashboard, Inbox, MapPin, Store, FileText, FileJson, Megaphone, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Inbox, MapPin, Store, FileText, FileJson, Image as ImageIcon, Megaphone, Settings, LogOut } from 'lucide-react';
 import { AdminUser, CategoryItem, CategoryPackItem, CityItem, NeighborhoodItem,
-  fetchAuthMe, loginAdmin, logoutAdmin, fetchCategoriesAndPacks, fetchCitiesAndNeighborhoods, runWebMigrations,
+  fetchAuthMe, loginAdmin, logoutAdmin, fetchCategoriesAndPacks, fetchCitiesAndNeighborhoods, runWebMigrations, updateSeoSchema,
   FINANCE_PENDING_STORAGE_KEY, GATEWAY_PENDING_STORAGE_KEY } from './services/adminApi';
 import { CitiesAndCategoriesView } from './components/CitiesAndCategoriesView';
 import { BusinessesManagerView } from './components/BusinessesManagerView';
 import { ReviewQueueView } from './components/ReviewQueueView';
 import { ArticlesManagerView } from './components/ArticlesManagerView';
+import { MediaManagerView } from './components/MediaManagerView';
 import { AiWorkerPanel } from './components/AiWorkerPanel';
 import { AdvertisingView } from './components/AdvertisingView';
 import { S6AnalyticsPanel } from './components/S6AnalyticsPanel';
 import { JsonImportView } from './components/JsonImportView';
 
-type Route = 'dashboard'|'review'|'cities'|'businesses'|'import'|'articles'|'advertising'|'settings';
+type Route = 'dashboard'|'review'|'cities'|'businesses'|'import'|'articles'|'media'|'advertising'|'settings';
 const nav: Array<{id:Route;label:string;icon:React.ElementType}> = [
   {id:'dashboard',label:'داشبورد',icon:LayoutDashboard},{id:'review',label:'بازبینی',icon:Inbox},
   {id:'cities',label:'جمع‌آوری و شهرها',icon:MapPin},{id:'businesses',label:'کسب‌وکارها',icon:Store},
   {id:'import',label:'جمع‌آوری و ورود',icon:FileJson},{id:'articles',label:'مقالات',icon:FileText},
+  {id:'media',label:'رسانه',icon:ImageIcon},
   {id:'advertising',label:'تبلیغات',icon:Megaphone},{id:'settings',label:'تنظیمات',icon:Settings},
 ];
 function routeFromPath():Route {
@@ -79,7 +81,8 @@ export default function App() {
       {route==='businesses'&&<BusinessesManagerView cities={cities} neighborhoods={neighborhoods} categories={categories} csrfToken={csrf} onRefreshData={refresh} isAdmin={user.role==='admin'}/>}
       {route==='import'&&user.role==='admin'&&<JsonImportView cities={cities} categories={categories} csrfToken={csrf} onRefreshData={refresh} onGoReview={()=>go('review')}/>}
       {route==='articles'&&<ArticlesManagerView cities={cities} categories={categories} csrfToken={csrf} isAdmin={user.role==='admin'} onGoReview={()=>go('review')} onDirtyChange={setArticleDirty}/>}
+      {route==='media'&&<MediaManagerView csrfToken={csrf} isAdmin={user.role==='admin'}/>}
       {route==='advertising'&&user.role==='admin'&&<AdvertisingView csrfToken={csrf} cities={cities} categories={categories}/>}
-      {route==='settings'&&<div className="space-y-4"><section className="bg-white border rounded-xl p-6"><h1 className="font-bold">نگهداری پایگاه داده</h1><button className="bg-blue-700 text-white rounded p-2 mt-3 text-sm" onClick={async()=>{const r=await runWebMigrations(csrf);setNotice(r.message||r.error);if(r.ok) await refresh();}}>اجرای مایگریشن‌ها</button></section><AiWorkerPanel csrfToken={csrf} isAdmin={user.role==='admin'}/></div>}
+      {route==='settings'&&<div className="space-y-4"><section className="bg-white border rounded-xl p-6"><h1 className="font-bold">نگهداری پایگاه داده</h1><div className="flex flex-wrap gap-2 mt-3"><button className="bg-blue-700 text-white rounded p-2 text-sm" onClick={async()=>{const r=await runWebMigrations(csrf);setNotice(r.message||r.error);if(r.ok) await refresh();}}>اجرای مایگریشن‌ها</button>{user.role==='admin'&&<button className="border border-slate-300 bg-white hover:bg-slate-50 rounded p-2 text-sm font-semibold" onClick={async()=>{const r=await updateSeoSchema(csrf);setNotice(r.message||r.error);}}>آماده‌سازی جدول قوانین سئو (۴۱۰/۳۰۱)</button>}</div></section><AiWorkerPanel csrfToken={csrf} isAdmin={user.role==='admin'}/></div>}
     </main></div>}</div>;
 }

@@ -14,7 +14,8 @@
     "test:article-ui": "tsx tests/article_sponsor_ui_smoke.tsx",
     "test:article-editor-ui": "tsx tests/article_editor_ui_smoke.tsx",
     "test:ai-ui": "tsx tests/ai_article_ui_smoke.tsx",
-    "test:ai-provider-ui": "tsx tests/ai_provider_ui_smoke.tsx"
+    "test:ai-provider-ui": "tsx tests/ai_provider_ui_smoke.tsx",
+    "test:media-delete-ui": "tsx tests/business_delete_and_media_ui_smoke.tsx"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

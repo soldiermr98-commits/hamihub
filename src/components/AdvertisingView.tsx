@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ImagePlus, Plus, Trash2 } from 'lucide-react';
+import { FolderOpen, ImagePlus, Plus, Trash2 } from 'lucide-react';
 import { AdvertisingFinancePanel } from './AdvertisingFinancePanel';
+import { MediaDimensionGuideBox } from './MediaDimensionGuideBox';
+import { MediaLibraryPickerModal } from './MediaLibraryPickerModal';
 import { AdBanner, AdInquiry, CategoryItem, CityItem, deleteAdBanner, fetchAdvertising, saveAdBanner, updateAdInquiry, updateAdvertisingSchema, updateFeatureSchema, uploadMediaWebp } from '../services/adminApi';
 
 const input='w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
@@ -14,6 +16,7 @@ export const AdvertisingView:React.FC<{csrfToken:string;cities:CityItem[];catego
   const [ready,setReady]=useState(false);const [reportingReady,setReportingReady]=useState(false);const [loading,setLoading]=useState(true);const [busy,setBusy]=useState(false);
   const [placements,setPlacements]=useState<Record<string,string>>({});const [banners,setBanners]=useState<AdBanner[]>([]);const [inquiries,setInquiries]=useState<AdInquiry[]>([]);
   const [form,setForm]=useState<BannerForm|null>(null);const [message,setMessage]=useState<{error:boolean;text:string}|null>(null);
+  const [mediaPickerOpen,setMediaPickerOpen]=useState(false);
   const load=useCallback(async()=>{setLoading(true);try{const d=await fetchAdvertising();setReady(d.schema_ready);setReportingReady(d.reporting_schema_ready);setPlacements(d.placements);setBanners(d.banners);setInquiries(d.inquiries);}
     catch(e){setMessage({error:true,text:e instanceof Error?e.message:'دریافت تبلیغات ناموفق بود.'});}finally{setLoading(false);}},[]);
   useEffect(()=>{void load();},[load]);
@@ -55,7 +58,7 @@ export const AdvertisingView:React.FC<{csrfToken:string;cities:CityItem[];catego
             <label className="text-sm">شروع (اختیاری)<input type="datetime-local" className={`${input} mt-1`} value={form.starts_at} onChange={e=>patch({starts_at:e.target.value})}/></label>
             <label className="text-sm">پایان (اختیاری)<input type="datetime-local" className={`${input} mt-1`} value={form.ends_at} onChange={e=>patch({ends_at:e.target.value})}/></label>
           </div>
-          <div>{form.image_url&&<img src={form.image_url} alt="پیش‌نمایش بنر" className="max-h-40 max-w-full rounded border mb-2"/>}<label className={`${btn} cursor-pointer`}><ImagePlus size={16}/> انتخاب تصویر بنر<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={busy} onChange={e=>{void upload(e.target.files?.[0]);e.target.value='';}}/></label>{!form.media_id&&<span className="text-xs text-amber-800 mr-2">تصویر لازم است.</span>}</div>
+          <div className="space-y-2"><MediaDimensionGuideBox slot="advertising_banner" compact />{form.image_url&&<img src={form.image_url} alt="پیش‌نمایش بنر" className="max-h-40 max-w-full rounded border mb-2"/>}<div className="flex flex-wrap items-center gap-2"><label className={`${btn} cursor-pointer`}><ImagePlus size={16}/> انتخاب تصویر بنر (تبدیل به WebP)<input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/avif" className="sr-only" disabled={busy} onChange={e=>{void upload(e.target.files?.[0]);e.target.value='';}}/></label><button type="button" className={btn} disabled={busy} onClick={()=>setMediaPickerOpen(true)}><FolderOpen size={16}/> انتخاب از کتابخانه رسانه</button>{!form.media_id&&<span className="text-xs text-amber-800">تصویر لازم است.</span>}</div><MediaLibraryPickerModal open={mediaPickerOpen} onClose={()=>setMediaPickerOpen(false)} onSelect={item=>patch({media_id:item.id,image_url:item.file_path_1200||item.file_path_800||item.file_path_480})} /></div>
           <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={form.active} onChange={e=>patch({active:e.target.checked})}/><span>نمایش بنر فعال باشد <small className="block text-slate-600 mt-1">پس از ذخیره و فقط در زمان و جایگاه انتخاب‌شده نمایش داده می‌شود.</small></span></label>
           <div className="flex gap-2"><button className={primary} disabled={busy||!form.media_id}>ذخیره بنر</button><button type="button" className={btn} disabled={busy} onClick={()=>setForm(null)}>انصراف</button></div>
         </form>}

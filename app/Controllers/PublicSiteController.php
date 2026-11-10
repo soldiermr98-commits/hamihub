@@ -13,6 +13,7 @@ use App\Core\Response;
 use App\Services\AdvertisingService;
 use App\Services\ArticleService;
 use App\Services\ArticleText;
+use App\Services\BusinessSeoService;
 use App\Services\BusinessUrlService;
 use App\Services\Normalizer;
 use App\Services\SponsorshipStatus;
@@ -243,8 +244,17 @@ final class PublicSiteController
     {
         $slug = rawurldecode((string)($params['slug'] ?? ''));
         $biz = DB::fetchOne("SELECT b.id,b.slug,c.slug AS city_slug FROM businesses b INNER JOIN cities c ON c.id=b.city_id WHERE b.slug=:slug AND b.status='published' LIMIT 1", ['slug'=>$slug]);
-        $biz ??= BusinessUrlService::resolveAlias(BusinessUrlService::legacyPath($slug));
+        $legacyPath = BusinessUrlService::legacyPath($slug);
+        $biz ??= BusinessUrlService::resolveAlias($legacyPath);
         if (!$biz) {
+            $seoRule = BusinessSeoService::resolveRule($legacyPath);
+            if ($seoRule !== null) {
+                if (($seoRule['http_status'] ?? 410) === 301 && !empty($seoRule['redirect_to'])) {
+                    Response::redirect((string)$seoRule['redirect_to']);
+                }
+                self::render410($seoRule);
+                return;
+            }
             self::render404('کسب‌وکار مورد نظر یافت نشد یا هنوز منتشر نشده است.');
             return;
         }
@@ -261,8 +271,17 @@ final class PublicSiteController
         $biz = $rows[0] ?? null;
 
         if (!$biz) {
-            $alias = BusinessUrlService::resolveAlias(BusinessUrlService::path($city, $slug));
+            $candidatePath = BusinessUrlService::path($city, $slug);
+            $alias = BusinessUrlService::resolveAlias($candidatePath);
             if ($alias) Response::redirect(BusinessUrlService::path((string)$alias['city_slug'], (string)$alias['slug']));
+            $seoRule = BusinessSeoService::resolveRule($candidatePath);
+            if ($seoRule !== null) {
+                if (($seoRule['http_status'] ?? 410) === 301 && !empty($seoRule['redirect_to'])) {
+                    Response::redirect((string)$seoRule['redirect_to']);
+                }
+                self::render410($seoRule);
+                return;
+            }
             self::render404('کسب‌وکار مورد نظر یافت نشد یا هنوز در وضعیت منتشرشده قرار نگرفته است.');
             return;
         }
@@ -1809,6 +1828,7 @@ final class PublicSiteController
         $title = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)($data['title'] ?? 'حامی‌هاب گیلان'));
         $description = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)($data['description'] ?? ''));
         $canonical = (string)($data['canonical'] ?? self::baseUrl() . '/');
+        $noindex = !empty($data['noindex']);
         $ogType = (string)($data['og_type'] ?? 'website');
         $schemas = (array)($data['schemas'] ?? []);
         $body = str_replace(['همی‌هاب', 'همی هاب', 'همیهاب'], 'حامی‌هاب', (string)($data['body'] ?? ''));
@@ -1825,7 +1845,11 @@ final class PublicSiteController
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= self::e($title) ?></title>
     <meta name="description" content="<?= self::e($description) ?>">
+    <?php if ($noindex): ?>
+    <meta name="robots" content="noindex, follow">
+    <?php else: ?>
     <link rel="canonical" href="<?= self::e($canonical) ?>">
+    <?php endif; ?>
     <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
     <link rel="icon" type="image/png" sizes="128x128" href="/assets/img/favicon.png">
     <link rel="apple-touch-icon" href="/assets/img/favicon.png">
@@ -1917,13 +1941,44 @@ final class PublicSiteController
 
     private static function render404(string $message): void
     {
+        if (!headers_sent()) {
+            header('X-Robots-Tag: noindex, follow');
+        }
         $html = self::renderLayout([
             'title'       => 'صفحه یافت نشد (404) | حامی‌هاب گیلان',
             'description' => $message,
-            'canonical'   => self::baseUrl() . '/',
+            'noindex'     => true,
             'body'        => '<main class="hx-container" style="padding:3rem 1rem;"><div class="hx-card" style="text-align:center;padding:2.5rem;"><h1>۴۰۴ — صفحه مورد نظر یافت نشد</h1><p class="hx-card-desc">' . self::e($message) . '</p><div style="margin-top:1rem;"><a class="hx-btn hx-btn-primary" href="/">بازگشت به صفحه اصلی حامی‌هاب</a></div></div></main>',
         ]);
         Response::html($html, 404);
+    }
+
+    /**
+     * پاسخ استاندارد HTTP 410 (Gone) برای کسب‌وکارهای منتشرشده‌ای که به‌صورت دائمی حذف شده‌اند
+     * به موتورهای جستجو اعلام می‌کند نشانی را تمیز از ایندکس خارج کنند و کاربر را به دسته مرتبط هدایت می‌کند.
+     *
+     * @param array<string, mixed> $rule
+     */
+    private static function render410(array $rule): void
+    {
+        if (!headers_sent()) {
+            header('X-Robots-Tag: noindex, follow');
+        }
+        $entityTitle = trim((string)($rule['entity_title'] ?? ''));
+        $fallbackPath = trim((string)($rule['fallback_path'] ?? '/')) ?: '/';
+        $fallbackLabel = trim((string)($rule['fallback_label'] ?? '')) ?: 'مشاهده سایر مجموعه‌ها در حامی‌هاب';
+        $heading = $entityTitle !== ''
+            ? 'این مجموعه («' . $entityTitle . '») دیگر در حامی‌هاب فعال نیست'
+            : 'این صفحه به‌صورت دائمی از فهرست حامی‌هاب حذف شده است';
+        $desc = 'اطلاعات این کسب‌وکار از فهرست فعال حامی‌هاب گیلان خارج شده است. می‌توانید مجموعه‌های مشابه و فعال همین دسته را مشاهده کنید.';
+
+        $html = self::renderLayout([
+            'title'       => 'مجموعه حذف شده است (410) | حامی‌هاب گیلان',
+            'description' => $desc,
+            'noindex'     => true,
+            'body'        => '<main class="hx-container" style="padding:3rem 1rem;"><div class="hx-card" style="text-align:center;padding:2.5rem;"><h1>' . self::e($heading) . '</h1><p class="hx-card-desc">' . self::e($desc) . '</p><div style="margin-top:1.25rem;display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;"><a class="hx-btn hx-btn-primary" href="' . self::e($fallbackPath) . '">' . self::e($fallbackLabel) . '</a><a class="hx-btn hx-btn-outline" href="/">صفحه اصلی حامی‌هاب</a></div></div></main>',
+        ]);
+        Response::html($html, 410);
     }
 
     /** Start is inclusive; end is exclusive, matching the cache transition. */
