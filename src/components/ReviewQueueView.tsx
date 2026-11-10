@@ -81,6 +81,10 @@ const REASON_LABELS: Record<string, { label: string; badgeClass: string }> = {
     badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   },
   legacy_revalidation: { label: 'محتوای قدیمی نیازمند بازبینی مجدد', badgeClass: 'bg-amber-50 text-amber-800 border-amber-200' },
+  potential_duplicate: {
+    label: 'احتمال تکراری با کسب‌وکار موجود در شهر',
+    badgeClass: 'bg-amber-50 text-amber-900 border-amber-300',
+  },
   owner_claim_request: {
     label: 'درخواست ادعای مالکیت کسب‌وکار (مرحله S6)',
     badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
@@ -130,10 +134,11 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent, i
   }, [loadQueue]);
 
   const handleDecision = useCallback(
-    async (ids: number[], decision: 'approved' | 'rejected') => {
+    async (ids: number[], decision: 'approved' | 'rejected' | 'merge', mergeIntoId?: number) => {
       if (ids.length === 0 || !isAdmin) return;
       if (decision === 'approved' && items.some(item=>item.kind==='article' && ids.includes(item.id)) && !window.confirm('پیش‌نمایش خصوصی مقاله را بررسی کرده‌اید؟ با تأیید، نسخه در سایت منتشر می‌شود.')) return;
-      const res = await decideReviewQueueItems(ids, decision, csrfToken);
+      if (decision === 'merge' && mergeIntoId && !window.confirm(`آیا از ادغام این رکورد تکراری با کسب‌وکار اصلی #${mergeIntoId} و انتقال منابع آن اطمینان دارید؟`)) return;
+      const res = await decideReviewQueueItems(ids, decision, csrfToken, mergeIntoId);
       if (!res.ok) {
         setFeedback({ type: 'err', text: res.error || 'خطا در ثبت تصمیم بازبینی' });
         return;
@@ -448,6 +453,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent, i
                             <div className="font-bold text-slate-900">{title}</div>
                             <div className="text-[11px] text-slate-500 mt-0.5">
                               {item.city_name ? `شهر: ${item.city_name}` : ''}{' '}
+                              {item.category_name ? `· دسته: ${item.category_name}` : ''}{' '}
                               {payload.provider ? `· منبع: ${payload.provider}` : ''}
                             </div>
                             {item.kind === 'article' && <a className="text-blue-700 underline text-xs" target="_blank" rel="noreferrer" href={`/api/v1/articles/preview/${item.target_id}`}>مشاهده پیش‌نمایش خصوصی مقاله</a>}
@@ -461,7 +467,7 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent, i
                               {reasonMeta.label}
                             </span>
                           </td>
-                          <td className="py-3 px-3 text-[11px] text-slate-700 max-w-xs">
+                          <td className="py-3 px-3 text-[11px] text-slate-700 max-w-sm">
                             {item.reason_code === 'source_conflict' && (
                               <div className="space-y-1">
                                 <div className="font-semibold text-rose-700">
@@ -510,6 +516,47 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent, i
                                 </div>
                               </div>
                             )}
+                            {(() => {
+                              const dupCands = Array.isArray(payload.candidates)
+                                ? payload.candidates
+                                : Array.isArray(payload.duplicate_candidates)
+                                ? payload.duplicate_candidates
+                                : [];
+                              if (dupCands.length === 0) return null;
+                              return (
+                                <div className="space-y-1.5 mb-1.5">
+                                  {dupCands.map((cand: any, cIdx: number) => (
+                                    <div key={cand.id || cIdx} className="rounded border border-amber-200 bg-amber-50/80 px-2 py-1.5 text-amber-950">
+                                      <div className="font-semibold">
+                                        مشابه با #{cand.id} «{cand.name}»
+                                        {cand.category_name ? ` (${cand.category_name})` : ''}
+                                      </div>
+                                      <div className="text-[10px] text-amber-800 mt-0.5 flex flex-wrap items-center justify-between gap-1.5">
+                                        <span>
+                                          {cand.distance_meters !== null && cand.distance_meters !== undefined
+                                            ? `فاصله: ${cand.distance_meters} متر`
+                                            : 'بدون مختصات دقیق'}
+                                          {cand.shared_phone ? ' · تلفن مشترک' : ''}
+                                          {cand.same_core_name ? ' · نام هسته یکسان' : ''}
+                                        </span>
+                                        {item.status === 'pending' && isAdmin && Number(cand.id) > 0 && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleDecision([item.id], 'merge', Number(cand.id));
+                                            }}
+                                            className="px-2 py-0.5 bg-amber-700 hover:bg-amber-800 text-white rounded text-[10px] font-semibold"
+                                          >
+                                            ادغام در #{cand.id}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                             {item.reason_code !== 'source_conflict' &&
                               item.kind !== 'change' &&
                               item.kind !== 'claim' &&
@@ -537,28 +584,57 @@ export const ReviewQueueView: React.FC<Props> = ({ csrfToken, onRefreshParent, i
                           <td className="py-3 px-3 text-left whitespace-nowrap">
                             {item.status === 'pending' && !isAdmin ? <span className="text-slate-500">در انتظار مدیر</span> : item.status === 'pending' ? (
                               <div className="inline-flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDecision([item.id], 'approved');
-                                  }}
-                                  className="px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-[11px] font-semibold"
-                                  title="میانبر کیبورد: A"
-                                >
-                                  تأیید و انتشار (A)
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDecision([item.id], 'rejected');
-                                  }}
-                                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 rounded text-[11px] font-semibold"
-                                  title="میانبر کیبورد: R"
-                                >
-                                  رد (R)
-                                </button>
+                                {item.kind === 'duplicate' ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDecision([item.id], 'merge', Number(payload.primary_candidate_id || 0));
+                                      }}
+                                      className="px-2.5 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded text-[11px] font-semibold"
+                                      title="ادغام در کسب‌وکار اصلی و انتقال منابع"
+                                    >
+                                      ادغام با کسب‌وکار اصلی
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDecision([item.id], 'rejected');
+                                      }}
+                                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 text-slate-700 rounded text-[11px] font-semibold"
+                                      title="رد هشدار تکراری (کسب‌وکار مجزاست)"
+                                    >
+                                      مجزا است (رد هشدار)
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDecision([item.id], 'approved');
+                                      }}
+                                      className="px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-[11px] font-semibold"
+                                      title="میانبر کیبورد: A"
+                                    >
+                                      تأیید و انتشار (A)
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDecision([item.id], 'rejected');
+                                      }}
+                                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 rounded text-[11px] font-semibold"
+                                      title="میانبر کیبورد: R"
+                                    >
+                                      رد (R)
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             ) : (
                               <span

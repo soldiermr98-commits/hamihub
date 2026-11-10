@@ -9,6 +9,7 @@ use App\Core\Csrf;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
+use App\Services\CategorySyncService;
 use App\Services\SlugService;
 
 /**
@@ -23,6 +24,7 @@ final class CategoryController
     public static function index(Request $request): void
     {
         Auth::requireRole(['admin', 'editor']);
+        CategorySyncService::ensureUnified();
 
         $categories = DB::fetchAll(
             "SELECT c.*,
@@ -31,7 +33,7 @@ final class CategoryController
              ORDER BY c.sort ASC, c.id ASC"
         );
 
-        $packs = DB::fetchAll("SELECT * FROM category_packs ORDER BY id ASC");
+        $packs = CategorySyncService::fetchUnifiedPacks();
         $packItems = DB::fetchAll("SELECT * FROM category_pack_items ORDER BY pack_id ASC, id ASC");
 
         Response::json([
@@ -80,6 +82,7 @@ final class CategoryController
         }
 
         $uniqueSlug = SlugService::ensureUniqueSlug('categories', strtolower($rawSlug), $id > 0 ? $id : null);
+        $previousCategory = $id > 0 ? DB::fetchOne('SELECT name_fa FROM categories WHERE id = :id', ['id' => $id]) : null;
 
         if ($id > 0) {
             DB::query(
@@ -113,8 +116,18 @@ final class CategoryController
             $msg = "دسته‌بندی جدید «{$nameFa}» با اسلاگ «{$uniqueSlug}» ساخته شد.";
         }
 
-        Cache::flushAll();
         $category = DB::fetchOne("SELECT * FROM categories WHERE id = :id", ['id' => $catId]);
+        if ($category) {
+            $packId = CategorySyncService::syncSingleCategoryPack($category);
+            if ($packId > 0 && $previousCategory && (string) ($previousCategory['name_fa'] ?? '') !== $nameFa) {
+                DB::query(
+                    'UPDATE category_packs SET name = :new_name WHERE id = :pid AND name = :old_name',
+                    ['new_name' => $nameFa, 'pid' => $packId, 'old_name' => (string) $previousCategory['name_fa']]
+                );
+            }
+            CategorySyncService::resetRequestCache();
+        }
+        Cache::flushAll();
 
         Response::json([
             'ok' => true,
@@ -134,19 +147,32 @@ final class CategoryController
 
         $id = (int) $request->input('id', 0);
         $name = SlugService::normalizePersianText((string) $request->input('name', ''));
-        $categoryId = (int) $request->input('category_id', 1);
-        $queriesInput = $request->input('queries_json', '');
-        $isActive = (int) $request->input('is_active', 1) === 1 ? 1 : 0;
-
-        if ($name === '') {
+        $rawCategoryId = (int) $request->input('category_id', 0);
+        if ($rawCategoryId <= 0 && $id > 0) {
+            $existingLink = DB::fetchOne('SELECT category_id FROM category_pack_items WHERE pack_id = :pid ORDER BY id ASC LIMIT 1', ['pid' => $id]);
+            if ($existingLink) {
+                $rawCategoryId = (int) $existingLink['category_id'];
+            }
+        }
+        $categoryId = $rawCategoryId > 0 ? $rawCategoryId : 1;
+        $targetCategory = DB::fetchOne('SELECT id, name_fa FROM categories WHERE id = :id', ['id' => $categoryId]);
+        if (!$targetCategory) {
             Response::json([
                 'ok' => false,
-                'error' => 'لطفاً عنوان بسته دسته را وارد کنید (مثلاً: بسته کافه‌ها و رستوران‌ها).',
-                'field' => 'name',
+                'error' => 'دسته‌بندی متصل انتخاب‌شده معتبر نیست.',
+                'field' => 'category_id',
             ], 422);
         }
 
+        if ($name === '') {
+            $name = (string) $targetCategory['name_fa'];
+        }
+
+        $queriesInput = $request->input('queries_json', '');
+        $isActive = (int) $request->input('is_active', 1) === 1 ? 1 : 0;
+
         if (is_array($queriesInput)) {
+            $decoded = $queriesInput;
             $queriesJson = json_encode($queriesInput, JSON_UNESCAPED_UNICODE);
         } else {
             $decoded = json_decode((string) $queriesInput, true);
@@ -166,7 +192,7 @@ final class CategoryController
                 ['name' => $name, 'q' => $queriesJson, 'active' => $isActive, 'id' => $id]
             );
             $packId = $id;
-            $msg = "بسته دسته «{$name}» با موفقیت ویرایش شد.";
+            $msg = "تنظیمات جمع‌آوری دسته «{$name}» با موفقیت ویرایش شد.";
         } else {
             DB::query(
                 "INSERT INTO category_packs (name, queries_json, is_active, created_at)
@@ -174,19 +200,41 @@ final class CategoryController
                 ['name' => $name, 'q' => $queriesJson, 'active' => $isActive]
             );
             $packId = DB::lastInsertId();
-            $msg = "بسته دسته جدید «{$name}» با موفقیت ثبت شد.";
+            $msg = "بسته جمع‌آوری جدید «{$name}» با موفقیت ثبت شد.";
         }
 
-        if ($categoryId > 0) {
-            DB::query(
-                "INSERT INTO category_pack_items (pack_id, category_id, queries_json)
-                 VALUES (:pid, :cid, :q)
-                 ON DUPLICATE KEY UPDATE queries_json = VALUES(queries_json)",
-                ['pid' => $packId, 'cid' => $categoryId, 'q' => $queriesJson]
-            );
-        }
+        $existingItem = DB::fetchOne(
+            'SELECT id, queries_json FROM category_pack_items WHERE pack_id = :pid AND category_id = :cid LIMIT 1',
+            ['pid' => $packId, 'cid' => $categoryId]
+        );
+        $itemKeywords = is_array($decoded['keywords'] ?? null)
+            ? $decoded['keywords']
+            : (is_array($decoded['neshan'] ?? null) && $decoded['neshan'] ? $decoded['neshan'] : [(string) $targetCategory['name_fa']]);
+        $itemJson = $existingItem && !isset($decoded['keywords'])
+            ? (string) $existingItem['queries_json']
+            : (string) json_encode(['keywords' => array_values($itemKeywords)], JSON_UNESCAPED_UNICODE);
 
-        $pack = DB::fetchOne("SELECT * FROM category_packs WHERE id = :id", ['id' => $packId]);
+        DB::query(
+            "INSERT INTO category_pack_items (pack_id, category_id, queries_json)
+             VALUES (:pid, :cid, :q)
+             ON DUPLICATE KEY UPDATE queries_json = VALUES(queries_json)",
+            ['pid' => $packId, 'cid' => $categoryId, 'q' => $itemJson]
+        );
+        DB::query(
+            'DELETE FROM category_pack_items WHERE pack_id = :pid AND category_id <> :cid',
+            ['pid' => $packId, 'cid' => $categoryId]
+        );
+        CategorySyncService::resetRequestCache();
+
+        $pack = DB::fetchOne(
+            "SELECT p.*, c.id AS category_id, c.name_fa AS category_name_fa, c.slug AS category_slug
+             FROM category_packs p
+             LEFT JOIN category_pack_items cpi ON cpi.pack_id = p.id
+             LEFT JOIN categories c ON c.id = cpi.category_id
+             WHERE p.id = :id
+             LIMIT 1",
+            ['id' => $packId]
+        );
 
         Response::json([
             'ok' => true,

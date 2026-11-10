@@ -25,12 +25,22 @@ final class OsmProvider implements ProviderInterface
             || ($north - $south) > 1 || ($east - $west) > 1) {
             throw new RuntimeException('محدوده شهر نامعتبر یا بیش از حد بزرگ است.');
         }
+        $shorthandMap = [
+            'کافه' => 'amenity=cafe',
+            'رستوران' => 'amenity=restaurant',
+            'کافه و رستوران' => 'amenity=cafe',
+            'سالن زیبایی' => 'shop=beauty',
+            'کلینیک و دندانپزشکی' => 'amenity=clinic',
+            'دندانپزشکی' => 'amenity=dentist',
+            'ویلا و اقامتگاه' => 'tourism=guest_house',
+            'جاذبه گردشگری' => 'tourism=attraction',
+        ];
         $filters = [];
         foreach ((array) ($job['queries'] ?? []) as $query) {
             $query = trim((string) $query);
-            if ($query === 'کافه') $query = 'amenity=cafe';
-            if (!preg_match('/^(amenity|shop|tourism|historic)=[a-z0-9_]+$/', $query)) {
-                throw new RuntimeException('عبارت OSM باید یک تگ معتبر مانند amenity=cafe باشد.');
+            if (isset($shorthandMap[$query])) $query = $shorthandMap[$query];
+            if (!preg_match('/^(amenity|shop|tourism|historic|healthcare|leisure|natural)=[a-z0-9_]+$/', $query)) {
+                throw new RuntimeException('عبارت OSM باید یک تگ معتبر مانند amenity=cafe یا tourism=hotel باشد.');
             }
             [$key, $value] = explode('=', $query, 2);
             $filters[] = sprintf('nwr["%s"="%s"](%F,%F,%F,%F);', $key, $value, $south, $west, $north, $east);
@@ -74,11 +84,15 @@ final class OsmProvider implements ProviderInterface
                 $address = trim(implode(' ', array_filter([(string) ($tags['addr:street'] ?? ''), (string) ($tags['addr:housenumber'] ?? '')])));
             }
             $phone = trim((string) ($tags['phone'] ?? $tags['contact:phone'] ?? $tags['mobile'] ?? $tags['contact:mobile'] ?? ''));
-            $results[] = ['name'=>$name, 'category'=>(string) ($tags['amenity'] ?? $tags['shop'] ?? $tags['tourism'] ?? ''),
+            $osmCategory = (string) ($tags['amenity'] ?? $tags['shop'] ?? $tags['tourism'] ?? $tags['historic'] ?? $tags['healthcare'] ?? $tags['leisure'] ?? $tags['natural'] ?? '');
+            $isClosed = isset($tags['disused:amenity']) || isset($tags['closed:amenity'])
+                || isset($tags['disused:shop']) || isset($tags['closed:shop'])
+                || isset($tags['disused:tourism']) || isset($tags['closed:tourism']);
+            $results[] = ['name'=>$name, 'category'=>$osmCategory,
                 'address'=>$address, 'lat'=>$el['lat'] ?? $el['center']['lat'] ?? null, 'lng'=>$el['lon'] ?? $el['center']['lon'] ?? null,
                 'phones'=>$phone !== '' ? array_map('trim', preg_split('/[;,\/]+/', $phone) ?: []) : [],
                 'hours'=>(string) ($tags['opening_hours'] ?? ''), 'rating'=>null, 'reviews_count'=>0,
-                'permanently_closed'=>isset($tags['disused:amenity']) || isset($tags['closed:amenity']),
+                'permanently_closed'=>$isClosed,
                 'source'=>'osm', 'source_id'=>$type . '/' . $id,
                 'source_url'=>'https://www.openstreetmap.org/' . $type . '/' . $id];
         }

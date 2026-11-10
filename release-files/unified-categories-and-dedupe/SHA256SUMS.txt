@@ -1,0 +1,2 @@
+cce930b3fdaa135129a0deb5cb3f66b9de963fe178e98d387d04c3b8bd71dfed  hamihub-update-unified-categories-and-dedupe.zip
+de31f9781ad847cab88914038792e2261363c69c13e353a03e6ffc3bcb0100fe  RAHNAMA-FA.md
