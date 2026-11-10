@@ -80,6 +80,7 @@ jobs:
           for test in \
             tests/persian_date_input_smoke.tsx \
             tests/admin_mail_ui_smoke.tsx \
+            tests/staff_ui_smoke.tsx \
             tests/advertising_reporting_ui_smoke.tsx \
             tests/advertising_finance_ui_smoke.tsx \
             tests/advertising_finance_logout_ui_smoke.tsx \
@@ -126,6 +127,7 @@ jobs:
             tests/ai_provider_settings_smoke.php \
             tests/ai_provider_vault_smoke.php \
             tests/admin_mail_smoke.php \
+            tests/staff_access_smoke.php \
             tests/payment_sandbox_flag_smoke.php \
             tests/payment_gateway_protocol_smoke.php \
             tests/cache_generation_concurrency_smoke.php \
@@ -225,5 +227,6 @@ jobs:
           node "$root/tests/media_and_business_delete_http_smoke.mjs"
           node "$root/tests/ai_ads_quality_http_smoke.mjs"
           node "$root/tests/admin_mail_http_smoke.mjs"
+          node "$root/tests/staff_http_smoke.mjs"
           node "$root/tests/unified_categories_dedupe_http_smoke.mjs"
           php "$root/tests/apify_direct_smoke.php"

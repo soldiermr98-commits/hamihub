@@ -139,12 +139,15 @@ final class Auth
             'role' => (string) $user['role'],
         ];
 
+        if (str_starts_with((string)$user['username'], StaffAccess::PREFIX)) {
+            $_SESSION['hhx_staff_password_fingerprint'] = hash('sha256', (string)$user['password_hash']);
+        }
         DB::query("UPDATE users SET last_login_at = NOW() WHERE id = :id", ['id' => (int) $user['id']]);
 
         return [
             'ok' => true,
             'status' => 200,
-            'user' => $_SESSION['hhx_user'],
+            'user' => self::user(),
             'csrf_token' => Csrf::token(),
         ];
     }
@@ -155,7 +158,23 @@ final class Auth
     public static function user(): ?array
     {
         self::startSessionIfNeeded();
-        return isset($_SESSION['hhx_user']) && is_array($_SESSION['hhx_user']) ? $_SESSION['hhx_user'] : null;
+        $user = isset($_SESSION['hhx_user']) && is_array($_SESSION['hhx_user']) ? $_SESSION['hhx_user'] : null;
+        if ($user === null || ($user['role'] ?? '') !== 'editor' || !str_starts_with((string)($user['username'] ?? ''), StaffAccess::PREFIX)) return $user;
+        // Managed staff are revalidated on every request: changes, deactivation and
+        // password resets revoke existing sessions immediately. Missing policy fails closed.
+        $row = DB::fetchOne('SELECT id,username,display_name,role,is_active,password_hash FROM users WHERE id=:id LIMIT 1', ['id'=>(int)$user['id']]);
+        if (!$row || (int)$row['is_active'] !== 1 || $row['role'] !== 'editor'
+            || $row['username'] !== $user['username'] || !is_string($_SESSION['hhx_staff_password_fingerprint'] ?? null)
+            || !hash_equals($_SESSION['hhx_staff_password_fingerprint'], hash('sha256', (string)$row['password_hash']))) {
+            unset($_SESSION['hhx_user'], $_SESSION['hhx_staff_password_fingerprint']);
+            return null;
+        }
+        $setting = DB::fetchOne('SELECT v FROM settings WHERE k=:k', ['k'=>'staff_permissions_' . (int)$row['id']]);
+        $permissions = $setting ? json_decode((string)$setting['v'], true) : null;
+        $user['permissions'] = is_array($permissions) && array_is_list($permissions)
+            ? array_values(array_intersect(StaffAccess::PERMISSIONS, array_filter($permissions, 'is_string'))) : [];
+        $user['display_name'] = (string)$row['display_name'];
+        return $user;
     }
 
     /**
@@ -204,6 +223,13 @@ final class Auth
             ], 403);
         }
 
+        if (isset($user['permissions'])) {
+            $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+            $path = parse_url((string)($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
+            if (!is_string($path) || !StaffAccess::allowed($user['permissions'], $method, $path)) {
+                Response::json(['ok'=>false,'error'=>'این بخش در دسترسی حساب شما نیست.','code'=>'forbidden'], 403);
+            }
+        }
         return $user;
     }
 
